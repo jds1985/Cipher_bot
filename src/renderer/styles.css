@@ -40,7 +40,7 @@ label.row { margin-bottom: 0; }
 #chat-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .title-block { display: flex; flex-direction: column; min-width: 0; }
 .title-block span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.folder { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.folder { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .msg { max-width: 78%; padding: 9px 12px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
 .msg.user { align-self: flex-end; background: var(--accent2); color: #fff; }
