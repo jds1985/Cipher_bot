@@ -115,9 +115,9 @@ async function selectChat(chatId: number): Promise<void> {
   state.messages = await api.listMessages(chatId);
   state.live = '';
   state.error = null;
+  showView('chat'); // show first so scrolling to the latest message works
   renderChats();
   renderChat();
-  showView('chat');
   el.input.focus();
 }
 
