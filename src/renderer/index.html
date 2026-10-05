@@ -13,8 +13,72 @@
     <div id="app">
       <aside id="sidebar">
         <h1 class="brand">Cipher</h1>
+        <div class="section-head">
+          <span>Bots</span>
+          <button id="new-bot" class="small" title="Create a bot">+ New bot</button>
+        </div>
+        <ul id="bot-list" class="list"></ul>
+        <div class="section-head" id="chats-head" hidden>
+          <span>Chats</span>
+          <button id="new-chat" class="small" title="Start a new chat">+ New chat</button>
+        </div>
+        <ul id="chat-list" class="list"></ul>
       </aside>
-      <main id="main"><p class="muted">Loading…</p></main>
+      <main id="main">
+        <div id="banner" hidden></div>
+        <section id="empty" class="view">
+          <div class="empty-inner">
+            <h2>Welcome to Cipher</h2>
+            <p class="muted">Your bots run on this computer with a local model in Ollama. Nothing is sent anywhere else.</p>
+            <button id="empty-new-bot">Create your first bot</button>
+          </div>
+        </section>
+        <section id="bot-form-view" class="view" hidden>
+          <form id="bot-form" class="card">
+            <h2>New bot</h2>
+            <label>Name
+              <input id="bot-name" maxlength="80" required placeholder="e.g. Notes helper" />
+            </label>
+            <label>System prompt
+              <textarea id="bot-prompt" rows="6" placeholder="e.g. You are a concise assistant that helps me with my notes."></textarea>
+            </label>
+            <label class="row">
+              <input type="checkbox" id="bot-tools" />
+              <span>Tools on (lets the bot read text files in one folder you choose)</span>
+            </label>
+            <div id="bot-folder-row" class="row" hidden>
+              <button type="button" id="bot-folder-pick" class="secondary">Choose folder…</button>
+              <span id="bot-folder-label" class="muted">No folder chosen</span>
+            </div>
+            <p id="bot-form-error" class="error" hidden></p>
+            <div class="row end">
+              <button type="button" id="bot-cancel" class="secondary">Cancel</button>
+              <button type="submit">Create bot</button>
+            </div>
+          </form>
+        </section>
+        <section id="chat-view" class="view" hidden>
+          <header id="chat-header">
+            <div class="title-block">
+              <strong id="chat-bot-name"></strong>
+              <span id="chat-title" class="muted"></span>
+            </div>
+            <div class="row">
+              <label class="row" title="Allow this bot to use the read_file tool">
+                <input type="checkbox" id="chat-tools" /> <span>Tools</span>
+              </label>
+              <span id="chat-folder-label" class="muted folder"></span>
+              <button id="chat-folder-pick" class="secondary small">Choose folder…</button>
+            </div>
+          </header>
+          <div id="messages"></div>
+          <form id="composer">
+            <textarea id="input" rows="2" placeholder="Message (Enter to send, Shift+Enter for a new line)"></textarea>
+            <button type="submit" id="send">Send</button>
+            <button type="button" id="stop" class="secondary" hidden>Stop</button>
+          </form>
+        </section>
+      </main>
     </div>
     <script type="module" src="renderer.js"></script>
   </body>
