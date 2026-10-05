@@ -22,12 +22,12 @@ Why not Tauri: this build box lacks webkit2gtk/gtk dev libs and a C toolchain, s
 - Model: default `qwen2.5:7b` (Q4 by default in Ollama), overridable with env `CIPHER_MODEL`. Never bundled. Clear banner if Ollama is down or the model is missing, with the exact `ollama pull` command.
 
 ## v1 checklist
-- [ ] Create a bot: name, system prompt, tools on/off (+ folder picked via native dialog)
-- [ ] Chat with a bot, streaming responses
-- [ ] Works fully offline once the model is on disk
-- [ ] One tool: `read_file` inside the user-picked folder, sandboxed
-- [ ] Bots, chats, messages persisted locally and restored on relaunch
-- [ ] Unit tests: DB layer, path sandbox, tool loop against a fake Ollama
+- [x] Create a bot: name, system prompt, tools on/off (+ folder picked via native dialog)
+- [x] Chat with a bot, streaming responses
+- [x] Works fully offline once the model is on disk
+- [x] One tool: `read_file` inside the user-picked folder, sandboxed
+- [x] Bots, chats, messages persisted locally and restored on relaunch
+- [x] Unit tests: DB layer, path sandbox, tool loop against a fake Ollama
 
 ## Out of scope (v1)
 Cloud sync/accounts, any backend, bundled models or in-app model download, llama.cpp embedding, more tools
