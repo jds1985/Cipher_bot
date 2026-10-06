@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
-  BAD_STREAM_MESSAGE, configuredModel, DEFAULT_MODEL, KEEP_ALIVE, OFFERED_MODELS, parseStreamLine,
-  PullProgressTracker, pullModel, streamChat, warmUp,
+  BAD_STREAM_MESSAGE, configuredModel, DEFAULT_MODEL, ENGINE_DOWNLOAD_URL, ENGINE_MISSING_MESSAGE, KEEP_ALIVE,
+  MODEL_MISSING_MESSAGE, CONNECTION_LOST_MESSAGE, parseStreamLine, PullProgressTracker, pullModel, streamChat, warmUp,
 } from '../main/ollama';
 
 // Fake Ollama for /api/pull, /api/chat (bad line) and warm-up requests.
@@ -64,18 +64,19 @@ const server = http.createServer((req, res) => {
 const ready = new Promise<string>((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)));
 after(() => server.close());
 
-test('offers exactly qwen2.5:3b and qwen2.5:7b', () => {
-  assert.deepEqual(OFFERED_MODELS.map((m) => m.name), ['qwen2.5:3b', 'qwen2.5:7b']);
+test('the one default model is qwen2.5:7b (Apache 2.0), not 3b', () => {
+  assert.equal(DEFAULT_MODEL, 'qwen2.5:7b');
 });
 
-test('configuredModel: CIPHER_MODEL env overrides the saved choice, which overrides the default', () => {
+test('configuredModel: qwen2.5:7b unless the developer-only CIPHER_MODEL override is set', () => {
   const prev = process.env.CIPHER_MODEL;
   try {
     delete process.env.CIPHER_MODEL;
-    assert.equal(configuredModel(null), DEFAULT_MODEL);
-    assert.equal(configuredModel('qwen2.5:3b'), 'qwen2.5:3b');
-    process.env.CIPHER_MODEL = 'llama3.1:8b';
-    assert.equal(configuredModel('qwen2.5:3b'), 'llama3.1:8b');
+    assert.equal(configuredModel(), 'qwen2.5:7b');
+    process.env.CIPHER_MODEL = '  ';
+    assert.equal(configuredModel(), 'qwen2.5:7b');
+    process.env.CIPHER_MODEL = 'qwen2.5:0.5b';
+    assert.equal(configuredModel(), 'qwen2.5:0.5b');
   } finally {
     if (prev === undefined) delete process.env.CIPHER_MODEL; else process.env.CIPHER_MODEL = prev;
   }
@@ -121,7 +122,7 @@ test('PullProgressTracker aggregates layers into overall progress', () => {
 test('PullProgressTracker: Ollama error lines and malformed lines become friendly errors', () => {
   const t = new PullProgressTracker();
   assert.throws(() => t.apply(JSON.stringify({ error: 'pull model manifest: dial tcp: lookup registry.ollama.ai: no such host' })), /check your internet connection/i);
-  assert.throws(() => t.apply(JSON.stringify({ error: 'file does not exist' })), /^Error: Download failed: file does not exist$/);
+  assert.throws(() => t.apply(JSON.stringify({ error: 'file does not exist' })), /Setup stopped before it finished\. Choose "Try again"/);
   assert.throws(() => t.apply('not json'), (e: Error) => e.message === BAD_STREAM_MESSAGE);
 });
 
@@ -136,9 +137,10 @@ test('pullModel streams progress from POST /api/pull with stream:true and finish
   assert.deepEqual(seen, [null, 0, 50, 37.5, 62.5, 100, 100, 100, 100]);
 });
 
-test('pullModel surfaces an Ollama error line', async () => {
+test('pullModel surfaces an engine error line in plain words', async () => {
   const host = await ready;
-  await assert.rejects(pullModel({ host, model: 'offline', onProgress: () => {} }), /internet connection/);
+  await assert.rejects(pullModel({ host, model: 'offline', onProgress: () => {} }), (e: Error) =>
+    /internet connection/.test(e.message) && /Try again/.test(e.message) && !/ollama|registry|qwen/i.test(e.message));
 });
 
 test('pullModel can be cancelled', async () => {
@@ -151,7 +153,7 @@ test('pullModel can be cancelled', async () => {
 });
 
 test('pullModel fails clearly when Ollama is not running', async () => {
-  await assert.rejects(pullModel({ host: 'http://127.0.0.1:9', model: 'qwen2.5:3b', onProgress: () => {} }), /Could not reach Ollama/);
+  await assert.rejects(pullModel({ host: 'http://127.0.0.1:9', model: 'qwen2.5:7b', onProgress: () => {} }), (e: Error) => e.message === ENGINE_MISSING_MESSAGE);
 });
 
 test('warmUp sends an empty chat with keep_alive to load the model', async () => {
@@ -160,4 +162,29 @@ test('warmUp sends an empty chat with keep_alive to load the model', async () =>
   const req = bodies.filter((b) => b.url === '/api/chat').at(-1)!;
   assert.deepEqual(req.body, { model: 'qwen2.5:3b', messages: [], stream: false, keep_alive: KEEP_ALIVE });
   assert.equal(await warmUp('qwen2.5:3b', 'http://127.0.0.1:9'), false);
+});
+
+test('user-facing messages never name the engine or the model, and always give a next step', () => {
+  const messages = [ENGINE_MISSING_MESSAGE, MODEL_MISSING_MESSAGE, BAD_STREAM_MESSAGE, CONNECTION_LOST_MESSAGE];
+  for (const m of messages) {
+    assert.doesNotMatch(m, /ollama|qwen|llama|11434/i, m);
+    assert.match(m, /install|set up again|try again|reopen/i, m);
+  }
+  assert.equal(ENGINE_MISSING_MESSAGE, "Cipher's model engine isn't running. Install it from the setup page, then reopen Cipher.");
+  assert.equal(ENGINE_DOWNLOAD_URL, 'https://ollama.com/download'); // opened only via the "Get the engine" button
+});
+
+test('a connection dropped mid-reply becomes a plain message, not a raw network error', async () => {
+  const drop = http.createServer((_req, res) => {
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.write(JSON.stringify({ message: { content: 'Hi' }, done: false }) + '\n');
+    setTimeout(() => res.socket?.destroy(), 20);
+  });
+  await new Promise<void>((r) => drop.listen(0, '127.0.0.1', () => r()));
+  const host = `http://127.0.0.1:${(drop.address() as AddressInfo).port}`;
+  try {
+    await assert.rejects(streamChat({ host, model: 'm', messages: [], onToken: () => {} }), (e: Error) => e.message === CONNECTION_LOST_MESSAGE);
+  } finally {
+    drop.close();
+  }
 });

@@ -46,7 +46,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   const chat = db.getChat(chatId);
   if (!chat) throw new Error('Chat not found.');
   const bot = db.getBot(chat.botId);
-  if (!bot) throw new Error('Bot not found.');
+  if (!bot) throw new Error('Cipher bot not found.');
   const text = userText.trim();
   if (!text) throw new Error('Message is empty.');
 
@@ -68,7 +68,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       partial = '';
       const wantsTools = bot.toolsEnabled && toolCalls.length > 0;
       if (wantsTools && round >= MAX_TOOL_ROUNDS) {
-        const note = content || '(Stopped: the model kept calling tools. Try rephrasing your question.)';
+        const note = content || '(Stopped: your Cipher bot kept trying to read files. Try rephrasing your question.)';
         emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'assistant', content: note }) });
         break;
       }

@@ -2,19 +2,37 @@ import type { OllamaStatus, ToolCall } from '../shared/types';
 
 /** The only network endpoint the app ever talks to: a local Ollama on this computer. */
 export const OLLAMA_HOST = 'http://127.0.0.1:11434';
-/** Default model (Q4 quantization by default in Ollama). The user downloads it with `ollama pull`. */
+/**
+ * The one model Cipher uses (Q4 by default in Ollama; Apache 2.0 licensed). Not bundled: it is downloaded
+ * through the local engine on first launch. (qwen2.5:3b is deliberately not used: its license is non-commercial.)
+ */
 export const DEFAULT_MODEL = 'qwen2.5:7b';
-/** The models offered on the Models screen (both Q4 by default in Ollama). */
-export const OFFERED_MODELS = [
-  { name: 'qwen2.5:3b', label: 'Qwen 2.5 3B', size: 'about 1.9 GB', note: 'Faster, lighter; good for modest computers.' },
-  { name: 'qwen2.5:7b', label: 'Qwen 2.5 7B', size: 'about 4.7 GB', note: 'Better answers; needs about 8 GB of RAM.' },
-] as const;
+/** Where users can get the engine. Only ever opened in the system browser on an explicit click. */
+export const ENGINE_DOWNLOAD_URL = 'https://ollama.com/download';
 /** How long Ollama keeps the model in memory after a request, so the next message starts fast. */
 export const KEEP_ALIVE = '30m';
 
-/** Model to use: CIPHER_MODEL env override, else the user's saved choice, else the default. */
-export function configuredModel(saved: string | null = null): string {
-  return process.env.CIPHER_MODEL?.trim() || saved || DEFAULT_MODEL;
+/** Model to use: the default, unless the developer-only CIPHER_MODEL env override is set. Never shown on screen. */
+export function configuredModel(): string {
+  return process.env.CIPHER_MODEL?.trim() || DEFAULT_MODEL;
+}
+
+// User-facing messages. Plain language: no engine or model names, always with a step the user can take.
+export const ENGINE_MISSING_MESSAGE = "Cipher's model engine isn't running. Install it from the setup page, then reopen Cipher.";
+export const MODEL_MISSING_MESSAGE = "Your Cipher bot isn't set up yet. Choose \"Set up again\" to finish setup.";
+export const BAD_STREAM_MESSAGE =
+  'Cipher received a garbled reply. Please try again; if it keeps happening, restart your computer and reopen Cipher.';
+export const CONNECTION_LOST_MESSAGE =
+  "Cipher lost its connection to the model engine. Please try again; if it keeps happening, restart your computer and reopen Cipher.";
+
+/** An error whose message is already plain, user-facing wording. */
+export class FriendlyError extends Error {}
+
+/** Re-throw friendly errors and aborts as-is; replace anything else (raw network errors) with plain wording. */
+function plainStreamError(e: unknown, signal: AbortSignal | undefined): unknown {
+  if (signal?.aborted || e instanceof FriendlyError) return e;
+  console.error('[cipher] stream error:', e);
+  return new FriendlyError(CONNECTION_LOST_MESSAGE);
 }
 
 export interface OllamaMessage {
@@ -28,8 +46,6 @@ type FetchFn = typeof fetch;
 
 const withTag = (name: string): string => (name.includes(':') ? name : `${name}:latest`);
 
-export const pullCommand = (model: string): string => `ollama pull ${model}`;
-
 /** Check whether Ollama is reachable and the model is downloaded. Never throws. */
 export async function getStatus(model: string, host = OLLAMA_HOST, fetchImpl: FetchFn = fetch): Promise<OllamaStatus> {
   const base = { model, host };
@@ -40,22 +56,14 @@ export async function getStatus(model: string, host = OLLAMA_HOST, fetchImpl: Fe
     const body = (await res.json()) as { models?: { name?: string; model?: string }[] };
     names = (body.models ?? []).flatMap((m) => [m.name, m.model]).filter((n): n is string => !!n);
   } catch {
-    return {
-      ...base, running: false, modelPresent: false,
-      problem: `Ollama is not running at ${host}. Install it from https://ollama.com/download, then start it.`,
-      fixCommand: 'ollama serve',
-    };
+    return { ...base, running: false, modelPresent: false, problem: ENGINE_MISSING_MESSAGE, action: 'get-engine' };
   }
   const wanted = withTag(model);
   const present = names.some((n) => withTag(n) === wanted);
   if (!present) {
-    return {
-      ...base, running: true, modelPresent: false,
-      problem: `The model "${model}" is not downloaded yet.`,
-      fixCommand: pullCommand(model),
-    };
+    return { ...base, running: true, modelPresent: false, problem: MODEL_MISSING_MESSAGE, action: 'setup' };
   }
-  return { ...base, running: true, modelPresent: true, problem: null, fixCommand: null };
+  return { ...base, running: true, modelPresent: true, problem: null, action: null };
 }
 
 export interface StreamChatOptions {
@@ -73,28 +81,24 @@ export interface StreamChatResult {
   toolCalls: ToolCall[];
 }
 
-/** Turn an Ollama HTTP error into a message a user can act on. */
-function friendlyError(status: number, raw: string, model: string): string {
+/** Turn an engine HTTP error into a plain message a user can act on (raw details go to the log only). */
+function friendlyError(status: number, raw: string, _model: string): string {
   let msg = raw;
   try { msg = (JSON.parse(raw) as { error?: string }).error ?? raw; } catch { /* plain text */ }
+  console.error(`[cipher] engine error ${status}: ${msg}`);
   if (/does not support tools/i.test(msg)) {
-    return `The model "${model}" does not support tool calling. Turn tools off for this bot, or use a model that supports tools (e.g. qwen2.5:7b or llama3.1:8b).`;
+    return 'This Cipher bot can\'t read files with the current setup. Turn off file reading for this Cipher bot and try again.';
   }
-  if (status === 404 && /not found/i.test(msg)) {
-    return `The model "${model}" is not downloaded yet. Run: ${pullCommand(model)}`;
-  }
-  return `Ollama error (${status}): ${msg || 'unknown error'}`;
+  if (status === 404 && /not found/i.test(msg)) return MODEL_MISSING_MESSAGE;
+  return 'Something went wrong while your Cipher bot was replying. Please try again; if it keeps happening, restart your computer and reopen Cipher.';
 }
-
-export const BAD_STREAM_MESSAGE =
-  'Ollama sent a reply Cipher could not read (malformed stream data). Please try again; if it keeps happening, restart Ollama.';
 
 /** Parse one NDJSON line from Ollama, turning malformed data into a clear user-facing error. */
 export function parseStreamLine(line: string): unknown {
   try {
     return JSON.parse(line);
   } catch {
-    throw new Error(BAD_STREAM_MESSAGE);
+    throw new FriendlyError(BAD_STREAM_MESSAGE);
   }
 }
 
@@ -115,10 +119,10 @@ export async function streamChat(opts: StreamChatOptions): Promise<StreamChatRes
     });
   } catch (e) {
     if (opts.signal?.aborted) throw e;
-    throw new Error(`Could not reach Ollama at ${host}. Is it running? Start it with: ollama serve`);
+    throw new FriendlyError(ENGINE_MISSING_MESSAGE);
   }
   if (!res.ok || !res.body) {
-    throw new Error(friendlyError(res.status, await res.text().catch(() => ''), opts.model));
+    throw new FriendlyError(friendlyError(res.status, await res.text().catch(() => ''), opts.model));
   }
 
   let content = '';
@@ -131,7 +135,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<StreamChatRes
       error?: string; done?: boolean;
       message?: { content?: string; tool_calls?: ToolCall[] };
     };
-    if (chunk.error) throw new Error(friendlyError(500, JSON.stringify({ error: chunk.error }), opts.model));
+    if (chunk.error) throw new FriendlyError(friendlyError(500, JSON.stringify({ error: chunk.error }), opts.model));
     const text = chunk.message?.content;
     if (text) { content += text; opts.onToken(text); }
     if (chunk.message?.tool_calls?.length) toolCalls.push(...chunk.message.tool_calls);
@@ -153,6 +157,8 @@ export async function streamChat(opts: StreamChatOptions): Promise<StreamChatRes
     }
     buffered += decoder.decode();
     handleLine(buffered);
+  } catch (e) {
+    throw plainStreamError(e, opts.signal);
   } finally {
     reader.releaseLock();
   }
@@ -213,7 +219,7 @@ export class PullProgressTracker {
   apply(line: string): PullProgress {
     if (line.trim()) {
       const chunk = parseStreamLine(line) as { status?: string; error?: string; digest?: string; total?: number; completed?: number };
-      if (chunk.error) throw new Error(friendlyPullError(chunk.error));
+      if (chunk.error) throw new FriendlyError(friendlyPullError(chunk.error));
       if (chunk.status) this.status = chunk.status;
       if (chunk.digest && typeof chunk.total === 'number' && chunk.total > 0) {
         const prev = this.layers.get(chunk.digest);
@@ -235,10 +241,14 @@ export class PullProgressTracker {
 }
 
 function friendlyPullError(raw: string): string {
-  if (/dial tcp|no such host|lookup|network is unreachable|timeout|connection refused/i.test(raw)) {
-    return `Download failed: Ollama could not reach the model registry. Check your internet connection and try again. (${raw})`;
+  console.error(`[cipher] setup download error: ${raw}`);
+  if (/dial tcp|no such host|lookup|network is unreachable|timeout|connection refused|i\/o timeout|tls/i.test(raw)) {
+    return 'Setup couldn\'t download what your Cipher bot needs. Check your internet connection, then choose "Try again".';
   }
-  return `Download failed: ${raw}`;
+  if (/no space|disk/i.test(raw)) {
+    return 'Setup stopped because this computer is out of disk space. Free up about 5 GB, then choose "Try again".';
+  }
+  return 'Setup stopped before it finished. Choose "Try again"; if it keeps failing, restart your computer and reopen Cipher.';
 }
 
 export interface PullOptions {
@@ -263,13 +273,13 @@ export async function pullModel(opts: PullOptions): Promise<PullProgress> {
     });
   } catch (e) {
     if (opts.signal?.aborted) throw e;
-    throw new Error(`Could not reach Ollama at ${host}. Is it running? Start it with: ollama serve`);
+    throw new FriendlyError(ENGINE_MISSING_MESSAGE);
   }
   if (!res.ok || !res.body) {
     const raw = await res.text().catch(() => '');
     let msg = raw;
     try { msg = (JSON.parse(raw) as { error?: string }).error ?? raw; } catch { /* plain text */ }
-    throw new Error(friendlyPullError(msg || `HTTP ${res.status}`));
+    throw new FriendlyError(friendlyPullError(msg || `HTTP ${res.status}`));
   }
 
   const tracker = new PullProgressTracker();
@@ -290,10 +300,12 @@ export async function pullModel(opts: PullOptions): Promise<PullProgress> {
     }
     buffered += decoder.decode();
     if (buffered.trim()) opts.onProgress(tracker.apply(buffered));
+  } catch (e) {
+    throw plainStreamError(e, opts.signal);
   } finally {
     reader.releaseLock();
   }
   const final = tracker.snapshot();
-  if (!final.done) throw new Error('Download ended before it finished. Please try again.');
+  if (!final.done) throw new FriendlyError('Setup stopped before it finished. Choose "Try again".');
   return final;
 }

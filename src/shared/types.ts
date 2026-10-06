@@ -45,10 +45,10 @@ export interface OllamaStatus {
   modelPresent: boolean;
   model: string;
   host: string;
-  /** Human-readable problem description, or null if everything is fine. */
+  /** Plain-language problem description, or null if everything is fine. */
   problem: string | null;
-  /** Exact command the user should run to fix the problem, if any. */
-  fixCommand: string | null;
+  /** What the user can do about it: get the engine, or rerun setup. */
+  action: 'get-engine' | 'setup' | null;
 }
 
 /** Events streamed from main to renderer while a reply is being generated. */
@@ -59,37 +59,30 @@ export type ChatEvent =
   | { chatId: number; type: 'done' }
   | { chatId: number; type: 'error'; error: string };
 
-export interface ModelInfo {
+export type SetupPhase = 'checking' | 'engine-missing' | 'model-missing' | 'downloading' | 'ready' | 'error';
+
+/** First-run setup progress, pushed from main to renderer. */
+export interface SetupState {
+  phase: SetupPhase;
+  /** 0–100 while downloading, or null when unknown. */
+  percent: number | null;
+  completed: number;
+  total: number;
+  /** Plain-language message for engine-missing / model-missing / error. */
+  message: string | null;
+}
+
+/** Fields on the "Create a Cipher bot" screen. */
+export interface NewBotForm {
   name: string;
-  label: string;
-  size: string;
-  note: string;
-  downloaded: boolean;
+  /** What the bot should do; stored as its system prompt. */
+  job: string;
 }
-
-export interface ModelsState {
-  models: ModelInfo[];
-  /** Model the app currently uses (after applying the CIPHER_MODEL override). */
-  active: string;
-  /** The user's saved choice (null if never chosen). */
-  selected: string | null;
-  /** Value of CIPHER_MODEL if set; it overrides the saved choice. */
-  envOverride: string | null;
-  ollamaRunning: boolean;
-}
-
-/** Events streamed from main to renderer while a model downloads. */
-export type PullEvent =
-  | { model: string; type: 'progress'; status: string; completed: number; total: number; percent: number | null }
-  | { model: string; type: 'done' }
-  | { model: string; type: 'cancelled' }
-  | { model: string; type: 'error'; error: string };
 
 /** API exposed by the preload script on window.cipher. */
 export interface CipherApi {
-  ollamaStatus(): Promise<OllamaStatus>;
   listBots(): Promise<Bot[]>;
-  createBot(bot: NewBot): Promise<Bot>;
+  createBot(bot: NewBotForm): Promise<Bot>;
   setBotFolder(botId: number, folderPath: string | null): Promise<Bot>;
   setBotTools(botId: number, enabled: boolean): Promise<Bot>;
   pickFolder(): Promise<string | null>;
@@ -99,9 +92,12 @@ export interface CipherApi {
   sendMessage(chatId: number, text: string): Promise<void>;
   stop(chatId: number): Promise<void>;
   onChatEvent(cb: (e: ChatEvent) => void): () => void;
-  listModels(): Promise<ModelsState>;
-  selectModel(name: string): Promise<ModelsState>;
-  pullModel(name: string): Promise<void>;
-  cancelPull(name: string): Promise<void>;
-  onPullEvent(cb: (e: PullEvent) => void): () => void;
+  getSetup(): Promise<SetupState>;
+  /** Check and, if needed, download (used on launch, "Try again", "Set up again", "Check again"). */
+  startSetup(): Promise<void>;
+  /** Check only, without downloading (used after a chat error). */
+  checkSetup(): Promise<void>;
+  /** Open the engine's download page in the system browser (explicit click only). */
+  openEngineDownload(): Promise<void>;
+  onSetupState(cb: (s: SetupState) => void): () => void;
 }

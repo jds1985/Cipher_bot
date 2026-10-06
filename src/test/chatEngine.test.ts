@@ -109,7 +109,7 @@ test('runs read_file when the model asks, feeds the result back and continues', 
   assert.equal(events.at(-1)!.type, 'done');
 });
 
-test('reports a missing model with the exact pull command', async () => {
+test('reports a missing model in plain words that point to "Set up again"', async () => {
   const host = await ready;
   const { db } = setup();
   const bot = db.createBot({ name: 'X', systemPrompt: '', toolsEnabled: false, folderPath: null });
@@ -117,7 +117,8 @@ test('reports a missing model with the exact pull command', async () => {
   const events: ChatEvent[] = [];
   await runChatTurn({ db, model: 'missing', host, emit: (e) => events.push(e) }, chat.id, 'hi', new AbortController().signal);
   const err = events.find((e) => e.type === 'error') as any;
-  assert.match(err.error, /ollama pull missing/);
+  assert.match(err.error, /Set up again/);
+  assert.doesNotMatch(err.error, /ollama|qwen|missing/i);
 });
 
 test('getStatus: running + present, model missing, and not running', async () => {
@@ -128,10 +129,12 @@ test('getStatus: running + present, model missing, and not running', async () =>
   const missing = await getStatus('llama3.1:8b', host);
   assert.equal(missing.running, true);
   assert.equal(missing.modelPresent, false);
-  assert.equal(missing.fixCommand, 'ollama pull llama3.1:8b');
+  assert.equal(missing.action, 'setup');
+  assert.match(missing.problem!, /Set up again/);
   const down = await getStatus('qwen2.5:7b', 'http://127.0.0.1:9');
   assert.equal(down.running, false);
-  assert.match(down.problem!, /not running/);
+  assert.equal(down.action, 'get-engine');
+  assert.equal(down.problem, "Cipher's model engine isn't running. Install it from the setup page, then reopen Cipher.");
 });
 
 test('a malformed stream line ends the turn with a friendly error', async () => {
@@ -142,7 +145,7 @@ test('a malformed stream line ends the turn with a friendly error', async () => 
   const events: ChatEvent[] = [];
   await runChatTurn({ db, model: 'garbage', host, emit: (e) => events.push(e) }, chat.id, 'hi', new AbortController().signal);
   const err = events.find((e) => e.type === 'error') as any;
-  assert.match(err.error, /could not read \(malformed stream data\)/);
+  assert.match(err.error, /garbled reply\. Please try again/);
   assert.doesNotMatch(err.error, /Unexpected token|is not valid JSON/);
   assert.equal(requests.at(-1).keep_alive, '30m');
 });
