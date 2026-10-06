@@ -7,7 +7,8 @@ telemetry and no auto-updater. The only network connection the app makes is to O
 
 v1 features:
 
-- Create a bot with a name, a system prompt and a tools on/off switch.
+- Create a Cipher bot with a name and a job (the job becomes its system prompt). File reading is off by default
+  and can be switched on per bot in its chat header.
 - Chat with it; replies stream in as they are generated (Stop button to cancel).
 - One tool, `read_file`: the bot can read UTF-8 text files (up to 256 KB) inside one folder you pick with the
   native folder dialog. Paths are resolved (including `..` and symlinks) and anything outside that folder is refused.
@@ -21,16 +22,12 @@ See [PLAN.md](PLAN.md) for the design and what is out of scope.
 - **Node.js 22.12 or newer** (22 LTS recommended) with npm. Only needed to run from source or build.
 - **Ollama**: install from https://ollama.com/download and make sure it is running
   (the desktop app starts it automatically; on Linux you can also run `ollama serve`).
-- **The default model** (about 4.7 GB, Q4-quantized by default in Ollama). Download it once:
+- **The model**: `qwen2.5:7b` (Apache 2.0, about 4.7 GB). It is not bundled. On first launch Cipher asks the
+  local Ollama to download it (`/api/pull` on localhost) behind a "Setting up your Cipher bot" screen with a
+  progress bar and retry. The app UI never names Ollama or the model; its license notice ships inside the app
+  package under `resources/LICENSES/`.
 
-  ```sh
-  ollama pull qwen2.5:7b
-  ```
-
-  The app never downloads or bundles a model. If Ollama isn't running or the model is missing, Cipher shows
-  a banner with the exact command to fix it.
-
-To use another tool-capable model you already have (for example `llama3.1:8b`), set `CIPHER_MODEL`:
+Developer-only escape hatch (never shown in the UI): to use another tool-capable model, set `CIPHER_MODEL`:
 
 ```sh
 CIPHER_MODEL=llama3.1:8b npm run dev          # macOS / Linux
@@ -44,7 +41,7 @@ $env:CIPHER_MODEL="llama3.1:8b"; npm run dev  # Windows PowerShell
    - Linux: `sudo apt install ./cipher_<version>_amd64.deb`, or `chmod +x Cipher-<version>.AppImage && ./Cipher-<version>.AppImage` (AppImage needs FUSE 2: `libfuse2`, or `libfuse2t64` on Ubuntu 24.04+)
    - macOS: open `Cipher-<version>.dmg` and drag Cipher to Applications (unsigned: right-click → Open the first time)
    - Windows: run `Cipher Setup <version>.exe`
-3. Open Cipher → **Models** → download `qwen2.5:3b` or `qwen2.5:7b` and click **Use this model**.
+3. Open Cipher, create your first Cipher bot, and wait for the one-time setup download to finish.
 
 ## Run in development
 
