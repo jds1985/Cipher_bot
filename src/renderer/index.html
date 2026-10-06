@@ -13,6 +13,7 @@
     <div id="app">
       <aside id="sidebar">
         <h1 class="brand">Cipher</h1>
+        <button id="open-models" class="secondary small models-btn" title="Download and choose the model">Models</button>
         <div class="section-head">
           <span>Bots</span>
           <button id="new-bot" class="small" title="Create a bot">+ New bot</button>
@@ -56,6 +57,17 @@
               <button type="submit">Create bot</button>
             </div>
           </form>
+        </section>
+        <section id="models-view" class="view" hidden>
+          <div class="card">
+            <h2>Models</h2>
+            <p class="muted">Download a model through Ollama and choose which one Cipher uses. Models are stored by Ollama on this computer.</p>
+            <p id="models-note" class="muted" hidden></p>
+            <div id="models-list"></div>
+            <div class="row end">
+              <button type="button" id="models-close" class="secondary">Done</button>
+            </div>
+          </div>
         </section>
         <section id="chat-view" class="view" hidden>
           <header id="chat-header">

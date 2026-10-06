@@ -25,6 +25,12 @@ const server = http.createServer((req, res) => {
     if (req.url !== '/api/chat') { res.statusCode = 404; res.end(); return; }
     const body = JSON.parse(raw);
     requests.push(body);
+    if (body.model === 'garbage') {
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.write(JSON.stringify({ message: { role: 'assistant', content: 'Par' }, done: false }) + '\n');
+      res.end('this is not json\n');
+      return;
+    }
     if (body.model === 'missing') {
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "model 'missing' not found" }));
@@ -77,6 +83,7 @@ test('streams a plain reply and stores it (tools off)', async () => {
   assert.equal(requests[0].tools, undefined, 'no tools sent when tools are off');
   assert.deepEqual(requests[0].messages[0], { role: 'system', content: 'Be nice.' });
   assert.equal(requests[0].stream, true);
+  assert.equal(requests[0].keep_alive, '30m', 'keeps the model loaded between messages');
   assert.deepEqual(db.listMessages(chat.id).map((m) => [m.role, m.content]), [['user', 'hello'], ['assistant', 'Hi there!']]);
 });
 
@@ -125,4 +132,17 @@ test('getStatus: running + present, model missing, and not running', async () =>
   const down = await getStatus('qwen2.5:7b', 'http://127.0.0.1:9');
   assert.equal(down.running, false);
   assert.match(down.problem!, /not running/);
+});
+
+test('a malformed stream line ends the turn with a friendly error', async () => {
+  const host = await ready;
+  const { db } = setup();
+  const bot = db.createBot({ name: 'G', systemPrompt: '', toolsEnabled: false, folderPath: null });
+  const chat = db.createChat(bot.id);
+  const events: ChatEvent[] = [];
+  await runChatTurn({ db, model: 'garbage', host, emit: (e) => events.push(e) }, chat.id, 'hi', new AbortController().signal);
+  const err = events.find((e) => e.type === 'error') as any;
+  assert.match(err.error, /could not read \(malformed stream data\)/);
+  assert.doesNotMatch(err.error, /Unexpected token|is not valid JSON/);
+  assert.equal(requests.at(-1).keep_alive, '30m');
 });

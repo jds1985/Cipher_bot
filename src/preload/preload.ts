@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { ChatEvent, CipherApi, NewBot } from '../shared/types';
+import type { ChatEvent, CipherApi, NewBot, PullEvent } from '../shared/types';
 
 const api: CipherApi = {
   ollamaStatus: () => ipcRenderer.invoke('ollama:status'),
@@ -17,6 +17,15 @@ const api: CipherApi = {
     const listener = (_e: IpcRendererEvent, ev: ChatEvent) => cb(ev);
     ipcRenderer.on('chat:event', listener);
     return () => ipcRenderer.removeListener('chat:event', listener);
+  },
+  listModels: () => ipcRenderer.invoke('models:list'),
+  selectModel: (name) => ipcRenderer.invoke('models:select', name),
+  pullModel: (name) => ipcRenderer.invoke('models:pull', name),
+  cancelPull: (name) => ipcRenderer.invoke('models:cancelPull', name),
+  onPullEvent: (cb) => {
+    const listener = (_e: IpcRendererEvent, ev: PullEvent) => cb(ev);
+    ipcRenderer.on('pull:event', listener);
+    return () => ipcRenderer.removeListener('pull:event', listener);
   },
 };
 
