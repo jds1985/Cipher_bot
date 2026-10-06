@@ -4,6 +4,8 @@ import type { OllamaStatus, ToolCall } from '../shared/types';
 export const OLLAMA_HOST = 'http://127.0.0.1:11434';
 /** Default model (Q4 quantization by default in Ollama). The user downloads it with `ollama pull`. */
 export const DEFAULT_MODEL = 'qwen2.5:7b';
+/** How long Ollama keeps the model in memory after a request, so the next message starts fast. */
+export const KEEP_ALIVE = '30m';
 
 export function configuredModel(): string {
   return process.env.CIPHER_MODEL?.trim() || DEFAULT_MODEL;
@@ -78,11 +80,23 @@ function friendlyError(status: number, raw: string, model: string): string {
   return `Ollama error (${status}): ${msg || 'unknown error'}`;
 }
 
+export const BAD_STREAM_MESSAGE =
+  'Ollama sent a reply Cipher could not read (malformed stream data). Please try again; if it keeps happening, restart Ollama.';
+
+/** Parse one NDJSON line from Ollama, turning malformed data into a clear user-facing error. */
+export function parseStreamLine(line: string): unknown {
+  try {
+    return JSON.parse(line);
+  } catch {
+    throw new Error(BAD_STREAM_MESSAGE);
+  }
+}
+
 /** POST /api/chat with streaming; calls onToken for each content chunk. Returns full content and any tool calls. */
 export async function streamChat(opts: StreamChatOptions): Promise<StreamChatResult> {
   const host = opts.host ?? OLLAMA_HOST;
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const body: Record<string, unknown> = { model: opts.model, messages: opts.messages, stream: true };
+  const body: Record<string, unknown> = { model: opts.model, messages: opts.messages, stream: true, keep_alive: KEEP_ALIVE };
   if (opts.tools && opts.tools.length) body.tools = opts.tools;
 
   let res: Response;
@@ -107,7 +121,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<StreamChatRes
   let buffered = '';
   const handleLine = (line: string): boolean => {
     if (!line.trim()) return false;
-    const chunk = JSON.parse(line) as {
+    const chunk = parseStreamLine(line) as {
       error?: string; done?: boolean;
       message?: { content?: string; tool_calls?: ToolCall[] };
     };
@@ -138,3 +152,4 @@ export async function streamChat(opts: StreamChatOptions): Promise<StreamChatRes
   }
   return { content, toolCalls };
 }
+
