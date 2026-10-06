@@ -304,6 +304,7 @@ function renderModels(): void {
     title.append(node('strong', '', info.label), node('span', 'muted', `  ${info.name} · ${info.size}`));
     if (info.downloaded) title.append(node('span', 'badge ok', 'Downloaded'));
     if (inUse) title.append(node('span', 'badge use', 'In use'));
+    else if (m.envOverride && m.selected === info.name) title.append(node('span', 'badge', 'Selected (overridden)'));
     const actions = node('div', 'row');
     if (pull?.running) {
       const cancel = node('button', 'secondary small', 'Cancel');
