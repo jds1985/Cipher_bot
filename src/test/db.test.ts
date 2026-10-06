@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { CipherDb } from '../main/db';
 
 function tmpDbFile(): string {
@@ -60,5 +61,27 @@ test('updates tools toggle and folder; lists chats newest first', () => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); // timestamps have ms resolution
   db.addMessage({ chatId: c1.id, role: 'user', content: 'bump' });
   assert.equal(db.listChats(bot.id)[0].id, c1.id);
+  db.close();
+});
+
+test('settings persist and v1 databases are upgraded', () => {
+  const file = tmpDbFile();
+  let db = new CipherDb(file);
+  const bot = db.createBot({ name: 'Old', systemPrompt: '', toolsEnabled: false, folderPath: null });
+  db.close();
+  // Simulate a v1 database (no settings table).
+  const raw = new Database(file);
+  raw.exec('DROP TABLE settings');
+  raw.pragma('user_version = 1');
+  raw.close();
+
+  db = new CipherDb(file);
+  assert.equal(db.getSetting('model'), null);
+  db.setSetting('model', 'qwen2.5:3b');
+  db.setSetting('model', 'qwen2.5:7b');
+  db.close();
+  db = new CipherDb(file);
+  assert.equal(db.getSetting('model'), 'qwen2.5:7b');
+  assert.equal(db.listBots()[0].id, bot.id, 'existing data kept');
   db.close();
 });
