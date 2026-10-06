@@ -1,16 +1,17 @@
 import Database from 'better-sqlite3';
 import type { Bot, Chat, Message, NewBot, Role, ToolCall } from '../shared/types';
+import { normalizeBotIcon, pickLeastUsedIcon } from './botIcons';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const DEFAULT_CHAT_TITLE = 'New chat';
 
-interface BotRow { id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string }
+interface BotRow { id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string; icon: string | null }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
 interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string }
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, createdAt: r.created_at,
+  folderPath: r.folder_path, createdAt: r.created_at, icon: normalizeBotIcon(r.icon),
 });
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -75,8 +76,36 @@ export class CipherDb {
     }
     if (version < 2) {
       this.db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-      this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
+      this.db.pragma('user_version = 2');
     }
+    // v3: per-bot icon. Idempotent: the column is only added when it's missing.
+    const botColumns = this.db.prepare('PRAGMA table_info(bots)').all() as { name: string }[];
+    if (!botColumns.some((c) => c.name === 'icon')) this.db.exec('ALTER TABLE bots ADD COLUMN icon TEXT');
+    if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    this.backfillIcons();
+  }
+
+  /** Give every bot without an icon one, in creation order, each time picking the least-used icon. */
+  private backfillIcons(): void {
+    const missing = this.db
+      .prepare("SELECT id FROM bots WHERE icon IS NULL OR icon = '' ORDER BY created_at, id")
+      .all() as { id: number }[];
+    if (!missing.length) return;
+    const tx = this.db.transaction(() => {
+      const used = (this.db.prepare("SELECT icon FROM bots WHERE icon IS NOT NULL AND icon <> ''").all() as { icon: string }[])
+        .map((r) => r.icon);
+      const update = this.db.prepare('UPDATE bots SET icon = ? WHERE id = ?');
+      for (const { id } of missing) {
+        const icon = pickLeastUsedIcon(used);
+        update.run(icon, id);
+        used.push(icon);
+      }
+    });
+    tx();
+  }
+
+  private usedIcons(): string[] {
+    return (this.db.prepare('SELECT icon FROM bots').all() as { icon: string | null }[]).map((r) => r.icon ?? '');
   }
 
   // ---- settings ----
@@ -109,10 +138,15 @@ export class CipherDb {
     if (name.length > 80) throw new Error('Cipher bot names must be 80 characters or fewer.');
     const prompt = String(input.systemPrompt ?? '');
     if (prompt.length > 20000) throw new Error('The job description is too long (max 20000 characters).');
-    const info = this.db
-      .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path) VALUES (?, ?, ?, ?)')
-      .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null);
-    return this.getBot(Number(info.lastInsertRowid))!;
+    // The icon is assigned automatically (least-used, ties in set order); there is no picker.
+    const insert = this.db.transaction((): number => {
+      const icon = pickLeastUsedIcon(this.usedIcons());
+      const info = this.db
+        .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path, icon) VALUES (?, ?, ?, ?, ?)')
+        .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null, icon);
+      return Number(info.lastInsertRowid);
+    });
+    return this.getBot(insert())!;
   }
 
   setBotFolder(id: number, folderPath: string | null): Bot {

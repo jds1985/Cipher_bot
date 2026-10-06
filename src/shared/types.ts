@@ -7,6 +7,11 @@ export interface Bot {
   toolsEnabled: boolean;
   folderPath: string | null;
   createdAt: string;
+  /**
+   * Icon key from Liz's set (hex, circle, square, diamond, triangle, shield, octagon, capsule, pentagon),
+   * assigned automatically on creation. Always a known key: unknown stored values come through as 'hex'.
+   */
+  icon: string;
 }
 
 export interface Chat {

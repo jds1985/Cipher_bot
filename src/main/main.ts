@@ -29,14 +29,26 @@ function lockDownNetwork(): void {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 }
 
+/** Cipher window frame colors (match --bg and --accent in styles.css). */
+const FRAME_BG = '#15171c';
+const FRAME_ACCENT = '#5b8cff';
+/** Height of the title strip; the renderer's #titlebar uses env(titlebar-area-height), falling back to 32px. */
+const TITLE_BAR_HEIGHT = 32;
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1100,
     height: 760,
     minWidth: 760,
     minHeight: 480,
+    resizable: true,
     title: 'Cipher',
-    backgroundColor: '#15171c',
+    backgroundColor: FRAME_BG,
+    // Cipher-colored frame: hide the system title bar and let Electron draw the min/max/close controls
+    // (Window Controls Overlay, supported on Windows and Linux; macOS keeps its traffic lights).
+    // The renderer draws a draggable #15171c title strip underneath.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: FRAME_BG, symbolColor: FRAME_ACCENT, height: TITLE_BAR_HEIGHT },
     icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),

@@ -1,5 +1,6 @@
 import type { Bot, Chat, ChatEvent, CipherApi, Message, SetupState } from '../shared/types';
 import { decideView, setupCopy } from './view.js';
+import { botIconSrc } from './botIcon.js';
 
 declare global {
   interface Window { cipher: CipherApi }
@@ -17,7 +18,7 @@ const el = {
   botFormError: $('bot-form-error'), botCancel: $<HTMLButtonElement>('bot-cancel'),
   setupText: $('setup-text'), setupProgress: $<HTMLProgressElement>('setup-progress'), setupDetail: $('setup-detail'),
   setupGetEngine: $<HTMLButtonElement>('setup-get-engine'), setupRetry: $<HTMLButtonElement>('setup-retry'),
-  chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), chatTools: $<HTMLInputElement>('chat-tools'),
+  chatBotIcon: $<HTMLImageElement>('chat-bot-icon'), chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), chatTools: $<HTMLInputElement>('chat-tools'),
   chatFolderLabel: $('chat-folder-label'), chatFolderPick: $<HTMLButtonElement>('chat-folder-pick'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
   send: $<HTMLButtonElement>('send'), stop: $<HTMLButtonElement>('stop'),
@@ -44,6 +45,17 @@ function node(tag: string, cls?: string, text?: string): HTMLElement {
   if (cls) n.className = cls;
   if (text !== undefined) n.textContent = text;
   return n;
+}
+
+/** A bot's icon from Liz's set (decorative: the name is always next to it). */
+function botIcon(b: Bot, size: number): HTMLImageElement {
+  const img = document.createElement('img');
+  img.className = 'bot-icon';
+  img.src = botIconSrc(b.icon);
+  img.alt = '';
+  img.width = size;
+  img.height = size;
+  return img;
 }
 
 /** Decide what the main area shows (see view.ts). */
@@ -84,7 +96,8 @@ function onSetupState(st: SetupState): void {
 // ---------- sidebar ----------
 function renderBots(): void {
   el.botList.replaceChildren(...state.bots.map((b) => {
-    const li = node('li', b.id === state.botId ? 'active' : '', b.name);
+    const li = node('li', b.id === state.botId ? 'bot active' : 'bot');
+    li.append(botIcon(b, 28), node('span', 'name', b.name));
     if (b.toolsEnabled) li.append(node('span', 'tag', 'reads files'));
     li.title = b.name;
     li.addEventListener('click', () => void selectBot(b.id));
@@ -145,6 +158,8 @@ function renderChat(): void {
   const bot = currentBot();
   const chat = currentChat();
   if (!bot || !chat) return;
+  const iconSrc = botIconSrc(bot.icon);
+  if (el.chatBotIcon.getAttribute('src') !== iconSrc) el.chatBotIcon.src = iconSrc;
   el.chatBotName.textContent = bot.name;
   el.chatTitle.textContent = chat.title;
   el.chatTools.checked = bot.toolsEnabled;
@@ -285,6 +300,13 @@ el.input.addEventListener('keydown', (e) => {
 });
 el.stop.addEventListener('click', () => { if (state.chatId !== null) void api.stop(state.chatId); });
 api.onChatEvent((ev) => void onChatEvent(ev));
+
+// ---------- window focus ----------
+// Bot icon animations pause while the window is in the background (see .unfocused in styles.css).
+const setUnfocused = (unfocused: boolean): void => { document.documentElement.classList.toggle('unfocused', unfocused); };
+window.addEventListener('focus', () => setUnfocused(false));
+window.addEventListener('blur', () => setUnfocused(true));
+setUnfocused(!document.hasFocus()); // sync on load
 
 // ---------- splash ----------
 // Shows only "Cipher" while the app loads: at least ~0.7 s so it doesn't flicker, at most 1.5 s.
