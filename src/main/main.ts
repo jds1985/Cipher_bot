@@ -37,6 +37,7 @@ function createWindow(): BrowserWindow {
     minHeight: 480,
     title: 'Cipher',
     backgroundColor: '#15171c',
+    icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,

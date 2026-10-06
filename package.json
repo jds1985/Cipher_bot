@@ -40,7 +40,8 @@
         "AppImage",
         "deb"
       ],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "build/icons"
     },
     "mac": {
       "target": [
@@ -58,7 +59,8 @@
         "from": "LICENSES",
         "to": "LICENSES"
       }
-    ]
+    ],
+    "icon": "build/icon.png"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
