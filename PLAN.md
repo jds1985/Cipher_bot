@@ -30,6 +30,6 @@ Why not Tauri: this build box lacks webkit2gtk/gtk dev libs and a C toolchain, s
 - [x] Unit tests: DB layer, path sandbox, tool loop against a fake Ollama
 
 ## Out of scope (v1)
-Cloud sync/accounts, any backend, bundled models or in-app model download, llama.cpp embedding, more tools
+Cloud sync/accounts, any backend, bundled models (v1.2 adds a one-time automatic download of qwen2.5:7b through the local engine), llama.cpp embedding, more tools
 (write files, shell, web, email/send actions, browser login), RAG/embeddings, multi-model settings UI,
 markdown rendering, plugins, auto-update, telemetry, mobile.

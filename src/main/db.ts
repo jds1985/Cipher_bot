@@ -105,10 +105,10 @@ export class CipherDb {
 
   createBot(input: NewBot): Bot {
     const name = String(input.name ?? '').trim();
-    if (!name) throw new Error('Bot name is required.');
-    if (name.length > 80) throw new Error('Bot name must be 80 characters or fewer.');
+    if (!name) throw new Error('Please give your Cipher bot a name.');
+    if (name.length > 80) throw new Error('Cipher bot names must be 80 characters or fewer.');
     const prompt = String(input.systemPrompt ?? '');
-    if (prompt.length > 20000) throw new Error('System prompt is too long (max 20000 characters).');
+    if (prompt.length > 20000) throw new Error('The job description is too long (max 20000 characters).');
     const info = this.db
       .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path) VALUES (?, ?, ?, ?)')
       .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null);
@@ -118,14 +118,14 @@ export class CipherDb {
   setBotFolder(id: number, folderPath: string | null): Bot {
     this.db.prepare('UPDATE bots SET folder_path = ? WHERE id = ?').run(folderPath, id);
     const bot = this.getBot(id);
-    if (!bot) throw new Error('Bot not found.');
+    if (!bot) throw new Error('Cipher bot not found.');
     return bot;
   }
 
   setBotTools(id: number, enabled: boolean): Bot {
     this.db.prepare('UPDATE bots SET tools_enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
     const bot = this.getBot(id);
-    if (!bot) throw new Error('Bot not found.');
+    if (!bot) throw new Error('Cipher bot not found.');
     return bot;
   }
 
@@ -140,7 +140,7 @@ export class CipherDb {
   }
 
   createChat(botId: number, title = DEFAULT_CHAT_TITLE): Chat {
-    if (!this.getBot(botId)) throw new Error('Bot not found.');
+    if (!this.getBot(botId)) throw new Error('Cipher bot not found.');
     const info = this.db.prepare('INSERT INTO chats (bot_id, title) VALUES (?, ?)').run(botId, title);
     return this.getChat(Number(info.lastInsertRowid))!;
   }

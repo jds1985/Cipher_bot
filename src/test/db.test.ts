@@ -44,9 +44,9 @@ test('creates bots, chats and messages and restores them after reopening', () =>
 
 test('validates bot input', () => {
   const db = new CipherDb(tmpDbFile());
-  assert.throws(() => db.createBot({ name: '   ', systemPrompt: '', toolsEnabled: false, folderPath: null }), /name is required/);
+  assert.throws(() => db.createBot({ name: '   ', systemPrompt: '', toolsEnabled: false, folderPath: null }), /give your Cipher bot a name/);
   assert.throws(() => db.createBot({ name: 'x'.repeat(81), systemPrompt: '', toolsEnabled: false, folderPath: null }), /80 characters/);
-  assert.throws(() => db.createChat(999), /Bot not found/);
+  assert.throws(() => db.createChat(999), /Cipher bot not found/);
   db.close();
 });
 

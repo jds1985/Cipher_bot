@@ -1,29 +1,20 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
-import type { ChatEvent, ModelsState, NewBot, PullEvent } from '../shared/types';
+import type { ChatEvent, NewBotForm, SetupState } from '../shared/types';
 import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
-import {
-  configuredModel, getStatus, isInstalled, listInstalledModels, OFFERED_MODELS, pullModel, warmUp,
-} from './ollama';
+import { toNewBot } from './createBot';
+import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
+import { SetupManager } from './setup';
 
 let db: CipherDb;
+let setup: SetupManager;
 const activeTurns = new Map<number, AbortController>();
-const activePulls = new Map<string, AbortController>();
-const MODEL_SETTING = 'model';
-/** Model in use: CIPHER_MODEL override, else the saved choice, else the default. */
-const currentModel = (): string => configuredModel(db.getSetting(MODEL_SETTING));
-const isOffered = (name: unknown): name is string => OFFERED_MODELS.some((m) => m.name === name);
+/** The one model (qwen2.5:7b), or the developer-only CIPHER_MODEL override. Never shown on screen. */
+const currentModel = (): string => configuredModel();
 
-async function modelsState(): Promise<ModelsState> {
-  const installed = await listInstalledModels();
-  return {
-    models: OFFERED_MODELS.map((m) => ({ ...m, downloaded: installed ? isInstalled(installed, m.name) : false })),
-    active: currentModel(),
-    selected: db.getSetting(MODEL_SETTING),
-    envOverride: process.env.CIPHER_MODEL?.trim() || null,
-    ollamaRunning: installed !== null,
-  };
+function broadcastSetup(s: SetupState): void {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('setup:state', s);
 }
 /** Folders the user picked via the native dialog this session; only these may be attached to a bot. */
 const pickedFolders = new Set<string>();
@@ -73,59 +64,20 @@ const asFolder = (v: unknown): string | null => {
 };
 
 function registerIpc(): void {
-  ipcMain.handle('ollama:status', () => getStatus(currentModel()));
-
-  ipcMain.handle('models:list', () => modelsState());
-  ipcMain.handle('models:select', async (_e, name: unknown) => {
-    if (!isOffered(name)) throw new Error('Unknown model.');
-    db.setSetting(MODEL_SETTING, name);
-    void warmUp(currentModel()); // load it into memory in the background so the first reply is quick
-    return modelsState();
-  });
-  ipcMain.handle('models:pull', (e, name: unknown) => {
-    if (!isOffered(name)) throw new Error('Unknown model.');
-    if (activePulls.has(name)) throw new Error('This model is already downloading.');
-    const controller = new AbortController();
-    activePulls.set(name, controller);
-    const sender = e.sender;
-    const emit = (ev: PullEvent) => { if (!sender.isDestroyed()) sender.send('pull:event', ev); };
-    let last = 0;
-    pullModel({
-      model: name,
-      signal: controller.signal,
-      onProgress: (p) => {
-        const now = Date.now();
-        if (now - last < 150 && !p.done) return; // throttle UI updates
-        last = now;
-        emit({ model: name, type: 'progress', status: p.status, completed: p.completed, total: p.total, percent: p.percent });
-      },
-    })
-      .then(() => emit({ model: name, type: 'done' }))
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) emit({ model: name, type: 'cancelled' });
-        else emit({ model: name, type: 'error', error: err instanceof Error ? err.message : String(err) });
-      })
-      .finally(() => activePulls.delete(name));
-  });
-  ipcMain.handle('models:cancelPull', (_e, name: unknown) => {
-    if (typeof name === 'string') activePulls.get(name)?.abort();
-  });
+  ipcMain.handle('setup:get', () => setup.state);
+  ipcMain.handle('setup:start', () => { void setup.run(true); });
+  ipcMain.handle('setup:check', () => { void setup.run(false); });
+  // Opens the engine's download page in the system browser. Only reachable from an explicit button click.
+  ipcMain.handle('engine:openDownloadPage', () => shell.openExternal(ENGINE_DOWNLOAD_URL));
 
   ipcMain.handle('bots:list', () => db.listBots());
-  ipcMain.handle('bots:create', (_e, input: NewBot) =>
-    db.createBot({
-      name: String(input?.name ?? ''),
-      systemPrompt: String(input?.systemPrompt ?? ''),
-      toolsEnabled: Boolean(input?.toolsEnabled),
-      folderPath: asFolder(input?.folderPath),
-    }),
-  );
+  ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
   ipcMain.handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
   ipcMain.handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
 
   ipcMain.handle('dialog:pickFolder', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
-    const opts = { title: 'Choose a folder this bot may read', properties: ['openDirectory' as const] };
+    const opts = { title: 'Choose a folder this Cipher bot may read', properties: ['openDirectory' as const] };
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
     if (r.canceled || !r.filePaths[0]) return null;
     pickedFolders.add(r.filePaths[0]);
@@ -162,8 +114,10 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     db = new CipherDb(path.join(app.getPath('userData'), 'cipher.db'));
     lockDownNetwork();
+    setup = new SetupManager({ model: currentModel(), onChange: broadcastSetup });
     registerIpc();
     createWindow();
+    void setup.run(true); // first launch: download the model through the local engine if it's missing
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -175,7 +129,6 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', () => {
     for (const c of activeTurns.values()) c.abort();
-    for (const c of activePulls.values()) c.abort();
     db?.close();
   });
 }

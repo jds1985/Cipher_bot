@@ -1,0 +1,14 @@
+Cipher - third-party notices
+============================
+
+Qwen2.5-7B-Instruct (model weights)
+-----------------------------------
+Cipher bots use the Qwen2.5 7B Instruct model ("qwen2.5:7b"). The model is
+not included in this package; on first launch Cipher asks the locally
+installed model engine to download it to your computer.
+
+Copyright 2024 Alibaba Cloud
+Licensed under the Apache License, Version 2.0.
+Source: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
+
+The full license text is in Qwen2.5-LICENSE.txt in this folder.

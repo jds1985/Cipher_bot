@@ -2,7 +2,7 @@
   "name": "cipher",
   "productName": "Cipher",
   "version": "0.1.0",
-  "description": "Local-first desktop bot app. Chats with a model running in your own Ollama; nothing leaves your computer.",
+  "description": "Cipher bots: a local-first desktop app. Your Cipher bots run on your own computer; nothing leaves it.",
   "main": "dist/main/main.js",
   "private": true,
   "license": "UNLICENSED",
@@ -52,7 +52,13 @@
       "target": [
         "nsis"
       ]
-    }
+    },
+    "extraResources": [
+      {
+        "from": "LICENSES",
+        "to": "LICENSES"
+      }
+    ]
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

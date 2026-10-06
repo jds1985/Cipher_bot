@@ -1,10 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { ChatEvent, CipherApi, NewBot, PullEvent } from '../shared/types';
+import type { ChatEvent, CipherApi, NewBotForm, SetupState } from '../shared/types';
 
 const api: CipherApi = {
-  ollamaStatus: () => ipcRenderer.invoke('ollama:status'),
   listBots: () => ipcRenderer.invoke('bots:list'),
-  createBot: (bot: NewBot) => ipcRenderer.invoke('bots:create', bot),
+  createBot: (bot: NewBotForm) => ipcRenderer.invoke('bots:create', bot),
   setBotFolder: (botId, folderPath) => ipcRenderer.invoke('bots:setFolder', botId, folderPath),
   setBotTools: (botId, enabled) => ipcRenderer.invoke('bots:setTools', botId, enabled),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
@@ -18,14 +17,14 @@ const api: CipherApi = {
     ipcRenderer.on('chat:event', listener);
     return () => ipcRenderer.removeListener('chat:event', listener);
   },
-  listModels: () => ipcRenderer.invoke('models:list'),
-  selectModel: (name) => ipcRenderer.invoke('models:select', name),
-  pullModel: (name) => ipcRenderer.invoke('models:pull', name),
-  cancelPull: (name) => ipcRenderer.invoke('models:cancelPull', name),
-  onPullEvent: (cb) => {
-    const listener = (_e: IpcRendererEvent, ev: PullEvent) => cb(ev);
-    ipcRenderer.on('pull:event', listener);
-    return () => ipcRenderer.removeListener('pull:event', listener);
+  getSetup: () => ipcRenderer.invoke('setup:get'),
+  startSetup: () => ipcRenderer.invoke('setup:start'),
+  checkSetup: () => ipcRenderer.invoke('setup:check'),
+  openEngineDownload: () => ipcRenderer.invoke('engine:openDownloadPage'),
+  onSetupState: (cb) => {
+    const listener = (_e: IpcRendererEvent, s: SetupState) => cb(s);
+    ipcRenderer.on('setup:state', listener);
+    return () => ipcRenderer.removeListener('setup:state', listener);
   },
 };
 

@@ -10,13 +10,13 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div id="splash" aria-hidden="true"><span>Cipher</span></div>
     <div id="app">
       <aside id="sidebar">
         <h1 class="brand">Cipher</h1>
-        <button id="open-models" class="secondary small models-btn" title="Download and choose the model">Models</button>
         <div class="section-head">
-          <span>Bots</span>
-          <button id="new-bot" class="small" title="Create a bot">+ New bot</button>
+          <span>Cipher bots</span>
+          <button id="new-bot" class="small" title="Create a Cipher bot">+ New Cipher bot</button>
         </div>
         <ul id="bot-list" class="list"></ul>
         <div class="section-head" id="chats-head" hidden>
@@ -26,46 +26,31 @@
         <ul id="chat-list" class="list"></ul>
       </aside>
       <main id="main">
-        <div id="banner" hidden></div>
-        <section id="empty" class="view">
-          <div class="empty-inner">
-            <h2>Welcome to Cipher</h2>
-            <p class="muted">Your bots run on this computer with a local model in Ollama. Nothing is sent anywhere else.</p>
-            <button id="empty-new-bot">Create your first bot</button>
-          </div>
-        </section>
         <section id="bot-form-view" class="view" hidden>
           <form id="bot-form" class="card">
-            <h2>New bot</h2>
+            <h2>Create a Cipher bot</h2>
             <label>Name
               <input id="bot-name" maxlength="80" required placeholder="e.g. Notes helper" />
             </label>
-            <label>System prompt
-              <textarea id="bot-prompt" rows="6" placeholder="e.g. You are a concise assistant that helps me with my notes."></textarea>
+            <label>Job
+              <textarea id="bot-job" rows="5" placeholder="What should this Cipher bot do? e.g. Help me plan my week and keep answers short."></textarea>
             </label>
-            <label class="row">
-              <input type="checkbox" id="bot-tools" />
-              <span>Tools on (lets the bot read text files in one folder you choose)</span>
-            </label>
-            <div id="bot-folder-row" class="row" hidden>
-              <button type="button" id="bot-folder-pick" class="secondary">Choose folder…</button>
-              <span id="bot-folder-label" class="muted">No folder chosen</span>
-            </div>
             <p id="bot-form-error" class="error" hidden></p>
             <div class="row end">
               <button type="button" id="bot-cancel" class="secondary">Cancel</button>
-              <button type="submit">Create bot</button>
+              <button type="submit">Create Cipher bot</button>
             </div>
           </form>
         </section>
-        <section id="models-view" class="view" hidden>
-          <div class="card">
-            <h2>Models</h2>
-            <p class="muted">Download a model through Ollama and choose which one Cipher uses. Models are stored by Ollama on this computer.</p>
-            <p id="models-note" class="muted" hidden></p>
-            <div id="models-list"></div>
+        <section id="setup-view" class="view" hidden>
+          <div class="card setup-card">
+            <h2>Setting up your Cipher bot</h2>
+            <p id="setup-text" class="muted"></p>
+            <progress id="setup-progress" max="100" hidden></progress>
+            <p id="setup-detail" class="muted" hidden></p>
             <div class="row end">
-              <button type="button" id="models-close" class="secondary">Done</button>
+              <button type="button" id="setup-get-engine" hidden>Get the engine</button>
+              <button type="button" id="setup-retry" class="secondary" hidden>Try again</button>
             </div>
           </div>
         </section>
@@ -75,9 +60,9 @@
               <strong id="chat-bot-name"></strong>
               <span id="chat-title" class="muted"></span>
             </div>
-            <div class="row">
-              <label class="row" title="Allow this bot to use the read_file tool">
-                <input type="checkbox" id="chat-tools" /> <span>Tools</span>
+            <div class="row bot-settings">
+              <label class="row" title="Let this Cipher bot read text files in one folder you choose">
+                <input type="checkbox" id="chat-tools" /> <span>Read files</span>
               </label>
               <span id="chat-folder-label" class="muted folder"></span>
               <button id="chat-folder-pick" class="secondary small">Choose folder…</button>
