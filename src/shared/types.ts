@@ -59,6 +59,32 @@ export type ChatEvent =
   | { chatId: number; type: 'done' }
   | { chatId: number; type: 'error'; error: string };
 
+export interface ModelInfo {
+  name: string;
+  label: string;
+  size: string;
+  note: string;
+  downloaded: boolean;
+}
+
+export interface ModelsState {
+  models: ModelInfo[];
+  /** Model the app currently uses (after applying the CIPHER_MODEL override). */
+  active: string;
+  /** The user's saved choice (null if never chosen). */
+  selected: string | null;
+  /** Value of CIPHER_MODEL if set; it overrides the saved choice. */
+  envOverride: string | null;
+  ollamaRunning: boolean;
+}
+
+/** Events streamed from main to renderer while a model downloads. */
+export type PullEvent =
+  | { model: string; type: 'progress'; status: string; completed: number; total: number; percent: number | null }
+  | { model: string; type: 'done' }
+  | { model: string; type: 'cancelled' }
+  | { model: string; type: 'error'; error: string };
+
 /** API exposed by the preload script on window.cipher. */
 export interface CipherApi {
   ollamaStatus(): Promise<OllamaStatus>;
@@ -73,4 +99,9 @@ export interface CipherApi {
   sendMessage(chatId: number, text: string): Promise<void>;
   stop(chatId: number): Promise<void>;
   onChatEvent(cb: (e: ChatEvent) => void): () => void;
+  listModels(): Promise<ModelsState>;
+  selectModel(name: string): Promise<ModelsState>;
+  pullModel(name: string): Promise<void>;
+  cancelPull(name: string): Promise<void>;
+  onPullEvent(cb: (e: PullEvent) => void): () => void;
 }

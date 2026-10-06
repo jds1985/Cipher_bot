@@ -1,12 +1,30 @@
 import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
 import path from 'node:path';
-import type { ChatEvent, NewBot } from '../shared/types';
+import type { ChatEvent, ModelsState, NewBot, PullEvent } from '../shared/types';
 import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
-import { configuredModel, getStatus } from './ollama';
+import {
+  configuredModel, getStatus, isInstalled, listInstalledModels, OFFERED_MODELS, pullModel, warmUp,
+} from './ollama';
 
 let db: CipherDb;
 const activeTurns = new Map<number, AbortController>();
+const activePulls = new Map<string, AbortController>();
+const MODEL_SETTING = 'model';
+/** Model in use: CIPHER_MODEL override, else the saved choice, else the default. */
+const currentModel = (): string => configuredModel(db.getSetting(MODEL_SETTING));
+const isOffered = (name: unknown): name is string => OFFERED_MODELS.some((m) => m.name === name);
+
+async function modelsState(): Promise<ModelsState> {
+  const installed = await listInstalledModels();
+  return {
+    models: OFFERED_MODELS.map((m) => ({ ...m, downloaded: installed ? isInstalled(installed, m.name) : false })),
+    active: currentModel(),
+    selected: db.getSetting(MODEL_SETTING),
+    envOverride: process.env.CIPHER_MODEL?.trim() || null,
+    ollamaRunning: installed !== null,
+  };
+}
 /** Folders the user picked via the native dialog this session; only these may be attached to a bot. */
 const pickedFolders = new Set<string>();
 
@@ -55,7 +73,43 @@ const asFolder = (v: unknown): string | null => {
 };
 
 function registerIpc(): void {
-  ipcMain.handle('ollama:status', () => getStatus(configuredModel()));
+  ipcMain.handle('ollama:status', () => getStatus(currentModel()));
+
+  ipcMain.handle('models:list', () => modelsState());
+  ipcMain.handle('models:select', async (_e, name: unknown) => {
+    if (!isOffered(name)) throw new Error('Unknown model.');
+    db.setSetting(MODEL_SETTING, name);
+    void warmUp(currentModel()); // load it into memory in the background so the first reply is quick
+    return modelsState();
+  });
+  ipcMain.handle('models:pull', (e, name: unknown) => {
+    if (!isOffered(name)) throw new Error('Unknown model.');
+    if (activePulls.has(name)) throw new Error('This model is already downloading.');
+    const controller = new AbortController();
+    activePulls.set(name, controller);
+    const sender = e.sender;
+    const emit = (ev: PullEvent) => { if (!sender.isDestroyed()) sender.send('pull:event', ev); };
+    let last = 0;
+    pullModel({
+      model: name,
+      signal: controller.signal,
+      onProgress: (p) => {
+        const now = Date.now();
+        if (now - last < 150 && !p.done) return; // throttle UI updates
+        last = now;
+        emit({ model: name, type: 'progress', status: p.status, completed: p.completed, total: p.total, percent: p.percent });
+      },
+    })
+      .then(() => emit({ model: name, type: 'done' }))
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) emit({ model: name, type: 'cancelled' });
+        else emit({ model: name, type: 'error', error: err instanceof Error ? err.message : String(err) });
+      })
+      .finally(() => activePulls.delete(name));
+  });
+  ipcMain.handle('models:cancelPull', (_e, name: unknown) => {
+    if (typeof name === 'string') activePulls.get(name)?.abort();
+  });
 
   ipcMain.handle('bots:list', () => db.listBots());
   ipcMain.handle('bots:create', (_e, input: NewBot) =>
@@ -90,7 +144,7 @@ function registerIpc(): void {
     activeTurns.set(chatId, controller);
     const sender = e.sender;
     const emit = (ev: ChatEvent) => { if (!sender.isDestroyed()) sender.send('chat:event', ev); };
-    runChatTurn({ db, model: configuredModel(), emit }, chatId, text, controller.signal)
+    runChatTurn({ db, model: currentModel(), emit }, chatId, text, controller.signal)
       .catch((err: unknown) => emit({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => activeTurns.delete(chatId));
   });
@@ -121,6 +175,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', () => {
     for (const c of activeTurns.values()) c.abort();
+    for (const c of activePulls.values()) c.abort();
     db?.close();
   });
 }

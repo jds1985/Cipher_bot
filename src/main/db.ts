@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import type { Bot, Chat, Message, NewBot, Role, ToolCall } from '../shared/types';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const DEFAULT_CHAT_TITLE = 'New chat';
 
 interface BotRow { id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string }
@@ -71,8 +71,22 @@ export class CipherDb {
         );
         CREATE INDEX messages_chat ON messages(chat_id, id);
       `);
+      this.db.pragma('user_version = 1');
+    }
+    if (version < 2) {
+      this.db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
       this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
     }
+  }
+
+  // ---- settings ----
+  getSetting(key: string): string | null {
+    const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return r ? r.value : null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
   }
 
   close(): void {
