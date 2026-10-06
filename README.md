@@ -37,6 +37,15 @@ CIPHER_MODEL=llama3.1:8b npm run dev          # macOS / Linux
 $env:CIPHER_MODEL="llama3.1:8b"; npm run dev  # Windows PowerShell
 ```
 
+## Install from an installer (no Node/npm needed)
+
+1. Install Ollama from https://ollama.com/download and start it.
+2. Install Cipher from the installer built with `npm run dist` (see below):
+   - Linux: `sudo apt install ./cipher_<version>_amd64.deb`, or `chmod +x Cipher-<version>.AppImage && ./Cipher-<version>.AppImage` (AppImage needs FUSE 2: `libfuse2`, or `libfuse2t64` on Ubuntu 24.04+)
+   - macOS: open `Cipher-<version>.dmg` and drag Cipher to Applications (unsigned: right-click → Open the first time)
+   - Windows: run `Cipher Setup <version>.exe`
+3. Open Cipher → **Models** → download `qwen2.5:3b` or `qwen2.5:7b` and click **Use this model**.
+
 ## Run in development
 
 ```sh
