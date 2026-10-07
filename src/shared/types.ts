@@ -128,6 +128,16 @@ export interface NewBotForm {
   color: string;
 }
 
+/** Phone link panel status from main. */
+export interface PhoneLinkStatus {
+  running: boolean;
+  port: number;
+  pairingCode: string | null;
+  pairingExpiresAt: number | null;
+  urls: string[];
+  sessionCount: number;
+}
+
 /** API exposed by the preload script on window.cipher. */
 export interface CipherApi {
   listBots(): Promise<Bot[]>;
@@ -152,7 +162,16 @@ export interface CipherApi {
   startSetup(): Promise<void>;
   /** Check only, without downloading (used after a chat error). */
   checkSetup(): Promise<void>;
-  /** Open the engine's download page in the system browser (explicit click only). */
+  /** Open the engine's download page in the system browser (explicit click only; blocked while Online is off). */
   openEngineDownload(): Promise<void>;
   onSetupState(cb: (s: SetupState) => void): () => void;
+  /** Online switch: default off; persists; enables nothing new in v1.6 when on. */
+  getOnline(): Promise<boolean>;
+  setOnline(on: boolean): Promise<boolean>;
+  /** Phone link: start/stop LAN server, refresh pairing code, read status. */
+  getPhoneLink(): Promise<PhoneLinkStatus>;
+  startPhoneLink(): Promise<PhoneLinkStatus>;
+  stopPhoneLink(): Promise<PhoneLinkStatus>;
+  refreshPhoneLinkCode(): Promise<PhoneLinkStatus>;
+  onPhoneLink(cb: (s: PhoneLinkStatus) => void): () => void;
 }

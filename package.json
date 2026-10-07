@@ -28,6 +28,7 @@
     "productName": "Cipher",
     "files": [
       "dist/**/*",
+      "dist/phone/**/*",
       "!dist/test/**",
       "package.json"
     ],

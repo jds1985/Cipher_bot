@@ -9,7 +9,7 @@ import type { SetupState } from '../shared/types';
 
 // The renderer's pure view module is an ES module; Electron's Node can require() it directly.
 interface ViewModule {
-  decideView(i: { botCount: number; formOpen: boolean; roomFormOpen?: boolean; setup: SetupState }): 'form' | 'room-form' | 'setup' | 'chat';
+  decideView(i: { botCount: number; formOpen: boolean; roomFormOpen?: boolean; settingsOpen?: boolean; setup: SetupState }): 'form' | 'room-form' | 'settings' | 'setup' | 'chat';
   setupCopy(s: SetupState): { text: string; detail: string | null; showProgress: boolean; showGetEngine: boolean; retryLabel: string | null };
 }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -53,6 +53,7 @@ test('after the first Cipher bot exists: setup screen until ready; never blocks 
   assert.equal(view.decideView({ botCount: 1, formOpen: true, setup: st('ready') }), 'form');
   assert.equal(view.decideView({ botCount: 2, formOpen: false, roomFormOpen: true, setup: st('ready') }), 'room-form');
   assert.equal(view.decideView({ botCount: 0, formOpen: false, roomFormOpen: true, setup: st('ready') }), 'form', 'first run still creates a bot');
+  assert.equal(view.decideView({ botCount: 1, formOpen: false, settingsOpen: true, setup: st('ready') }), 'settings');
 });
 
 test('setup screen copy: progress while downloading, actionable buttons otherwise, no engine/model names', () => {
