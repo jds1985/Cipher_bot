@@ -11,6 +11,7 @@
   </head>
   <body>
     <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher</span></div></div>
+    <i id="nosplash" hidden></i>
     <div id="splash" aria-hidden="true"><img src="assets/splash.png" alt="Cipher" /></div>
     <div id="app">
       <nav id="sidebar" aria-label="Cipher bots and rooms">
@@ -141,22 +142,6 @@
             <span id="chat-icon" class="header-icon"></span>
             <div class="title-block">
               <strong id="chat-bot-name"></strong>
-              <span id="chat-title" class="muted"></span>
-            </div>
-            <span id="room-note" class="muted room-note" hidden>File reading is off in rooms</span>
-            <div class="row bot-settings" id="bot-settings">
-              <label class="row" title="Let this Cipher bot read text files in one folder you choose">
-                <input type="checkbox" id="chat-tools" /> <span>Read files</span>
-              </label>
-              <span id="chat-folder-label" class="muted folder"></span>
-              <button type="button" id="chat-folder-pick" class="secondary small">Choose folder…</button>
-              <button type="button" id="bot-routine" class="secondary small" title="Send a saved message to this Cipher bot every day at a time you pick">Routine…</button>
-              <button type="button" id="bot-edit" class="secondary small" title="Edit this Cipher bot's name, job and icon">Edit…</button>
-              <button type="button" id="bot-delete" class="secondary small danger" title="Delete this Cipher bot">Delete…</button>
-            </div>
-            <div class="row chat-actions" id="chat-actions">
-              <button type="button" id="chat-export" class="secondary small" title="Save this chat as a text file">Export…</button>
-              <button type="button" id="chat-clear" class="secondary small" title="Delete this chat's messages (the Cipher bot stays)">Clear chat…</button>
             </div>
           </header>
           <div id="messages"></div>
@@ -165,11 +150,12 @@
             <button type="button" id="attach-clear" class="secondary small" aria-label="Remove attachment">×</button>
           </div>
           <p id="attach-error" class="error attach-error" hidden></p>
+          <div id="plus-menu" class="plus-menu" role="menu" aria-label="Chat actions" hidden></div>
           <form id="composer" class="composer-bar">
-            <button type="button" id="attach" class="composer-circle attach" aria-label="Attach a file from this bot's folder" title="Attach a file from this bot's folder (desktop)">
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M16.5 6.5v8.25a4.5 4.5 0 0 1-9 0V7a3 3 0 0 1 6 0v7.5a1.5 1.5 0 0 1-3 0V8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
             <textarea id="input" rows="1" placeholder="Message (Enter to send, Shift+Enter for a new line)"></textarea>
+            <button type="button" id="plus" class="composer-circle plus" aria-label="More actions" title="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="plus-menu">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            </button>
             <button type="submit" id="send" class="composer-circle" aria-label="Send">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>

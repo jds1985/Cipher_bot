@@ -183,6 +183,10 @@ export interface CipherApi {
   setBotTools(botId: number, enabled: boolean): Promise<Bot>;
   /** Delete a Cipher bot after the UI confirm step. Cascades chats; removes from rooms. */
   deleteBot(botId: number): Promise<{ deletedRoomIds: number[] }>;
+  /** Delete a room and its messages after the UI confirm step (refused while it's replying). Bots stay. */
+  deleteRoom(roomId: number): Promise<void>;
+  /** Right-click on a bot or room in the left column: native menu; resolves 'delete' or null. */
+  showItemMenu(kind: 'bot' | 'room'): Promise<'delete' | null>;
   pickFolder(): Promise<string | null>;
   /**
    * Desktop-only: pick a file inside this bot's folder and read it through the read_file sandbox

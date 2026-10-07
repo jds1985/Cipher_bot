@@ -56,3 +56,48 @@ export function setupCopy(st: SetupState): SetupCopy {
   if (st.phase === 'error') return { text, detail: null, showProgress: false, showGetEngine: false, retryLabel: 'Try again' };
   return { text, detail: null, showProgress: false, showGetEngine: false, retryLabel: null };
 }
+
+// ---------- splash (v1.10) ----------
+/** The splash shows on every launch for about a second; nothing is stored, so it can't be "already seen". */
+export const SPLASH_MIN_MS = 1000;
+/** It never stays longer than this, even if loading is slow (the CSS also hides it at 1.75 s as a safety net). */
+export const SPLASH_MAX_MS = 1500;
+
+/** Whether this window shows the splash: always, except a window main re-created in the same process (#nosplash). */
+export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
+
+/** How much longer to keep the splash once the app has loaded, so it shows for about SPLASH_MIN_MS in total. */
+export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
+
+// ---------- plus menu (v1.10) ----------
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'edit' | 'folder' | 'tools' | 'routine';
+
+export interface PlusItem {
+  id: PlusItemId;
+  label: string;
+  disabled: boolean;
+  /** For the Read files toggle: its on/off state. */
+  checked?: boolean;
+  /** Small extra text (e.g. the chosen folder). */
+  hint?: string;
+}
+
+/**
+ * The plus menu's items. Rooms get only what rooms had before (Export). A bot's chat gets Attach, Export, Clear,
+ * Edit, Choose folder, Read files and Routine, with the same availability as the old header/composer controls:
+ * Attach waits while the chat is replying; Choose folder needs Read files on.
+ */
+export function plusMenuItems(input:
+  | { kind: 'room' }
+  | { kind: 'bot'; toolsEnabled: boolean; folderPath: string | null; busy: boolean; routineTime: string | null }): PlusItem[] {
+  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }];
+  return [
+    { id: 'attach', label: 'Attach file…', disabled: input.busy },
+    { id: 'export', label: 'Export chat…', disabled: false },
+    { id: 'clear', label: 'Clear chat…', disabled: false },
+    { id: 'edit', label: 'Edit bot…', disabled: false },
+    { id: 'folder', label: 'Choose folder…', disabled: !input.toolsEnabled, hint: input.toolsEnabled ? (input.folderPath ?? 'No folder chosen') : 'Turn on Read files first' },
+    { id: 'tools', label: 'Read files', disabled: false, checked: input.toolsEnabled },
+    { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
+  ];
+}

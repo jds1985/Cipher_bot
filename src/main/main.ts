@@ -14,6 +14,7 @@ import { PhoneServer, PHONE_LINK_PORT } from './phoneServer';
 import { readFileForAttach } from './attachFile';
 import { ToolError } from './readFileTool';
 import { RoutineScheduler } from './routine';
+import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
 
 let db: CipherDb;
 let setup: SetupManager;
@@ -107,6 +108,9 @@ const FRAME_ACCENT = '#5b8cff';
  */
 const TITLE_BAR_HEIGHT = 40;
 
+/** Windows created so far in this process. Only the first (a real launch) shows the splash. */
+let windowsCreated = 0;
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1100,
@@ -149,7 +153,10 @@ function createWindow(): BrowserWindow {
   // Never navigate away or open new windows from the app.
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  void win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  // Splash on every real launch (process start); a window re-created later in the same process (e.g. macOS dock
+  // activate with no window) skips it. Restoring from the tray or a second launch only shows the existing window.
+  const splash = windowsCreated++ === 0;
+  void win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), splash ? {} : { hash: 'nosplash' });
   return win;
 }
 
@@ -237,7 +244,27 @@ function registerIpc(): void {
     db.setRoutine(asId(botId), (input && typeof input === 'object' ? input : {}) as Record<string, unknown>));
   ipcMain.handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
   ipcMain.handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
-  ipcMain.handle('bots:delete', (_e, botId: unknown) => db.deleteBot(asId(botId)));
+  // Delete (after the UI confirm): refused while the bot or room is replying.
+  ipcMain.handle('bots:delete', (_e, botIdRaw: unknown) => {
+    const botId = asId(botIdRaw);
+    assertBotDeletable(db, botId, activeTurns.keys(), activeRooms.keys());
+    return db.deleteBot(botId);
+  });
+  ipcMain.handle('rooms:delete', (_e, roomIdRaw: unknown) => {
+    const roomId = asId(roomIdRaw);
+    assertRoomDeletable(roomId, activeRooms.keys());
+    db.deleteRoom(roomId);
+  });
+  // Right-click on a bot or room in the left column: a native context menu with "Delete…".
+  ipcMain.handle('menu:item', (e, kind: unknown) => new Promise<'delete' | null>((resolve) => {
+    if (kind !== 'bot' && kind !== 'room') { resolve(null); return; }
+    const menu = Menu.buildFromTemplate([
+      { label: kind === 'room' ? 'Delete room…' : 'Delete Cipher bot…', click: () => resolve('delete') },
+    ]);
+    const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+    // The close callback can arrive before the item's click on some platforms; give the click a moment to win.
+    menu.popup({ window: win, callback: () => { setTimeout(() => resolve(null), 150); } });
+  }));
 
   ipcMain.handle('dialog:pickFolder', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
