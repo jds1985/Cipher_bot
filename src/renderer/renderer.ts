@@ -1,6 +1,6 @@
-import type { Bot, Chat, ChatEvent, CipherApi, Message, SetupState } from '../shared/types';
-import { decideView, setupCopy } from './view.js';
-import { botIconSrc } from './botIcon.js';
+import type { Bot, Chat, ChatEvent, CipherApi, Message, Room, RoomEvent, RoomMessage, SetupState } from '../shared/types';
+import { decideView, roomTitle, setupCopy } from './view.js';
+import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
 declare global {
   interface Window { cipher: CipherApi }
@@ -11,34 +11,50 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 const el = {
   splash: $('splash'),
-  botList: $('bot-list'), chatList: $('chat-list'), chatsHead: $('chats-head'),
-  newBot: $<HTMLButtonElement>('new-bot'), newChat: $<HTMLButtonElement>('new-chat'),
-  formView: $('bot-form-view'), chatView: $('chat-view'), setupView: $('setup-view'),
+  botList: $('bot-list'), roomList: $('room-list'),
+  newBot: $<HTMLButtonElement>('new-bot'), newRoom: $<HTMLButtonElement>('new-room'), newRoomMark: $('new-room-mark'),
+  formView: $('bot-form-view'), roomFormView: $('room-form-view'), chatView: $('chat-view'), setupView: $('setup-view'),
   form: $<HTMLFormElement>('bot-form'), botName: $<HTMLInputElement>('bot-name'), botJob: $<HTMLTextAreaElement>('bot-job'),
+  shapePicker: $('shape-picker'), colorPicker: $('color-picker'),
   botFormError: $('bot-form-error'), botCancel: $<HTMLButtonElement>('bot-cancel'),
+  roomForm: $<HTMLFormElement>('room-form'), roomName: $<HTMLInputElement>('room-name'), roomMembers: $('room-members'),
+  roomFormError: $('room-form-error'), roomCancel: $<HTMLButtonElement>('room-cancel'), roomCreate: $<HTMLButtonElement>('room-create'),
   setupText: $('setup-text'), setupProgress: $<HTMLProgressElement>('setup-progress'), setupDetail: $('setup-detail'),
   setupGetEngine: $<HTMLButtonElement>('setup-get-engine'), setupRetry: $<HTMLButtonElement>('setup-retry'),
-  chatBotIcon: $<HTMLImageElement>('chat-bot-icon'), chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), chatTools: $<HTMLInputElement>('chat-tools'),
+  chatIcon: $('chat-icon'), chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), roomNote: $('room-note'),
+  botSettings: $('bot-settings'), chatTools: $<HTMLInputElement>('chat-tools'),
   chatFolderLabel: $('chat-folder-label'), chatFolderPick: $<HTMLButtonElement>('chat-folder-pick'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
   send: $<HTMLButtonElement>('send'), stop: $<HTMLButtonElement>('stop'),
 };
 
+const CHAT_PLACEHOLDER = el.input.placeholder;
+const ROOM_PLACEHOLDER = 'Message the room (each Cipher bot replies once; type @Name to ask just one)';
+
 const state = {
   bots: [] as Bot[],
-  chats: [] as Chat[],
+  rooms: [] as Room[],
+  /** The open bot's one chat (bot mode). */
+  chat: null as Chat | null,
   messages: [] as Message[],
+  roomMessages: [] as RoomMessage[],
   botId: null as number | null,
-  chatId: null as number | null,
+  roomId: null as number | null,
   live: '',
   error: null as string | null,
   busy: new Set<number>(),
+  /** Rooms with a round in progress, and who is speaking + what they've streamed so far. */
+  roomLive: new Map<number, { botId: number | null; text: string }>(),
   formOpen: false,
+  roomFormOpen: false,
   setup: { phase: 'checking', percent: null, completed: 0, total: 0, message: null } as SetupState,
 };
 
 const currentBot = () => state.bots.find((b) => b.id === state.botId) ?? null;
-const currentChat = () => state.chats.find((c) => c.id === state.chatId) ?? null;
+const currentRoom = () => state.rooms.find((r) => r.id === state.roomId) ?? null;
+const botById = (id: number | null) => state.bots.find((b) => b.id === id) ?? null;
+const roomMembers = (r: Room): Bot[] => r.memberIds.map((id) => botById(id)).filter((b): b is Bot => b !== null);
+const roomName = (r: Room): string => roomTitle(r.name, roomMembers(r).map((b) => b.name));
 
 function node(tag: string, cls?: string, text?: string): HTMLElement {
   const n = document.createElement(tag);
@@ -47,21 +63,49 @@ function node(tag: string, cls?: string, text?: string): HTMLElement {
   return n;
 }
 
-/** A bot's icon from Liz's set (decorative: the name is always next to it). */
-function botIcon(b: Bot, size: number): HTMLImageElement {
-  const img = document.createElement('img');
-  img.className = 'bot-icon';
-  img.src = botIconSrc(b.icon);
-  img.alt = '';
-  img.width = size;
-  img.height = size;
-  return img;
+// ---------- bot icons ----------
+// Liz's v1.5 icons are drawn in currentColor with a dark body. They are inlined from the bundled, trusted SVG
+// strings (botIconSvgs.ts, generated from her files; never from user input), parsed once per shape with
+// DOMParser, so the color class applies. No inline styles: size via attributes, color via a .c-<key> class.
+const parsedShapes = new Map<string, SVGSVGElement>();
+function shapeTemplate(shape: unknown): SVGSVGElement {
+  const key = shapeOf(shape);
+  let svg = parsedShapes.get(key);
+  if (!svg) {
+    const doc = new DOMParser().parseFromString(shapeSvg(key), 'image/svg+xml');
+    svg = doc.documentElement as unknown as SVGSVGElement;
+    svg.removeAttribute('color'); // the color comes from the class (currentColor)
+    parsedShapes.set(key, svg);
+  }
+  return svg;
+}
+
+/** An icon in the given shape and color. Decorative unless a label is given (the name is shown or set as aria-label nearby). */
+function iconSvg(shape: unknown, color: unknown, size: number, extraClass = 'bot-icon'): SVGSVGElement {
+  const svg = document.importNode(shapeTemplate(shape), true);
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('class', `${extraClass} ${colorClass(color)}`);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  return svg;
+}
+
+const botIcon = (b: Bot, size: number): SVGSVGElement => iconSvg(b.shape, b.color, size);
+
+/** A room's mark: its first two or three bots' icons in a small cluster. */
+function roomMark(r: Room): HTMLElement {
+  const members = roomMembers(r).slice(0, 3);
+  const cluster = node('span', `cluster n${Math.max(2, members.length)}`);
+  for (const b of members) cluster.append(botIcon(b, 25));
+  return cluster;
 }
 
 /** Decide what the main area shows (see view.ts). */
 function applyView(): void {
-  const view = decideView({ botCount: state.bots.length, formOpen: state.formOpen, setup: state.setup });
+  const view = decideView({ botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen, setup: state.setup });
   el.formView.hidden = view !== 'form';
+  el.roomFormView.hidden = view !== 'room-form';
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
   el.botCancel.hidden = state.bots.length === 0; // nothing to go back to on first run
@@ -93,60 +137,72 @@ function onSetupState(st: SetupState): void {
   applyView();
 }
 
-// ---------- sidebar ----------
-function renderBots(): void {
-  el.botList.replaceChildren(...state.bots.map((b) => {
-    const li = node('li', b.id === state.botId ? 'bot active' : 'bot');
-    li.append(botIcon(b, 28), node('span', 'name', b.name));
-    if (b.toolsEnabled) li.append(node('span', 'tag', 'reads files'));
-    li.title = b.name;
-    li.addEventListener('click', () => void selectBot(b.id));
-    return li;
-  }));
+// ---------- left column: bot icons, then rooms ----------
+function railButton(cls: string, label: string, active: boolean, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `rail-btn ${cls}${active ? ' active' : ''}`;
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  if (active) btn.setAttribute('aria-current', 'true');
+  btn.addEventListener('click', onClick);
+  return btn;
 }
 
-function renderChats(): void {
-  el.chatsHead.hidden = state.botId === null;
-  el.chatList.replaceChildren(...state.chats.map((c) => {
-    const li = node('li', c.id === state.chatId ? 'active' : '', c.title);
-    li.title = c.title;
-    li.addEventListener('click', () => void selectChat(c.id));
-    return li;
+function renderRail(): void {
+  const showingChat = !state.formOpen && !state.roomFormOpen;
+  el.botList.replaceChildren(...state.bots.map((b) => {
+    const btn = railButton('bot', b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
+    btn.append(botIcon(b, 42));
+    return btn;
+  }));
+  el.roomList.replaceChildren(...state.rooms.map((r) => {
+    const label = `Room: ${roomName(r)}`;
+    const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
+    btn.append(roomMark(r));
+    return btn;
   }));
 }
 
 async function loadBots(): Promise<void> {
   state.bots = await api.listBots();
-  renderBots();
+  renderRail();
 }
 
+async function loadRooms(): Promise<void> {
+  state.rooms = await api.listRooms();
+  renderRail();
+}
+
+/** Open a bot's one chat (created on first open). */
 async function selectBot(botId: number): Promise<void> {
   state.formOpen = false;
+  state.roomFormOpen = false;
+  state.roomId = null;
   state.botId = botId;
-  state.chats = await api.listChats(botId);
-  renderBots();
-  if (state.chats.length) await selectChat(state.chats[0].id);
-  else await newChat();
-}
-
-async function newChat(): Promise<void> {
-  if (state.botId === null) return;
-  const chat = await api.createChat(state.botId);
-  state.chats = await api.listChats(state.botId);
-  await selectChat(chat.id);
-}
-
-async function selectChat(chatId: number): Promise<void> {
-  state.chatId = chatId;
-  state.messages = await api.listMessages(chatId);
+  state.chat = await api.openBotChat(botId);
+  state.messages = await api.listMessages(state.chat.id);
   state.live = '';
   state.error = null;
-  renderChats();
+  renderRail();
   applyView(); // renders the chat once it's visible, so scrolling to the latest message works
   if (!el.chatView.hidden) el.input.focus();
 }
 
-// ---------- chat view ----------
+async function selectRoom(roomId: number): Promise<void> {
+  state.formOpen = false;
+  state.roomFormOpen = false;
+  state.botId = null;
+  state.chat = null;
+  state.roomId = roomId;
+  state.roomMessages = await api.listRoomMessages(roomId);
+  state.error = null;
+  renderRail();
+  applyView();
+  if (!el.chatView.hidden) el.input.focus();
+}
+
+// ---------- chat view (a bot's chat or a room) ----------
 function toolCallLabel(m: Message): string {
   return (m.toolCalls ?? []).map((c) => {
     const p = (c.function?.arguments as { path?: unknown })?.path;
@@ -155,13 +211,26 @@ function toolCallLabel(m: Message): string {
 }
 
 function renderChat(): void {
+  if (state.roomId !== null) renderRoom();
+  else renderBotChat();
+}
+
+function setComposer(busy: boolean, placeholder: string): void {
+  el.send.hidden = busy;
+  el.stop.hidden = !busy;
+  el.input.placeholder = placeholder;
+}
+
+function renderBotChat(): void {
   const bot = currentBot();
-  const chat = currentChat();
+  const chat = state.chat;
   if (!bot || !chat) return;
-  const iconSrc = botIconSrc(bot.icon);
-  if (el.chatBotIcon.getAttribute('src') !== iconSrc) el.chatBotIcon.src = iconSrc;
+  el.chatIcon.replaceChildren(botIcon(bot, 40));
   el.chatBotName.textContent = bot.name;
   el.chatTitle.textContent = chat.title;
+  el.chatTitle.hidden = false;
+  el.roomNote.hidden = true;
+  el.botSettings.hidden = false;
   el.chatTools.checked = bot.toolsEnabled;
   el.chatFolderPick.hidden = !bot.toolsEnabled;
   el.chatFolderLabel.hidden = !bot.toolsEnabled;
@@ -185,22 +254,83 @@ function renderChat(): void {
   if (!items.length) items.push(node('div', 'msg note', `Say hello to ${bot.name}.`));
   el.messages.replaceChildren(...items);
   el.messages.scrollTop = el.messages.scrollHeight;
-  el.send.hidden = busy;
-  el.stop.hidden = !busy;
+  setComposer(busy, CHAT_PLACEHOLDER);
+}
+
+/** A room reply: the speaking bot's icon + name, then the text. */
+function roomReply(botId: number | null, text: string, live = false): HTMLElement {
+  const bot = botById(botId);
+  const msg = node('div', `msg assistant room-msg${live ? ' live' : ''}`);
+  const speaker = node('div', 'speaker');
+  if (bot) speaker.append(botIcon(bot, 26));
+  speaker.append(node('span', 'name', bot ? bot.name : 'Cipher bot'));
+  msg.append(speaker, node('div', 'text', text));
+  return msg;
+}
+
+function renderRoom(): void {
+  const room = currentRoom();
+  if (!room) return;
+  const members = roomMembers(room);
+  el.chatIcon.replaceChildren(roomMark(room));
+  el.chatBotName.textContent = roomName(room);
+  el.chatTitle.textContent = room.name.trim() ? members.map((b) => b.name).join(', ') : `${members.length} Cipher bots`;
+  el.roomNote.hidden = false; // "File reading is off in rooms"
+  el.botSettings.hidden = true;
+
+  const items: HTMLElement[] = [];
+  for (const m of state.roomMessages) {
+    if (m.role === 'user') items.push(node('div', 'msg user', m.content));
+    else items.push(roomReply(m.botId, m.content));
+  }
+  const live = state.roomLive.get(room.id);
+  if (live && live.botId !== null) items.push(roomReply(live.botId, live.text, true));
+  if (state.error) items.push(node('div', 'msg error', state.error));
+  if (!items.length) {
+    items.push(node('div', 'msg note', `Say hello to ${members.map((b) => b.name).join(', ')}. Each Cipher bot replies once, in this order; type @Name to ask just one.`));
+  }
+  el.messages.replaceChildren(...items);
+  el.messages.scrollTop = el.messages.scrollHeight;
+  setComposer(!!live, ROOM_PLACEHOLDER);
 }
 
 function updateLive(): void {
   const live = el.messages.querySelector('.msg.live');
-  if (live) {
+  if (live && state.roomId === null) {
     live.textContent = state.live;
+    el.messages.scrollTop = el.messages.scrollHeight;
+  } else if (live && state.roomId !== null) {
+    const text = live.querySelector('.text');
+    if (text) text.textContent = state.roomLive.get(state.roomId)?.text ?? '';
     el.messages.scrollTop = el.messages.scrollHeight;
   } else renderChat();
 }
 
+const plainError = (e: unknown): string =>
+  e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
+
 async function send(): Promise<void> {
-  const chat = currentChat();
   const text = el.input.value.trim();
-  if (!chat || !text || state.busy.has(chat.id)) return;
+  if (!text) return;
+  if (state.roomId !== null) {
+    const roomId = state.roomId;
+    if (state.roomLive.has(roomId)) return;
+    state.error = null;
+    state.roomLive.set(roomId, { botId: null, text: '' });
+    el.input.value = '';
+    renderChat();
+    try {
+      await api.sendRoomMessage(roomId, text);
+    } catch (e) {
+      state.roomLive.delete(roomId);
+      state.error = plainError(e);
+      el.input.value = text;
+      renderChat();
+    }
+    return;
+  }
+  const chat = state.chat;
+  if (!chat || state.busy.has(chat.id)) return;
   state.error = null;
   state.live = '';
   state.busy.add(chat.id);
@@ -210,21 +340,15 @@ async function send(): Promise<void> {
     await api.sendMessage(chat.id, text);
   } catch (e) {
     state.busy.delete(chat.id);
-    state.error = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
+    state.error = plainError(e);
     el.input.value = text;
     renderChat();
   }
 }
 
 async function onChatEvent(ev: ChatEvent): Promise<void> {
-  if (ev.type === 'done' || ev.type === 'error') {
-    state.busy.delete(ev.chatId);
-    if (state.botId !== null) {
-      state.chats = await api.listChats(state.botId);
-      renderChats();
-    }
-  }
-  if (ev.chatId !== state.chatId) return;
+  if (ev.type === 'done' || ev.type === 'error') state.busy.delete(ev.chatId);
+  if (state.roomId !== null || ev.chatId !== state.chat?.id) return;
   switch (ev.type) {
     case 'token':
       state.live += ev.text;
@@ -233,6 +357,9 @@ async function onChatEvent(ev: ChatEvent): Promise<void> {
     case 'message':
       state.messages.push(ev.message);
       if (ev.message.role === 'assistant') state.live = '';
+      if (ev.message.role === 'user' && state.chat && state.chat.title === 'New chat') {
+        state.chat = await api.openBotChat(state.chat.botId); // picks up the title from the first message
+      }
       break;
     case 'tool':
       return; // the tool message event that follows renders it
@@ -248,11 +375,90 @@ async function onChatEvent(ev: ChatEvent): Promise<void> {
   renderChat();
 }
 
-// ---------- create a Cipher bot ----------
+/** Room rounds: the same handling as single chats (friendly errors, Stop keeps what was streamed). */
+function onRoomEvent(ev: RoomEvent): void {
+  const live = state.roomLive.get(ev.roomId);
+  const viewing = ev.roomId === state.roomId;
+  switch (ev.type) {
+    case 'speaker':
+      state.roomLive.set(ev.roomId, { botId: ev.botId, text: '' });
+      break;
+    case 'token':
+      if (live) live.text += ev.text;
+      if (viewing) updateLive();
+      return;
+    case 'message':
+      if (ev.message.role === 'assistant' && live) { live.botId = null; live.text = ''; } // until the next speaker starts
+      if (viewing) state.roomMessages.push(ev.message);
+      break;
+    case 'error':
+      state.roomLive.delete(ev.roomId);
+      if (viewing) state.error = ev.error;
+      void api.checkSetup();
+      break;
+    case 'done':
+      state.roomLive.delete(ev.roomId);
+      break;
+  }
+  if (viewing) renderChat();
+}
+
+// ---------- create a Cipher bot (name, job, icon shape + color) ----------
+function pickedShape(): string {
+  return (el.shapePicker.querySelector('input:checked') as HTMLInputElement | null)?.value ?? BOT_SHAPES[0];
+}
+function pickedColor(): string {
+  return (el.colorPicker.querySelector('input:checked') as HTMLInputElement | null)?.value ?? DEFAULT_COLOR;
+}
+
+/** Recolor the shape picker's icons to the picked color. */
+function recolorShapePicker(): void {
+  const cls = colorClass(pickedColor());
+  for (const svg of el.shapePicker.querySelectorAll('svg')) svg.setAttribute('class', `bot-icon ${cls}`);
+}
+
+function buildPickers(): void {
+  el.shapePicker.replaceChildren(...BOT_SHAPES.map((shape) => {
+    const label = node('label', 'shape-opt') as HTMLLabelElement;
+    label.title = SHAPE_LABELS[shape];
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'shape';
+    input.value = shape;
+    input.className = 'sr-only';
+    input.setAttribute('aria-label', SHAPE_LABELS[shape]);
+    label.append(input, iconSvg(shape, DEFAULT_COLOR, 46));
+    return label;
+  }));
+  el.colorPicker.replaceChildren(...BOT_COLORS.map((color) => {
+    const label = node('label', `color-opt ${colorClass(color)}`) as HTMLLabelElement;
+    label.title = COLOR_LABELS[color];
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'color';
+    input.value = color;
+    input.className = 'sr-only';
+    input.setAttribute('aria-label', COLOR_LABELS[color]);
+    label.append(input, node('span', 'swatch'));
+    return label;
+  }));
+  el.colorPicker.addEventListener('change', recolorShapePicker);
+}
+
+function resetPickers(): void {
+  const shape = leastUsedShape(state.bots.map((b) => b.shape)); // so a new bot looks different by default
+  for (const i of el.shapePicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === shape;
+  for (const i of el.colorPicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === colorOf(DEFAULT_COLOR);
+  recolorShapePicker();
+}
+
 function openBotForm(): void {
   el.form.reset();
+  resetPickers();
   el.botFormError.hidden = true;
   state.formOpen = true;
+  state.roomFormOpen = false;
+  renderRail();
   applyView();
   el.botName.focus();
 }
@@ -261,30 +467,93 @@ async function submitBotForm(e: Event): Promise<void> {
   e.preventDefault();
   el.botFormError.hidden = true;
   try {
-    const bot = await api.createBot({ name: el.botName.value, job: el.botJob.value });
+    const bot = await api.createBot({ name: el.botName.value, job: el.botJob.value, shape: shapeOf(pickedShape()), color: colorOf(pickedColor()) });
     state.formOpen = false;
     await loadBots();
     await selectBot(bot.id);
   } catch (err) {
-    el.botFormError.textContent = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err);
+    el.botFormError.textContent = plainError(err);
     el.botFormError.hidden = false;
   }
 }
 
+// ---------- create a room (2+ bots, optional name) ----------
+function openRoomForm(): void {
+  el.roomForm.reset();
+  el.roomFormError.hidden = true;
+  el.roomMembers.replaceChildren(...state.bots.map((b) => {
+    const label = node('label', 'row member-opt') as HTMLLabelElement;
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = String(b.id);
+    label.append(box, botIcon(b, 30), node('span', 'name', b.name));
+    return label;
+  }));
+  const tooFew = state.bots.length < 2;
+  el.roomCreate.disabled = tooFew;
+  if (tooFew) {
+    el.roomFormError.textContent = 'Create at least two Cipher bots first.';
+    el.roomFormError.hidden = false;
+  }
+  state.roomFormOpen = true;
+  state.formOpen = false;
+  renderRail();
+  applyView();
+  el.roomName.focus();
+}
+
+async function submitRoomForm(e: Event): Promise<void> {
+  e.preventDefault();
+  el.roomFormError.hidden = true;
+  const botIds = [...el.roomMembers.querySelectorAll('input:checked')].map((i) => Number((i as HTMLInputElement).value));
+  if (botIds.length < 2) {
+    el.roomFormError.textContent = 'Pick at least two Cipher bots for the room.';
+    el.roomFormError.hidden = false;
+    return;
+  }
+  try {
+    const room = await api.createRoom({ name: el.roomName.value, botIds });
+    state.roomFormOpen = false;
+    await loadRooms();
+    await selectRoom(room.id);
+  } catch (err) {
+    el.roomFormError.textContent = plainError(err);
+    el.roomFormError.hidden = false;
+  }
+}
+
+function closeForms(): void {
+  state.formOpen = false;
+  state.roomFormOpen = false;
+  renderRail();
+  applyView();
+}
+
 async function replaceBot(updated: Bot): Promise<void> {
   state.bots = state.bots.map((b) => (b.id === updated.id ? updated : b));
-  renderBots();
+  renderRail();
   renderChat();
 }
 
 // ---------- wiring ----------
+buildPickers();
+// The "create a room" button's mark: two muted icons from the set plus a "+" badge (not bot icons, so no animation).
+const roomPlusMark = ['hex', 'circle'].map((shape) => {
+  const svg = iconSvg(shape, DEFAULT_COLOR, 25);
+  svg.setAttribute('class', 'mark c-muted');
+  return svg;
+});
+el.newRoomMark.replaceChildren(...roomPlusMark);
+el.newRoomMark.classList.add('n2');
 el.newBot.addEventListener('click', openBotForm);
-el.botCancel.addEventListener('click', () => { state.formOpen = false; applyView(); });
+el.newRoom.addEventListener('click', openRoomForm);
+el.botCancel.addEventListener('click', closeForms);
+el.roomCancel.addEventListener('click', closeForms);
 el.form.addEventListener('submit', (e) => void submitBotForm(e));
+el.roomForm.addEventListener('submit', (e) => void submitRoomForm(e));
 el.setupGetEngine.addEventListener('click', () => void api.openEngineDownload());
 el.setupRetry.addEventListener('click', () => void api.startSetup());
 api.onSetupState(onSetupState);
-el.newChat.addEventListener('click', () => void newChat());
 el.chatTools.addEventListener('change', async () => {
   const bot = currentBot();
   if (bot) await replaceBot(await api.setBotTools(bot.id, el.chatTools.checked));
@@ -298,8 +567,12 @@ el.composer.addEventListener('submit', (e) => { e.preventDefault(); void send();
 el.input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); }
 });
-el.stop.addEventListener('click', () => { if (state.chatId !== null) void api.stop(state.chatId); });
+el.stop.addEventListener('click', () => {
+  if (state.roomId !== null) void api.stopRoom(state.roomId);
+  else if (state.chat) void api.stop(state.chat.id);
+});
 api.onChatEvent((ev) => void onChatEvent(ev));
+api.onRoomEvent(onRoomEvent);
 
 // ---------- window focus ----------
 // Bot icon animations pause while the window is in the background (see .unfocused in styles.css).
@@ -325,6 +598,7 @@ async function init(): Promise<void> {
   try {
     state.setup = await api.getSetup();
     await loadBots();
+    await loadRooms();
     if (state.bots.length) await selectBot(state.bots[0].id);
     else applyView();
   } finally {

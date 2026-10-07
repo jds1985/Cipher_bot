@@ -1,17 +1,24 @@
 import Database from 'better-sqlite3';
-import type { Bot, Chat, Message, NewBot, Role, ToolCall } from '../shared/types';
-import { normalizeBotIcon, pickLeastUsedIcon } from './botIcons';
+import type { Bot, Chat, Message, NewBot, Role, Room, RoomMessage, ToolCall } from '../shared/types';
+import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIcon, DEFAULT_BOT_COLOR } from './botIcons';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
+/** Longest optional room name. */
+export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
 
-interface BotRow { id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string; icon: string | null }
+interface BotRow {
+  id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string;
+  icon: string | null; shape: string | null; color: string | null;
+}
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
 interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string }
+interface RoomRow { id: number; name: string; created_at: string; updated_at: string }
+interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, createdAt: r.created_at, icon: normalizeBotIcon(r.icon),
+  folderPath: r.folder_path, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -22,6 +29,17 @@ const toMessage = (r: MessageRow): Message => ({
   toolName: r.tool_name, createdAt: r.created_at,
 });
 
+const toRoomMessage = (r: RoomMessageRow): RoomMessage => ({
+  id: r.id, roomId: r.room_id, role: r.role, botId: r.bot_id, content: r.content, createdAt: r.created_at,
+});
+
+export interface NewRoomMessage {
+  roomId: number;
+  role: 'user' | 'assistant';
+  botId?: number | null;
+  content: string;
+}
+
 export interface NewMessage {
   chatId: number;
   role: Role;
@@ -30,7 +48,7 @@ export interface NewMessage {
   toolName?: string | null;
 }
 
-/** Local SQLite store for bots, chats and messages. */
+/** Local SQLite store for bots, chats, messages and rooms. */
 export class CipherDb {
   private db: Database.Database;
 
@@ -79,10 +97,77 @@ export class CipherDb {
       this.db.pragma('user_version = 2');
     }
     // v3: per-bot icon. Idempotent: the column is only added when it's missing.
-    const botColumns = this.db.prepare('PRAGMA table_info(bots)').all() as { name: string }[];
-    if (!botColumns.some((c) => c.name === 'icon')) this.db.exec('ALTER TABLE bots ADD COLUMN icon TEXT');
-    if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    this.addColumnIfMissing('bots', 'icon', 'icon TEXT');
     this.backfillIcons();
+    // v4 (all steps idempotent; nothing is ever deleted):
+    // - bots.shape / bots.color: the icon the user picks on create. Existing bots keep their v1.4 icon as the
+    //   shape (same key names) with the default color.
+    this.addColumnIfMissing('bots', 'shape', 'shape TEXT');
+    this.addColumnIfMissing('bots', 'color', 'color TEXT');
+    this.backfillShapes();
+    // - chats.hidden: one chat per bot. Each bot's most recent chat stays its chat; older chats are only
+    //   flagged hidden (rows and their messages are kept).
+    this.addColumnIfMissing('chats', 'hidden', 'hidden INTEGER NOT NULL DEFAULT 0');
+    this.hideOlderChats();
+    // - rooms (group chats), their members (in member order) and their messages.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+      CREATE TABLE IF NOT EXISTS room_members (
+        room_id  INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+        bot_id   INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        PRIMARY KEY (room_id, bot_id)
+      );
+      CREATE TABLE IF NOT EXISTS room_messages (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id    INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL CHECK (role IN ('user','assistant')),
+        bot_id     INTEGER REFERENCES bots(id) ON DELETE SET NULL,
+        content    TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+      CREATE INDEX IF NOT EXISTS room_messages_room ON room_messages(room_id, id);
+    `);
+    if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }
+
+  private addColumnIfMissing(table: 'bots' | 'chats', column: string, definition: string): void {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+
+  /** Bots without a shape/color (older databases) get their v1.4 icon as the shape and the default color. */
+  private backfillShapes(): void {
+    const rows = this.db
+      .prepare("SELECT id, icon, shape, color FROM bots WHERE shape IS NULL OR shape = '' OR color IS NULL OR color = ''")
+      .all() as { id: number; icon: string | null; shape: string | null; color: string | null }[];
+    if (!rows.length) return;
+    const update = this.db.prepare('UPDATE bots SET shape = ?, color = ? WHERE id = ?');
+    this.db.transaction(() => {
+      for (const r of rows) {
+        update.run(r.shape ? r.shape : normalizeBotIcon(r.icon), r.color ? r.color : DEFAULT_BOT_COLOR, r.id);
+      }
+    })();
+  }
+
+  /**
+   * One chat per bot: keep each bot's most recent visible chat (latest activity, then highest id) and flag any
+   * other visible chat of that bot as hidden. Never deletes. Idempotent: afterwards each bot has at most one
+   * visible chat, so running it again changes nothing.
+   */
+  private hideOlderChats(): void {
+    this.db.exec(`
+      UPDATE chats SET hidden = 1
+      WHERE hidden = 0 AND id <> (
+        SELECT c2.id FROM chats c2 WHERE c2.bot_id = chats.bot_id AND c2.hidden = 0
+        ORDER BY c2.updated_at DESC, c2.id DESC LIMIT 1
+      )
+    `);
   }
 
   /** Give every bot without an icon one, in creation order, each time picking the least-used icon. */
@@ -102,10 +187,6 @@ export class CipherDb {
       }
     });
     tx();
-  }
-
-  private usedIcons(): string[] {
-    return (this.db.prepare('SELECT icon FROM bots').all() as { icon: string | null }[]).map((r) => r.icon ?? '');
   }
 
   // ---- settings ----
@@ -138,15 +219,14 @@ export class CipherDb {
     if (name.length > 80) throw new Error('Cipher bot names must be 80 characters or fewer.');
     const prompt = String(input.systemPrompt ?? '');
     if (prompt.length > 20000) throw new Error('The job description is too long (max 20000 characters).');
-    // The icon is assigned automatically (least-used, ties in set order); there is no picker.
-    const insert = this.db.transaction((): number => {
-      const icon = pickLeastUsedIcon(this.usedIcons());
-      const info = this.db
-        .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path, icon) VALUES (?, ?, ?, ?, ?)')
-        .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null, icon);
-      return Number(info.lastInsertRowid);
-    });
-    return this.getBot(insert())!;
+    // Shape and color are picked on create; anything off the whitelist becomes the default.
+    // The v1.4 icon column gets the shape key too, so an older Cipher still shows a matching icon.
+    const shape = normalizeBotShape(input.shape);
+    const color = normalizeBotColor(input.color);
+    const info = this.db
+      .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path, icon, shape, color) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null, shape, shape, color);
+    return this.getBot(Number(info.lastInsertRowid))!;
   }
 
   setBotFolder(id: number, folderPath: string | null): Bot {
@@ -171,6 +251,18 @@ export class CipherDb {
   getChat(id: number): Chat | null {
     const r = this.db.prepare('SELECT * FROM chats WHERE id = ?').get(id) as ChatRow | undefined;
     return r ? toChat(r) : null;
+  }
+
+  /**
+   * The bot's one chat: its most recent visible chat, or a new one created now (lazily, on first open).
+   * Hidden (older) chats are never returned here.
+   */
+  getBotChat(botId: number): Chat {
+    if (!this.getBot(botId)) throw new Error('Cipher bot not found.');
+    const r = this.db
+      .prepare('SELECT * FROM chats WHERE bot_id = ? AND hidden = 0 ORDER BY updated_at DESC, id DESC LIMIT 1')
+      .get(botId) as ChatRow | undefined;
+    return r ? toChat(r) : this.createChat(botId);
   }
 
   createChat(botId: number, title = DEFAULT_CHAT_TITLE): Chat {
@@ -199,5 +291,60 @@ export class CipherDb {
     });
     const id = tx();
     return toMessage(this.db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as MessageRow);
+  }
+
+  // ---- rooms ----
+  private roomMemberIds(roomId: number): number[] {
+    return (this.db.prepare('SELECT bot_id FROM room_members WHERE room_id = ? ORDER BY position, bot_id').all(roomId) as { bot_id: number }[])
+      .map((r) => r.bot_id);
+  }
+
+  private toRoom(r: RoomRow): Room {
+    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at };
+  }
+
+  listRooms(): Room[] {
+    return (this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as RoomRow[]).map((r) => this.toRoom(r));
+  }
+
+  getRoom(id: number): Room | null {
+    const r = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(id) as RoomRow | undefined;
+    return r ? this.toRoom(r) : null;
+  }
+
+  /** Create a room with 2+ distinct existing bots; member order is the order given. */
+  createRoom(input: { name?: unknown; botIds: unknown }): Room {
+    const name = typeof input.name === 'string' ? input.name.replace(/\s+/g, ' ').trim() : '';
+    if (name.length > MAX_ROOM_NAME) throw new Error(`Room names must be ${MAX_ROOM_NAME} characters or fewer.`);
+    if (!Array.isArray(input.botIds)) throw new Error('Pick at least two Cipher bots for the room.');
+    const ids: number[] = [];
+    for (const v of input.botIds) {
+      if (!Number.isSafeInteger(v) || (v as number) <= 0) throw new Error('Invalid id.');
+      if (!ids.includes(v as number)) ids.push(v as number);
+    }
+    if (ids.length < 2) throw new Error('Pick at least two Cipher bots for the room.');
+    for (const id of ids) if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    const id = this.db.transaction((): number => {
+      const roomId = Number(this.db.prepare('INSERT INTO rooms (name) VALUES (?)').run(name).lastInsertRowid);
+      const add = this.db.prepare('INSERT INTO room_members (room_id, bot_id, position) VALUES (?, ?, ?)');
+      ids.forEach((botId, i) => add.run(roomId, botId, i));
+      return roomId;
+    })();
+    return this.getRoom(id)!;
+  }
+
+  listRoomMessages(roomId: number): RoomMessage[] {
+    return (this.db.prepare('SELECT * FROM room_messages WHERE room_id = ? ORDER BY id').all(roomId) as RoomMessageRow[]).map(toRoomMessage);
+  }
+
+  addRoomMessage(m: NewRoomMessage): RoomMessage {
+    const id = this.db.transaction((): number => {
+      const info = this.db
+        .prepare('INSERT INTO room_messages (room_id, role, bot_id, content) VALUES (?, ?, ?, ?)')
+        .run(m.roomId, m.role, m.role === 'assistant' ? m.botId ?? null : null, m.content);
+      this.db.prepare("UPDATE rooms SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(m.roomId);
+      return Number(info.lastInsertRowid);
+    })();
+    return toRoomMessage(this.db.prepare('SELECT * FROM room_messages WHERE id = ?').get(id) as RoomMessageRow);
   }
 }

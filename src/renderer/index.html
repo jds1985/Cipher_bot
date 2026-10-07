@@ -13,19 +13,18 @@
     <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher</span></div></div>
     <div id="splash" aria-hidden="true"><img src="assets/splash.png" alt="Cipher" /></div>
     <div id="app">
-      <aside id="sidebar">
-        <h1 class="brand">Cipher</h1>
-        <div class="section-head">
-          <span>Cipher bots</span>
-          <button id="new-bot" class="small" title="Create a Cipher bot">+ New Cipher bot</button>
-        </div>
-        <ul id="bot-list" class="list"></ul>
-        <div class="section-head" id="chats-head" hidden>
-          <span>Chats</span>
-          <button id="new-chat" class="small" title="Start a new chat">+ New chat</button>
-        </div>
-        <ul id="chat-list" class="list"></ul>
-      </aside>
+      <nav id="sidebar" aria-label="Cipher bots and rooms">
+        <div id="bot-list" class="rail-list" role="group" aria-label="Cipher bots"></div>
+        <button type="button" id="new-bot" class="rail-btn rail-add" title="Create a Cipher bot" aria-label="Create a Cipher bot">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+        <div class="rail-sep" aria-hidden="true"></div>
+        <div id="room-list" class="rail-list" role="group" aria-label="Rooms"></div>
+        <button type="button" id="new-room" class="rail-btn rail-add-room" title="Create a room (group chat with two or more Cipher bots)" aria-label="Create a room">
+          <span id="new-room-mark" class="cluster"></span>
+          <svg class="plus-badge" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+        </button>
+      </nav>
       <main id="main">
         <section id="bot-form-view" class="view" hidden>
           <form id="bot-form" class="card">
@@ -37,10 +36,36 @@
             <label>Job
               <textarea id="bot-job" rows="5" placeholder="What should this Cipher bot do? e.g. Help me plan my week and keep answers short."></textarea>
             </label>
+            <fieldset class="picker">
+              <legend>Icon shape</legend>
+              <div id="shape-picker" class="shape-grid" role="radiogroup" aria-label="Icon shape"></div>
+            </fieldset>
+            <fieldset class="picker">
+              <legend>Icon color</legend>
+              <div id="color-picker" class="color-row" role="radiogroup" aria-label="Icon color"></div>
+            </fieldset>
             <p id="bot-form-error" class="error" hidden></p>
             <div class="row end">
               <button type="button" id="bot-cancel" class="secondary">Cancel</button>
               <button type="submit">Create Cipher bot</button>
+            </div>
+          </form>
+        </section>
+        <section id="room-form-view" class="view" hidden>
+          <form id="room-form" class="card">
+            <h2>Create a room</h2>
+            <p class="muted">A group chat with two or more of your Cipher bots. After you post, each Cipher bot replies once, in the order below. Type <strong>@Name</strong> to ask just one of them. File reading is off in rooms.</p>
+            <label>Room name (optional)
+              <input id="room-name" maxlength="80" placeholder="e.g. Planning team" />
+            </label>
+            <fieldset class="picker">
+              <legend>Cipher bots in this room (pick 2 or more)</legend>
+              <div id="room-members" class="member-list"></div>
+            </fieldset>
+            <p id="room-form-error" class="error" hidden></p>
+            <div class="row end">
+              <button type="button" id="room-cancel" class="secondary">Cancel</button>
+              <button type="submit" id="room-create">Create room</button>
             </div>
           </form>
         </section>
@@ -58,12 +83,13 @@
         </section>
         <section id="chat-view" class="view" hidden>
           <header id="chat-header">
-            <img id="chat-bot-icon" class="bot-icon" src="assets/bot-icons/cipher-bot-01-hex.png" alt="" width="40" height="40" />
+            <span id="chat-icon" class="header-icon"></span>
             <div class="title-block">
               <strong id="chat-bot-name"></strong>
               <span id="chat-title" class="muted"></span>
             </div>
-            <div class="row bot-settings">
+            <span id="room-note" class="muted room-note" hidden>File reading is off in rooms</span>
+            <div class="row bot-settings" id="bot-settings">
               <label class="row" title="Let this Cipher bot read text files in one folder you choose">
                 <input type="checkbox" id="chat-tools" /> <span>Read files</span>
               </label>
@@ -80,6 +106,7 @@
         </section>
       </main>
     </div>
+    <div id="bottombar" aria-hidden="true"></div>
     <script type="module" src="renderer.js"></script>
   </body>
 </html>

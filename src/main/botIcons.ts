@@ -1,8 +1,8 @@
-// Liz's Cipher bot icon set (v1.4). Each bot gets one automatically when it is created; there is no picker.
-// The stored value is only ever one of these keys. The renderer maps a key to its bundled file
-// (src/renderer/botIcon.ts); a test keeps both lists and the files in assets/bot-icons/ in sync.
+// Liz's Cipher bot icons. v1.5: the user picks a shape (12, from Liz's currentColor SVG set) and a color
+// (fixed palette) when creating a bot. Stored values are only ever keys from the lists below; the renderer
+// keeps its own copy of both whitelists (src/renderer/botIcon.ts) and a test keeps them in sync.
 
-/** The icon keys, in set order (01 hex … 09 pentagon). */
+/** v1.4 icon keys, in set order (01 hex … 09 pentagon). Still used to backfill bots.icon for older databases. */
 export const BOT_ICONS = ['hex', 'circle', 'square', 'diamond', 'triangle', 'shield', 'octagon', 'capsule', 'pentagon'] as const;
 
 export type BotIcon = (typeof BOT_ICONS)[number];
@@ -29,3 +29,23 @@ export function pickLeastUsedIcon(used: Iterable<unknown>): BotIcon {
   for (const k of BOT_ICONS) if (counts.get(k)! < counts.get(best)!) best = k;
   return best;
 }
+
+// ---- v1.5: shape + color, picked on create ----
+
+/** Shape keys in Liz's v1.5 set order (01 hex … 12 monitor). The first nine are the v1.4 icons, same names. */
+export const BOT_SHAPES = [...BOT_ICONS, 'chip', 'antenna', 'monitor'] as const;
+export type BotShape = (typeof BOT_SHAPES)[number];
+export const DEFAULT_BOT_SHAPE: BotShape = 'hex';
+
+/** Color keys of the fixed palette (CSS classes .c-<key> in styles.css). blue = #5b8cff is the default. */
+export const BOT_COLORS = ['blue', 'cyan', 'green', 'yellow', 'orange', 'coral', 'pink', 'violet'] as const;
+export type BotColor = (typeof BOT_COLORS)[number];
+export const DEFAULT_BOT_COLOR: BotColor = 'blue';
+
+export const isBotShape = (v: unknown): v is BotShape => typeof v === 'string' && (BOT_SHAPES as readonly string[]).includes(v);
+export const isBotColor = (v: unknown): v is BotColor => typeof v === 'string' && (BOT_COLORS as readonly string[]).includes(v);
+
+/** Whitelist: a known shape key, or the default shape for anything else. */
+export const normalizeBotShape = (v: unknown): BotShape => (isBotShape(v) ? v : DEFAULT_BOT_SHAPE);
+/** Whitelist: a known color key, or the default color (#5b8cff) for anything else. */
+export const normalizeBotColor = (v: unknown): BotColor => (isBotColor(v) ? v : DEFAULT_BOT_COLOR);

@@ -9,7 +9,7 @@ import type { SetupState } from '../shared/types';
 
 // The renderer's pure view module is an ES module; Electron's Node can require() it directly.
 interface ViewModule {
-  decideView(i: { botCount: number; formOpen: boolean; setup: SetupState }): 'form' | 'setup' | 'chat';
+  decideView(i: { botCount: number; formOpen: boolean; roomFormOpen?: boolean; setup: SetupState }): 'form' | 'room-form' | 'setup' | 'chat';
   setupCopy(s: SetupState): { text: string; detail: string | null; showProgress: boolean; showGetEngine: boolean; retryLabel: string | null };
 }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -19,8 +19,8 @@ const st = (phase: SetupState['phase'], extra: Partial<SetupState> = {}): SetupS
   ({ phase, percent: null, completed: 0, total: 0, message: null, ...extra });
 
 test('"Create a Cipher bot" Name + Job: Job becomes the system prompt, file reading off, no folder', () => {
-  assert.deepEqual(toNewBot({ name: 'Planner', job: '  Help me plan my week.  ' }), {
-    name: 'Planner', systemPrompt: 'Help me plan my week.', toolsEnabled: false, folderPath: null,
+  assert.deepEqual(toNewBot({ name: 'Planner', job: '  Help me plan my week.  ', shape: 'chip', color: 'cyan' }), {
+    name: 'Planner', systemPrompt: 'Help me plan my week.', toolsEnabled: false, folderPath: null, shape: 'chip', color: 'cyan',
   });
   // Extra fields from the renderer can't turn tools on or attach a folder at creation.
   assert.equal(toNewBot({ name: 'x', job: '', toolsEnabled: true, folderPath: '/etc' } as never).toolsEnabled, false);
@@ -51,6 +51,8 @@ test('after the first Cipher bot exists: setup screen until ready; never blocks 
   assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('checking') }), 'chat');
   assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('ready') }), 'chat');
   assert.equal(view.decideView({ botCount: 1, formOpen: true, setup: st('ready') }), 'form');
+  assert.equal(view.decideView({ botCount: 2, formOpen: false, roomFormOpen: true, setup: st('ready') }), 'room-form');
+  assert.equal(view.decideView({ botCount: 0, formOpen: false, roomFormOpen: true, setup: st('ready') }), 'form', 'first run still creates a bot');
 });
 
 test('setup screen copy: progress while downloading, actionable buttons otherwise, no engine/model names', () => {

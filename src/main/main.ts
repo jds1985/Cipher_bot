@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
-import type { ChatEvent, NewBotForm, SetupState } from '../shared/types';
+import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
 import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
+import { runRoomTurn } from './roomEngine';
 import { toNewBot } from './createBot';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
@@ -10,6 +11,8 @@ import { SetupManager } from './setup';
 let db: CipherDb;
 let setup: SetupManager;
 const activeTurns = new Map<number, AbortController>();
+/** Rooms with a round in progress (one round at a time per room). */
+const activeRooms = new Map<number, AbortController>();
 /** The one model (qwen2.5:7b), or the developer-only CIPHER_MODEL override. Never shown on screen. */
 const currentModel = (): string => configuredModel();
 
@@ -32,8 +35,11 @@ function lockDownNetwork(): void {
 /** Cipher window frame colors (match --bg and --accent in styles.css). */
 const FRAME_BG = '#15171c';
 const FRAME_ACCENT = '#5b8cff';
-/** Height of the title strip; the renderer's #titlebar uses env(titlebar-area-height), falling back to 32px. */
-const TITLE_BAR_HEIGHT = 32;
+/**
+ * Height of the title strip = Liz's top frame (cipher-frame-top.svg, 40px), so the window controls line up with it.
+ * The renderer's #titlebar uses env(titlebar-area-height), falling back to 40px.
+ */
+const TITLE_BAR_HEIGHT = 40;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -46,7 +52,7 @@ function createWindow(): BrowserWindow {
     backgroundColor: FRAME_BG,
     // Cipher-colored frame: hide the system title bar and let Electron draw the min/max/close controls
     // (Window Controls Overlay, supported on Windows and Linux; macOS keeps its traffic lights).
-    // The renderer draws a draggable #15171c title strip underneath.
+    // The renderer draws Liz's draggable top frame underneath.
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: FRAME_BG, symbolColor: FRAME_ACCENT, height: TITLE_BAR_HEIGHT },
     icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
@@ -97,8 +103,8 @@ function registerIpc(): void {
     return r.filePaths[0];
   });
 
-  ipcMain.handle('chats:list', (_e, botId: unknown) => db.listChats(asId(botId)));
-  ipcMain.handle('chats:create', (_e, botId: unknown) => db.createChat(asId(botId)));
+  // One chat per bot: its most recent chat, created on first open. Older chats stay in the database, hidden.
+  ipcMain.handle('chats:openForBot', (_e, botId: unknown) => db.getBotChat(asId(botId)));
   ipcMain.handle('messages:list', (_e, chatId: unknown) => db.listMessages(asId(chatId)));
 
   ipcMain.handle('chat:send', (e, chatIdRaw: unknown, text: unknown) => {
@@ -114,6 +120,28 @@ function registerIpc(): void {
       .finally(() => activeTurns.delete(chatId));
   });
   ipcMain.handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
+
+  // ---- rooms (group chats). No tools in rooms; see roomEngine.ts. ----
+  ipcMain.handle('rooms:list', () => db.listRooms());
+  ipcMain.handle('rooms:create', (_e, input: unknown) => {
+    const form = (input && typeof input === 'object' ? input : {}) as Partial<NewRoomForm>;
+    return db.createRoom({ name: form.name, botIds: form.botIds });
+  });
+  ipcMain.handle('roomMessages:list', (_e, roomId: unknown) => db.listRoomMessages(asId(roomId)));
+  ipcMain.handle('room:send', (e, roomIdRaw: unknown, text: unknown) => {
+    const roomId = asId(roomIdRaw);
+    if (typeof text !== 'string' || !text.trim()) throw new Error('Message is empty.');
+    if (!db.getRoom(roomId)) throw new Error('Room not found.');
+    if (activeRooms.has(roomId)) throw new Error('This room is still replying.');
+    const controller = new AbortController();
+    activeRooms.set(roomId, controller);
+    const sender = e.sender;
+    const emit = (ev: RoomEvent) => { if (!sender.isDestroyed()) sender.send('room:event', ev); };
+    runRoomTurn({ db, model: currentModel(), emit }, roomId, text, controller.signal)
+      .catch((err: unknown) => emit({ roomId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => activeRooms.delete(roomId));
+  });
+  ipcMain.handle('room:stop', (_e, roomId: unknown) => { activeRooms.get(asId(roomId))?.abort(); });
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -142,6 +170,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', () => {
     for (const c of activeTurns.values()) c.abort();
+    for (const c of activeRooms.values()) c.abort();
     db?.close();
   });
 }

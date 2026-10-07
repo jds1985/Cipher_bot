@@ -1,35 +1,53 @@
 :root { color-scheme: dark; --bg: #15171c; --panel: #1d2027; --panel2: #242833; --line: #2c303a; --text: #e6e8ee;
   --muted: #9096a3; --accent: #5b8cff; --accent2: #3f6fe0; --err: #ff6b6b; --warn-bg: #3a2f17; --warn-line: #7a5a1c;
-  /* Title strip height: the Window Controls Overlay height when it's active (32px, see main.ts). */
-  --titlebar-h: env(titlebar-area-height, 32px); }
+  /* Title strip height = Liz's top frame: the Window Controls Overlay height when it's active (40px, see main.ts). */
+  --titlebar-h: env(titlebar-area-height, 40px);
+  /* Liz's bottom frame. */
+  --bottombar-h: 28px; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
 [hidden] { display: none !important; }
-#app { display: flex; height: calc(100vh - var(--titlebar-h)); border-top: 1px solid var(--accent); }
-#sidebar { width: 260px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 12px; overflow-y: auto; }
+/* The app sits between Liz's top frame (title strip) and bottom frame, so neither bar hides content. */
+#app { display: flex; height: calc(100vh - var(--titlebar-h) - var(--bottombar-h)); }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.brand { font-size: 18px; margin: 4px 0 16px; letter-spacing: .5px; }
 .muted { color: var(--muted); }
 .error { color: var(--err); margin: 0; }
-.section-head { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 6px;
-  color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
-.list { list-style: none; margin: 0; padding: 0; }
-.list li { padding: 7px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.list li:hover { background: var(--panel2); }
-.list li.active { background: var(--accent2); color: #fff; }
-.list li .tag { font-size: 11px; opacity: .75; margin-left: 6px; }
-.list li.bot { display: flex; align-items: center; gap: 8px; padding: 5px 9px; }
-.list li.bot .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.list li.bot .tag { flex: none; margin-left: auto; }
-.list li.bot .bot-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--bg); }
+
+/* ---------- Left column: bot icons only, then rooms, each with a "+" icon button ---------- */
+#sidebar { width: 68px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 0;
+  overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.rail-list { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.rail-list:empty { display: none; }
+.rail-btn { position: relative; flex: none; width: 50px; height: 50px; padding: 0; display: flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 12px; }
+.rail-btn:hover { background: var(--panel2); color: var(--text); }
+.rail-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rail-btn.active { background: var(--panel2); border-color: var(--line); }
+.rail-btn.active::before { content: ''; position: absolute; left: -9px; top: 12px; bottom: 12px; width: 3px; border-radius: 2px; background: var(--accent); }
+.rail-btn > .bot-icon { width: 42px; height: 42px; }
+.rail-btn.room { border-radius: 50%; border-color: var(--line); }
+.rail-btn.room.active { border-color: var(--accent); }
+.rail-add { width: 40px; height: 40px; border: 1px dashed var(--line); }
+.rail-add-room { border: 1px dashed var(--line); border-radius: 50%; }
+.rail-sep { flex: none; width: 34px; height: 1px; background: var(--line); margin: 4px 0; }
+/* A room's mark: a small cluster of its bots' icons (first two or three, in member order). */
+.cluster { position: relative; display: block; width: 40px; height: 40px; flex: none; }
+.cluster > svg { position: absolute; width: 25px; height: 25px; }
+.cluster.n2 > svg:nth-child(1) { left: 0; top: 2px; }
+.cluster.n2 > svg:nth-child(2) { right: 0; bottom: 2px; }
+.cluster.n3 > svg:nth-child(1) { left: 0; top: 0; }
+.cluster.n3 > svg:nth-child(2) { right: 0; top: 0; }
+.cluster.n3 > svg:nth-child(3) { left: 7.5px; bottom: 0; }
+.rail-add-room .plus-badge { position: absolute; right: 1px; bottom: 1px; background: var(--accent); color: #fff; border-radius: 50%; padding: 2px; }
+.c-muted { color: var(--muted); }
 button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }
 button:hover { background: var(--accent2); }
 button:disabled { opacity: .5; cursor: default; }
 button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--line); }
 button.small { padding: 3px 8px; font-size: 12px; text-transform: none; letter-spacing: 0; }
 input, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; width: 100%; }
-input[type=checkbox] { width: auto; }
+input[type=checkbox], input[type=radio] { width: auto; }
 textarea { resize: vertical; }
 label { display: block; margin-bottom: 12px; }
 label > input, label > textarea { margin-top: 4px; }
@@ -37,6 +55,8 @@ label > input, label > textarea { margin-top: 4px; }
 label.row { margin-bottom: 0; }
 .row.end { justify-content: flex-end; margin-top: 8px; }
 .view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* The create screens scroll inside the area between the frames. */
+#bot-form-view, #room-form-view { overflow-y: auto; }
 .empty-inner { margin: auto; text-align: center; max-width: 420px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; width: min(560px, 92%); margin: 32px auto; }
 .card h2 { margin-top: 0; }
@@ -45,13 +65,20 @@ code, .cmd { background: #0008; padding: 2px 6px; border-radius: 4px; user-selec
 #chat-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .title-block { display: flex; flex-direction: column; min-width: 0; }
 #chat-header .title-block { flex: 1; }
-#chat-bot-icon { width: 40px; height: 40px; }
+.header-icon { display: block; flex: none; width: 40px; height: 40px; }
+.header-icon > .bot-icon { width: 40px; height: 40px; }
+.room-note { font-size: 12px; white-space: nowrap; }
 .title-block span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .folder { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .msg { max-width: 78%; padding: 9px 12px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
 .msg.user { align-self: flex-end; background: var(--accent2); color: #fff; }
 .msg.assistant { align-self: flex-start; background: var(--panel2); }
+/* Room replies: who is speaking (icon + name) above the text. */
+.msg .speaker { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.msg .speaker .bot-icon { width: 26px; height: 26px; }
+.msg.live .text::after { content: '▍'; opacity: .6; }
+.msg.room-msg.live::after { content: none; }
 .msg.live::after { content: '▍'; opacity: .6; }
 .msg.note { align-self: flex-start; background: none; color: var(--muted); font-size: 12px; padding: 0 4px; }
 .msg.note.bad { color: var(--err); }
@@ -69,22 +96,58 @@ code, .cmd { background: #0008; padding: 2px 6px; border-radius: 4px; user-selec
 @keyframes splash-out { to { opacity: 0; visibility: hidden; pointer-events: none; } }
 #bot-form .empty-art { display: block; width: 200px; height: auto; margin: 0 auto 16px; }
 
-/* ---------- Cipher window frame: draggable title strip under the window controls ---------- */
-#titlebar { height: var(--titlebar-h); background: var(--bg); -webkit-app-region: drag; user-select: none; }
-/* Keep content inside the title bar area, clear of the min/max/close controls. */
-#titlebar .titlebar-area { display: flex; align-items: center; height: 100%; padding: 0 12px;
-  margin-left: env(titlebar-area-x, 0px); width: env(titlebar-area-width, 100%); }
+/* ---------- Create screens: icon shape + color pickers, room member list ---------- */
+fieldset.picker { border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
+fieldset.picker legend { padding: 0; margin-bottom: 6px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
+.shape-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+label.shape-opt { position: relative; margin: 0; display: flex; justify-content: center; padding: 4px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); cursor: pointer; }
+label.shape-opt .bot-icon { width: 46px; height: 46px; }
+label.shape-opt:hover { background: var(--panel2); }
+label.shape-opt:has(input:checked) { border-color: var(--accent); background: var(--panel2); }
+label.shape-opt:has(input:focus-visible), label.color-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.color-row { display: flex; flex-wrap: wrap; gap: 8px; }
+label.color-opt { position: relative; margin: 0; padding: 3px; border: 2px solid transparent; border-radius: 50%; cursor: pointer; }
+label.color-opt:has(input:checked) { border-color: var(--text); }
+.swatch { display: block; width: 24px; height: 24px; border-radius: 50%; background: currentColor; }
+.member-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+label.member-opt { margin: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+label.member-opt:hover { background: var(--panel2); }
+label.member-opt .bot-icon { width: 30px; height: 30px; }
+
+/* ---------- Icon colors: a fixed palette that reads well on #15171c (classes only, no inline styles) ---------- */
+.c-blue   { color: #5b8cff; --glow: 91, 140, 255; }
+.c-cyan   { color: #3ccfe6; --glow: 60, 207, 230; }
+.c-green  { color: #4fd18b; --glow: 79, 209, 139; }
+.c-yellow { color: #f2c94c; --glow: 242, 201, 76; }
+.c-orange { color: #ff9f5a; --glow: 255, 159, 90; }
+.c-coral  { color: #ff6b7a; --glow: 255, 107, 122; }
+.c-pink   { color: #f17ad8; --glow: 241, 122, 216; }
+.c-violet { color: #a68bff; --glow: 166, 139, 255; }
+
+/* ---------- Cipher window frame: Liz's top frame is the draggable title strip under the window controls ---------- */
+/* cipher-frame-top.svg / -bottom.svg stretch to the full width: the long lines stretch, the tracer ends stay
+   fixed at the left and right edges (the SVGs draw in px from each edge). */
+#titlebar { height: var(--titlebar-h); background: var(--bg) url("assets/frames/cipher-frame-top.svg") no-repeat 0 0 / 100% 100%;
+  -webkit-app-region: drag; user-select: none; }
+#bottombar { height: var(--bottombar-h); background: var(--bg) url("assets/frames/cipher-frame-bottom.svg") no-repeat 0 0 / 100% 100%; user-select: none; }
+/* Keep content inside the title bar area, clear of the min/max/close controls; the title sits just right of the
+   left tracer end so it doesn't cross Liz's lines. */
+#titlebar .titlebar-area { display: flex; align-items: center; height: 100%; padding: 0 12px 2px 326px;
+  margin-left: env(titlebar-area-x, 0px); width: env(titlebar-area-width, 100%); overflow: hidden; }
 #titlebar .titlebar-title { color: var(--muted); font-size: 12px; letter-spacing: .6px; }
 #titlebar button, #titlebar input, #titlebar a { -webkit-app-region: no-drag; }
 
-/* ---------- Bot icons: a subtle #5b8cff glow + 1px float ---------- */
-.bot-icon { flex: none; display: block; animation: bot-icon-glow 3.2s ease-in-out infinite; }
+/* ---------- Bot icons: a subtle glow in the icon's color (#5b8cff by default) + 1px float ---------- */
+/* Every bot icon rendering (column, chat header, room messages, room marks, pickers) has the .bot-icon class. */
+.bot-icon { flex: none; display: block; overflow: visible; animation: bot-icon-glow 3.2s ease-in-out infinite; }
 @keyframes bot-icon-glow {
-  0%, 100% { filter: drop-shadow(0 0 1px rgba(91, 140, 255, .25)); transform: translateY(0); }
-  50% { filter: drop-shadow(0 0 4px rgba(91, 140, 255, .6)); transform: translateY(-1px); }
+  0%, 100% { filter: drop-shadow(0 0 1px rgba(var(--glow, 91, 140, 255), .25)); transform: translateY(0); }
+  50% { filter: drop-shadow(0 0 4px rgba(var(--glow, 91, 140, 255), .6)); transform: translateY(-1px); }
 }
 /* Paused while the window is in the background (class toggled from window focus/blur in renderer.ts). */
 :root.unfocused .bot-icon { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  .bot-icon { animation: none; filter: drop-shadow(0 0 2px rgba(91, 140, 255, .35)); }
+  .bot-icon { animation: none; filter: drop-shadow(0 0 2px rgba(var(--glow, 91, 140, 255), .35)); }
 }

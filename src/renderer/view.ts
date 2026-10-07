@@ -1,7 +1,7 @@
 // Pure view decisions for the renderer (no DOM), kept separate so they can be unit-tested.
 import type { SetupState } from '../shared/types';
 
-export type MainView = 'form' | 'setup' | 'chat';
+export type MainView = 'form' | 'room-form' | 'setup' | 'chat';
 
 /** Phases in which the "Setting up your Cipher bot" screen covers the chats. */
 export const needsSetupScreen = (st: SetupState): boolean =>
@@ -9,11 +9,17 @@ export const needsSetupScreen = (st: SetupState): boolean =>
 
 /**
  * First run (no Cipher bots yet) always starts on "Create a Cipher bot". After that the setup screen
- * covers chats until the model is ready. Never blocks on 'checking'.
+ * covers chats and rooms until the model is ready. Never blocks on 'checking'.
  */
-export function decideView(input: { botCount: number; formOpen: boolean; setup: SetupState }): MainView {
+export function decideView(input: { botCount: number; formOpen: boolean; roomFormOpen?: boolean; setup: SetupState }): MainView {
   if (input.formOpen || input.botCount === 0) return 'form';
+  if (input.roomFormOpen) return 'room-form';
   return needsSetupScreen(input.setup) ? 'setup' : 'chat';
+}
+
+/** Display name of a room: its own name, or its members' names. */
+export function roomTitle(name: string, memberNames: readonly string[]): string {
+  return name.trim() || memberNames.join(', ') || 'Room';
 }
 
 function formatBytes(n: number): string {
