@@ -433,6 +433,12 @@ export class CipherDb {
     return this.getRoom(id)!;
   }
 
+  /** Delete a room (group chat) and its messages (FK CASCADE: members, messages). Bots are not touched. */
+  deleteRoom(id: number): void {
+    if (!this.getRoom(id)) throw new Error('Room not found.');
+    this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
+  }
+
   listRoomMessages(roomId: number): RoomMessage[] {
     return (this.db.prepare('SELECT * FROM room_messages WHERE room_id = ? ORDER BY id').all(roomId) as RoomMessageRow[]).map(toRoomMessage);
   }
