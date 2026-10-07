@@ -7,18 +7,39 @@ import { runRoomTurn } from './roomEngine';
 import { toNewBot } from './createBot';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
+import { ONLINE_SETTING_KEY, assertOutboundAllowed, onlineSettingValue, parseOnlineSetting } from './networkGuard';
+import { PhoneServer, PHONE_LINK_PORT } from './phoneServer';
 
 let db: CipherDb;
 let setup: SetupManager;
+let phone: PhoneServer;
 const activeTurns = new Map<number, AbortController>();
 /** Rooms with a round in progress (one round at a time per room). */
 const activeRooms = new Map<number, AbortController>();
 /** The one model (qwen2.5:7b), or the developer-only CIPHER_MODEL override. Never shown on screen. */
 const currentModel = (): string => configuredModel();
 
+function isOnline(): boolean {
+  return parseOnlineSetting(db.getSetting(ONLINE_SETTING_KEY));
+}
+
 function broadcastSetup(s: SetupState): void {
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('setup:state', s);
 }
+
+function broadcastPhone(): void {
+  const s = phone.status();
+  for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('phone:status', s);
+}
+
+function broadcastChat(ev: ChatEvent): void {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('chat:event', ev);
+}
+
+function broadcastRoom(ev: RoomEvent): void {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('room:event', ev);
+}
+
 /** Folders the user picked via the native dialog this session; only these may be attached to a bot. */
 const pickedFolders = new Set<string>();
 
@@ -82,12 +103,35 @@ const asFolder = (v: unknown): string | null => {
   return v;
 };
 
+/** Start a 1:1 turn shared by desktop IPC and phone link. */
+function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal, toolsOff: boolean): Promise<void> {
+  return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff }, chatId, text, signal);
+}
+
 function registerIpc(): void {
   ipcMain.handle('setup:get', () => setup.state);
   ipcMain.handle('setup:start', () => { void setup.run(true); });
   ipcMain.handle('setup:check', () => { void setup.run(false); });
-  // Opens the engine's download page in the system browser. Only reachable from an explicit button click.
-  ipcMain.handle('engine:openDownloadPage', () => shell.openExternal(ENGINE_DOWNLOAD_URL));
+  // Opens the engine's download page. Blocked while Online is off (no outbound internet).
+  ipcMain.handle('engine:openDownloadPage', () => {
+    assertOutboundAllowed(isOnline(), ENGINE_DOWNLOAD_URL);
+    return shell.openExternal(ENGINE_DOWNLOAD_URL);
+  });
+
+  ipcMain.handle('online:get', () => isOnline());
+  ipcMain.handle('online:set', (_e, on: unknown) => {
+    const value = Boolean(on);
+    db.setSetting(ONLINE_SETTING_KEY, onlineSettingValue(value));
+    return isOnline();
+  });
+
+  ipcMain.handle('phone:get', () => phone.status());
+  ipcMain.handle('phone:start', () => phone.start());
+  ipcMain.handle('phone:stop', () => phone.stop());
+  ipcMain.handle('phone:refreshCode', () => {
+    if (!phone.status().running) return phone.start();
+    return phone.refreshPairingCode();
+  });
 
   ipcMain.handle('bots:list', () => db.listBots());
   ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
@@ -107,16 +151,14 @@ function registerIpc(): void {
   ipcMain.handle('chats:openForBot', (_e, botId: unknown) => db.getBotChat(asId(botId)));
   ipcMain.handle('messages:list', (_e, chatId: unknown) => db.listMessages(asId(chatId)));
 
-  ipcMain.handle('chat:send', (e, chatIdRaw: unknown, text: unknown) => {
+  ipcMain.handle('chat:send', (_e, chatIdRaw: unknown, text: unknown) => {
     const chatId = asId(chatIdRaw);
     if (typeof text !== 'string' || !text.trim()) throw new Error('Message is empty.');
     if (activeTurns.has(chatId)) throw new Error('This chat is still replying.');
     const controller = new AbortController();
     activeTurns.set(chatId, controller);
-    const sender = e.sender;
-    const emit = (ev: ChatEvent) => { if (!sender.isDestroyed()) sender.send('chat:event', ev); };
-    runChatTurn({ db, model: currentModel(), emit }, chatId, text, controller.signal)
-      .catch((err: unknown) => emit({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
+    void beginChatTurn(chatId, text, broadcastChat, controller.signal, false)
+      .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => activeTurns.delete(chatId));
   });
   ipcMain.handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
@@ -135,13 +177,16 @@ function registerIpc(): void {
     if (activeRooms.has(roomId)) throw new Error('This room is still replying.');
     const controller = new AbortController();
     activeRooms.set(roomId, controller);
-    const sender = e.sender;
-    const emit = (ev: RoomEvent) => { if (!sender.isDestroyed()) sender.send('room:event', ev); };
-    runRoomTurn({ db, model: currentModel(), emit }, roomId, text, controller.signal)
-      .catch((err: unknown) => emit({ roomId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
+    void runRoomTurn({ db, model: currentModel(), emit: broadcastRoom }, roomId, text, controller.signal)
+      .catch((err: unknown) => broadcastRoom({ roomId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => activeRooms.delete(roomId));
   });
   ipcMain.handle('room:stop', (_e, roomId: unknown) => { activeRooms.get(asId(roomId))?.abort(); });
+}
+
+function phoneStaticDir(): string {
+  // In production/dev after build: dist/phone. Source fallback for tests that point explicitly.
+  return path.join(__dirname, '..', 'phone');
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -154,8 +199,44 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     db = new CipherDb(path.join(app.getPath('userData'), 'cipher.db'));
+    // Online defaults off: do not seed '1'. Absence means off.
     lockDownNetwork();
     setup = new SetupManager({ model: currentModel(), onChange: broadcastSetup });
+    phone = new PhoneServer({
+      db,
+      staticDir: phoneStaticDir(),
+      model: currentModel(),
+      onStatus: () => broadcastPhone(),
+      sendChat: (chatId, text, emit, signal) => {
+        // Share abort map with desktop Stop where possible.
+        if (activeTurns.has(chatId)) return Promise.reject(new Error('This chat is still replying.'));
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        signal.addEventListener('abort', onAbort, { once: true });
+        activeTurns.set(chatId, controller);
+        const fanout = (ev: ChatEvent) => { emit(ev); broadcastChat(ev); };
+        return beginChatTurn(chatId, text, fanout, controller.signal, true)
+          .finally(() => {
+            signal.removeEventListener('abort', onAbort);
+            activeTurns.delete(chatId);
+          });
+      },
+      stopChat: (chatId) => { activeTurns.get(chatId)?.abort(); },
+      sendRoom: (roomId, text, emit, signal) => {
+        if (activeRooms.has(roomId)) return Promise.reject(new Error('This room is still replying.'));
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        signal.addEventListener('abort', onAbort, { once: true });
+        activeRooms.set(roomId, controller);
+        const fanout = (ev: RoomEvent) => { emit(ev); broadcastRoom(ev); };
+        return runRoomTurn({ db, model: currentModel(), emit: fanout }, roomId, text, controller.signal)
+          .finally(() => {
+            signal.removeEventListener('abort', onAbort);
+            activeRooms.delete(roomId);
+          });
+      },
+      stopRoom: (roomId) => { activeRooms.get(roomId)?.abort(); },
+    });
     registerIpc();
     createWindow();
     void setup.run(true); // first launch: download the model through the local engine if it's missing
@@ -171,6 +252,10 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     for (const c of activeTurns.values()) c.abort();
     for (const c of activeRooms.values()) c.abort();
+    phone?.stop();
     db?.close();
   });
 }
+
+// Re-export port for docs/tests.
+export { PHONE_LINK_PORT };

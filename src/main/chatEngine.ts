@@ -16,6 +16,8 @@ export interface EngineDeps {
   emit: (e: ChatEvent) => void;
   host?: string;
   fetchImpl?: typeof fetch;
+  /** Phone link / tests: never offer tools for this turn, regardless of bot settings. */
+  forceToolsOff?: boolean;
 }
 
 /** Convert stored messages into Ollama's chat format. */
@@ -49,6 +51,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   if (!bot) throw new Error('Cipher bot not found.');
   const text = userText.trim();
   if (!text) throw new Error('Message is empty.');
+  const toolsOn = bot.toolsEnabled && !deps.forceToolsOff;
 
   emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text }) });
 
@@ -60,13 +63,13 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
         model: deps.model,
         host: deps.host ?? OLLAMA_HOST,
         fetchImpl: deps.fetchImpl,
-        messages: buildHistory(bot, db.listMessages(chatId)),
-        tools: bot.toolsEnabled ? [READ_FILE_TOOL] : undefined,
+        messages: buildHistory({ ...bot, toolsEnabled: toolsOn }, db.listMessages(chatId)),
+        tools: toolsOn ? [READ_FILE_TOOL] : undefined,
         signal,
         onToken: (t) => { partial += t; emit({ chatId, type: 'token', text: t }); },
       });
       partial = '';
-      const wantsTools = bot.toolsEnabled && toolCalls.length > 0;
+      const wantsTools = toolsOn && toolCalls.length > 0;
       if (wantsTools && round >= MAX_TOOL_ROUNDS) {
         const note = content || '(Stopped: your Cipher bot kept trying to read files. Try rephrasing your question.)';
         emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'assistant', content: note }) });

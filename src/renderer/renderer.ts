@@ -1,4 +1,4 @@
-import type { Bot, Chat, ChatEvent, CipherApi, Message, Room, RoomEvent, RoomMessage, SetupState } from '../shared/types';
+import type { Bot, Chat, ChatEvent, CipherApi, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, SetupState } from '../shared/types';
 import { decideView, roomTitle, setupCopy } from './view.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -26,6 +26,12 @@ const el = {
   chatFolderLabel: $('chat-folder-label'), chatFolderPick: $<HTMLButtonElement>('chat-folder-pick'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
   send: $<HTMLButtonElement>('send'), stop: $<HTMLButtonElement>('stop'),
+  settingsView: $('settings-view'), openSettings: $<HTMLButtonElement>('open-settings'),
+  settingsClose: $<HTMLButtonElement>('settings-close'),
+  onlineSwitch: $<HTMLInputElement>('online-switch'),
+  phoneStart: $<HTMLButtonElement>('phone-start'), phoneStop: $<HTMLButtonElement>('phone-stop'),
+  phoneRefresh: $<HTMLButtonElement>('phone-refresh'), phoneStatus: $('phone-status'),
+  phoneCode: $('phone-code'), phoneExpiry: $('phone-expiry'), phoneUrls: $('phone-urls'),
 };
 
 const CHAT_PLACEHOLDER = el.input.placeholder;
@@ -47,6 +53,11 @@ const state = {
   roomLive: new Map<number, { botId: number | null; text: string }>(),
   formOpen: false,
   roomFormOpen: false,
+  settingsOpen: false,
+  /** Bot ids currently streaming a reply (working-dot). */
+  speakingBots: new Set<number>(),
+  online: false,
+  phone: { running: false, port: 17865, pairingCode: null, pairingExpiresAt: null, urls: [], sessionCount: 0 } as PhoneLinkStatus,
   setup: { phase: 'checking', percent: null, completed: 0, total: 0, message: null } as SetupState,
 };
 
@@ -103,14 +114,19 @@ function roomMark(r: Room): HTMLElement {
 
 /** Decide what the main area shows (see view.ts). */
 function applyView(): void {
-  const view = decideView({ botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen, setup: state.setup });
+  const view = decideView({
+    botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen,
+    settingsOpen: state.settingsOpen, setup: state.setup,
+  });
   el.formView.hidden = view !== 'form';
   el.roomFormView.hidden = view !== 'room-form';
+  el.settingsView.hidden = view !== 'settings';
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
   el.botCancel.hidden = state.bots.length === 0; // nothing to go back to on first run
   if (view === 'setup') renderSetup();
   if (view === 'chat') renderChat();
+  if (view === 'settings') renderSettings();
 }
 
 // ---------- setup screen ----------
@@ -150,9 +166,10 @@ function railButton(cls: string, label: string, active: boolean, onClick: () => 
 }
 
 function renderRail(): void {
-  const showingChat = !state.formOpen && !state.roomFormOpen;
+  const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen;
   el.botList.replaceChildren(...state.bots.map((b) => {
-    const btn = railButton('bot', b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
+    const working = state.speakingBots.has(b.id);
+    const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.append(botIcon(b, 42));
     return btn;
   }));
@@ -162,6 +179,7 @@ function renderRail(): void {
     btn.append(roomMark(r));
     return btn;
   }));
+  el.openSettings.classList.toggle('active', state.settingsOpen);
 }
 
 async function loadBots(): Promise<void> {
@@ -178,6 +196,7 @@ async function loadRooms(): Promise<void> {
 async function selectBot(botId: number): Promise<void> {
   state.formOpen = false;
   state.roomFormOpen = false;
+  state.settingsOpen = false;
   state.roomId = null;
   state.botId = botId;
   state.chat = await api.openBotChat(botId);
@@ -192,6 +211,7 @@ async function selectBot(botId: number): Promise<void> {
 async function selectRoom(roomId: number): Promise<void> {
   state.formOpen = false;
   state.roomFormOpen = false;
+  state.settingsOpen = false;
   state.botId = null;
   state.chat = null;
   state.roomId = roomId;
@@ -334,20 +354,37 @@ async function send(): Promise<void> {
   state.error = null;
   state.live = '';
   state.busy.add(chat.id);
+  if (state.botId != null) { state.speakingBots.add(state.botId); renderRail(); }
   el.input.value = '';
   renderChat();
   try {
     await api.sendMessage(chat.id, text);
   } catch (e) {
     state.busy.delete(chat.id);
+    if (state.botId != null) { state.speakingBots.delete(state.botId); renderRail(); }
     state.error = plainError(e);
     el.input.value = text;
     renderChat();
   }
 }
 
+function speakingBotForChat(chatId: number): number | null {
+  const chat = state.chat?.id === chatId ? state.chat : null;
+  if (chat) return chat.botId;
+  // When events arrive for another chat, find the bot from known bots' open chat is unknown; use current only.
+  return state.botId;
+}
+
 async function onChatEvent(ev: ChatEvent): Promise<void> {
-  if (ev.type === 'done' || ev.type === 'error') state.busy.delete(ev.chatId);
+  if (ev.type === 'token' || ev.type === 'message' || ev.type === 'tool') {
+    const botId = speakingBotForChat(ev.chatId);
+    if (botId != null) { state.speakingBots.add(botId); renderRail(); }
+  }
+  if (ev.type === 'done' || ev.type === 'error') {
+    state.busy.delete(ev.chatId);
+    const botId = speakingBotForChat(ev.chatId);
+    if (botId != null) { state.speakingBots.delete(botId); renderRail(); }
+  }
   if (state.roomId !== null || ev.chatId !== state.chat?.id) return;
   switch (ev.type) {
     case 'token':
@@ -381,23 +418,34 @@ function onRoomEvent(ev: RoomEvent): void {
   const viewing = ev.roomId === state.roomId;
   switch (ev.type) {
     case 'speaker':
+      if (live?.botId != null) state.speakingBots.delete(live.botId);
       state.roomLive.set(ev.roomId, { botId: ev.botId, text: '' });
+      state.speakingBots.add(ev.botId);
+      renderRail();
       break;
     case 'token':
       if (live) live.text += ev.text;
       if (viewing) updateLive();
       return;
     case 'message':
-      if (ev.message.role === 'assistant' && live) { live.botId = null; live.text = ''; } // until the next speaker starts
+      if (ev.message.role === 'assistant' && live) {
+        if (live.botId != null) state.speakingBots.delete(live.botId);
+        live.botId = null; live.text = '';
+        renderRail();
+      }
       if (viewing) state.roomMessages.push(ev.message);
       break;
     case 'error':
+      if (live?.botId != null) state.speakingBots.delete(live.botId);
       state.roomLive.delete(ev.roomId);
+      renderRail();
       if (viewing) state.error = ev.error;
       void api.checkSetup();
       break;
     case 'done':
+      if (live?.botId != null) state.speakingBots.delete(live.botId);
       state.roomLive.delete(ev.roomId);
+      renderRail();
       break;
   }
   if (viewing) renderChat();
@@ -458,6 +506,7 @@ function openBotForm(): void {
   el.botFormError.hidden = true;
   state.formOpen = true;
   state.roomFormOpen = false;
+  state.settingsOpen = false;
   renderRail();
   applyView();
   el.botName.focus();
@@ -497,6 +546,7 @@ function openRoomForm(): void {
   }
   state.roomFormOpen = true;
   state.formOpen = false;
+  state.settingsOpen = false;
   renderRail();
   applyView();
   el.roomName.focus();
@@ -525,9 +575,46 @@ async function submitRoomForm(e: Event): Promise<void> {
 function closeForms(): void {
   state.formOpen = false;
   state.roomFormOpen = false;
+  state.settingsOpen = false;
   renderRail();
   applyView();
 }
+
+function openSettings(): void {
+  state.settingsOpen = true;
+  state.formOpen = false;
+  state.roomFormOpen = false;
+  renderRail();
+  applyView();
+}
+
+function renderSettings(): void {
+  el.onlineSwitch.checked = state.online;
+  const ph = state.phone;
+  el.phoneStart.hidden = ph.running;
+  el.phoneStop.hidden = !ph.running;
+  el.phoneRefresh.hidden = !ph.running;
+  el.phoneStatus.hidden = !ph.running || !ph.pairingCode;
+  if (ph.pairingCode) {
+    el.phoneCode.textContent = ph.pairingCode;
+    const ms = (ph.pairingExpiresAt ?? 0) - Date.now();
+    el.phoneExpiry.textContent = ms > 0 ? ` · expires in ~${Math.ceil(ms / 60000)} min` : ' · expired';
+    el.phoneUrls.replaceChildren(...ph.urls.map((u) => {
+      const li = document.createElement('li');
+      const code = document.createElement('code');
+      code.className = 'cmd';
+      code.textContent = u;
+      li.append(code);
+      return li;
+    }));
+  }
+}
+
+function onPhoneStatus(s: PhoneLinkStatus): void {
+  state.phone = s;
+  if (state.settingsOpen) renderSettings();
+}
+
 
 async function replaceBot(updated: Bot): Promise<void> {
   state.bots = state.bots.map((b) => (b.id === updated.id ? updated : b));
@@ -547,8 +634,18 @@ el.newRoomMark.replaceChildren(...roomPlusMark);
 el.newRoomMark.classList.add('n2');
 el.newBot.addEventListener('click', openBotForm);
 el.newRoom.addEventListener('click', openRoomForm);
+el.openSettings.addEventListener('click', openSettings);
+el.settingsClose.addEventListener('click', closeForms);
 el.botCancel.addEventListener('click', closeForms);
 el.roomCancel.addEventListener('click', closeForms);
+el.onlineSwitch.addEventListener('change', async () => {
+  state.online = await api.setOnline(el.onlineSwitch.checked);
+  renderSettings();
+});
+el.phoneStart.addEventListener('click', async () => { state.phone = await api.startPhoneLink(); renderSettings(); });
+el.phoneStop.addEventListener('click', async () => { state.phone = await api.stopPhoneLink(); renderSettings(); });
+el.phoneRefresh.addEventListener('click', async () => { state.phone = await api.refreshPhoneLinkCode(); renderSettings(); });
+api.onPhoneLink(onPhoneStatus);
 el.form.addEventListener('submit', (e) => void submitBotForm(e));
 el.roomForm.addEventListener('submit', (e) => void submitRoomForm(e));
 el.setupGetEngine.addEventListener('click', () => void api.openEngineDownload());
@@ -597,6 +694,8 @@ window.setTimeout(hideSplash, 1500);
 async function init(): Promise<void> {
   try {
     state.setup = await api.getSetup();
+    state.online = await api.getOnline();
+    state.phone = await api.getPhoneLink();
     await loadBots();
     await loadRooms();
     if (state.bots.length) await selectBot(state.bots[0].id);

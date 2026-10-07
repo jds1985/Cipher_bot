@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { ChatEvent, CipherApi, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
+import type { ChatEvent, CipherApi, NewBotForm, NewRoomForm, PhoneLinkStatus, RoomEvent, SetupState } from '../shared/types';
 
 const api: CipherApi = {
   listBots: () => ipcRenderer.invoke('bots:list'),
@@ -34,6 +34,17 @@ const api: CipherApi = {
     const listener = (_e: IpcRendererEvent, s: SetupState) => cb(s);
     ipcRenderer.on('setup:state', listener);
     return () => ipcRenderer.removeListener('setup:state', listener);
+  },
+  getOnline: () => ipcRenderer.invoke('online:get'),
+  setOnline: (on) => ipcRenderer.invoke('online:set', on),
+  getPhoneLink: () => ipcRenderer.invoke('phone:get'),
+  startPhoneLink: () => ipcRenderer.invoke('phone:start'),
+  stopPhoneLink: () => ipcRenderer.invoke('phone:stop'),
+  refreshPhoneLinkCode: () => ipcRenderer.invoke('phone:refreshCode'),
+  onPhoneLink: (cb) => {
+    const listener = (_e: IpcRendererEvent, s: PhoneLinkStatus) => cb(s);
+    ipcRenderer.on('phone:status', listener);
+    return () => ipcRenderer.removeListener('phone:status', listener);
   },
 };
 

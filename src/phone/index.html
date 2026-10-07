@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    />
+    <title>Cipher</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header id="top">
+      <strong>Cipher</strong>
+      <span id="top-sub" class="muted">Phone link</span>
+    </header>
+
+    <section id="pair-view" class="panel">
+      <h1>Link this phone</h1>
+      <p class="muted">Enter the pairing code shown on your computer. Same Wi‑Fi only — the model stays on the desktop.</p>
+      <label>Pairing code
+        <input id="pair-code" maxlength="8" autocomplete="one-time-code" placeholder="e.g. AB12CD" />
+      </label>
+      <p id="pair-error" class="error" hidden></p>
+      <button type="button" id="pair-btn">Pair</button>
+    </section>
+
+    <section id="list-view" class="panel" hidden>
+      <h1>Chats</h1>
+      <h2 class="section">Cipher bots</h2>
+      <div id="bot-list" class="list"></div>
+      <h2 class="section">Rooms</h2>
+      <div id="room-list" class="list"></div>
+      <p id="list-empty" class="muted" hidden>No Cipher bots yet — create one on the desktop.</p>
+    </section>
+
+    <section id="chat-view" class="chat" hidden>
+      <header class="chat-head">
+        <button type="button" id="back" class="ghost" aria-label="Back">←</button>
+        <strong id="chat-title"></strong>
+      </header>
+      <div id="messages"></div>
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="Message"></textarea>
+        <button type="submit" id="send" class="circle" aria-label="Send">↑</button>
+        <button type="button" id="stop" class="circle stop" aria-label="Stop" hidden>■</button>
+      </form>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
