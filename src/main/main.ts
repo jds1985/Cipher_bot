@@ -1,10 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
 import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
 import { runRoomTurn } from './roomEngine';
-import { toNewBot } from './createBot';
+import { formToProfile, toNewBot } from './createBot';
+import { botChatExportLines, exportFileName, formatChatExport, roomExportLines } from './exportChat';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
 import { ONLINE_SETTING_KEY, assertOutboundAllowed, onlineSettingValue, parseOnlineSetting } from './networkGuard';
@@ -40,6 +42,45 @@ function broadcastChat(ev: ChatEvent): void {
 
 function broadcastRoom(ev: RoomEvent): void {
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('room:event', ev);
+}
+
+/** Tray icon (close-to-tray). Null when the tray isn't available: then closing the window quits as before. */
+let tray: Tray | null = null;
+/** True once a real quit has begun (tray Quit, Ctrl+Q, app.quit from anywhere), so close no longer hides. */
+let quitting = false;
+
+const appIconPath = (): string => path.join(__dirname, '..', 'renderer', 'assets', 'icon.png');
+
+/** Show and focus the (possibly hidden or minimized) window, or create it if there is none. */
+function showWindow(): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) { createWindow(); return; }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/**
+ * Keep Cipher running in the tray when the window is closed. Uses the existing app icon (no new art).
+ * Hiding/showing never touches the phone link or the Online setting. If the tray can't be created,
+ * tray stays null and closing the window quits as before.
+ */
+function createTray(): void {
+  try {
+    const size = process.platform === 'linux' ? 22 : 16;
+    const icon = nativeImage.createFromPath(appIconPath());
+    if (icon.isEmpty()) return;
+    tray = new Tray(icon.resize({ width: size, height: size, quality: 'best' }));
+    tray.setToolTip('Cipher');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Show Cipher', click: () => showWindow() },
+      { type: 'separator' },
+      { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+    ]));
+    tray.on('click', () => showWindow());
+  } catch {
+    tray = null;
+  }
 }
 
 /** Folders the user picked via the native dialog this session; only these may be attached to a bot. */
@@ -78,7 +119,7 @@ function createWindow(): BrowserWindow {
     // The renderer draws Liz's draggable top frame underneath.
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: FRAME_BG, symbolColor: FRAME_ACCENT, height: TITLE_BAR_HEIGHT },
-    icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon.png'),
+    icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -88,6 +129,21 @@ function createWindow(): BrowserWindow {
     },
   });
   win.removeMenu();
+  // Close hides to the tray (Cipher keeps running: phone link and replies continue). A real quit closes.
+  win.on('close', (e) => {
+    if (!quitting && tray && !tray.isDestroyed()) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
+  // There's no menu bar, so Ctrl+Q (Cmd+Q) is handled here: it really quits.
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.type === 'keyDown' && (input.control || input.meta) && !input.alt && !input.shift && input.key.toLowerCase() === 'q') {
+      e.preventDefault();
+      quitting = true;
+      app.quit();
+    }
+  });
   // Never navigate away or open new windows from the app.
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -104,6 +160,28 @@ const asFolder = (v: unknown): string | null => {
   if (typeof v !== 'string' || !pickedFolders.has(v)) throw new Error('Please choose the folder with the folder picker.');
   return v;
 };
+
+/** Plain text of a bot's chat or a room, plus the name for the header and file name. Local data only. */
+function chatExport(kind: unknown, id: number): { name: string; text: string } {
+  const exportedAt = new Date();
+  if (kind === 'room') {
+    const room = db.getRoom(id);
+    if (!room) throw new Error('Room not found.');
+    const nameOf = (botId: number | null) => (botId === null ? null : db.getBot(botId)?.name ?? null);
+    const name = room.name.trim() || room.memberIds.map((b) => nameOf(b)).filter((n): n is string => !!n).join(', ') || 'Room';
+    const lines = roomExportLines(db.listRoomMessages(id), nameOf);
+    return { name, text: formatChatExport({ kind: 'room', name, exportedAt, lines }) };
+  }
+  if (kind !== 'bot') throw new Error('Nothing to export.');
+  const bot = db.getBot(id);
+  if (!bot) throw new Error('Cipher bot not found.');
+  const chat = db.getBotChat(id);
+  const lines = botChatExportLines(bot, db.listMessages(chat.id));
+  return { name: bot.name, text: formatChatExport({ kind: 'bot', name: bot.name, exportedAt, lines }) };
+}
+
+/** Longest text the copy button will put on the clipboard. */
+const MAX_COPY_CHARS = 2_000_000;
 
 /** Start a 1:1 turn shared by desktop IPC and phone link. */
 function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal, toolsOff: boolean): Promise<void> {
@@ -137,6 +215,8 @@ function registerIpc(): void {
 
   ipcMain.handle('bots:list', () => db.listBots());
   ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
+  ipcMain.handle('bots:update', (_e, botId: unknown, input: unknown) =>
+    db.updateBot(asId(botId), formToProfile((input && typeof input === 'object' ? input : {}) as Partial<NewBotForm>)));
   ipcMain.handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
   ipcMain.handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
   ipcMain.handle('bots:delete', (_e, botId: unknown) => db.deleteBot(asId(botId)));
@@ -181,6 +261,35 @@ function registerIpc(): void {
   // One chat per bot: its most recent chat, created on first open. Older chats stay in the database, hidden.
   ipcMain.handle('chats:openForBot', (_e, botId: unknown) => db.getBotChat(asId(botId)));
   ipcMain.handle('messages:list', (_e, chatId: unknown) => db.listMessages(asId(chatId)));
+  // Clear chat (after the UI confirm): deletes only this bot's 1:1 chat messages. Not while it's replying.
+  ipcMain.handle('chats:clearForBot', (_e, botIdRaw: unknown) => {
+    const botId = asId(botIdRaw);
+    if (activeTurns.has(db.getBotChat(botId).id)) throw new Error('This chat is still replying.');
+    return db.clearBotChat(botId);
+  });
+  ipcMain.handle('clipboard:writeText', (_e, text: unknown) => {
+    if (typeof text !== 'string') throw new Error('Nothing to copy.');
+    if (text.length > MAX_COPY_CHARS) throw new Error('This message is too long to copy.');
+    clipboard.writeText(text);
+  });
+  // Export the open chat or room: native Save dialog, then a local plain-text file. No network.
+  ipcMain.handle('chat:export', async (e, kind: unknown, idRaw: unknown) => {
+    const { name, text } = chatExport(kind, asId(idRaw));
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      title: 'Export chat',
+      defaultPath: path.join(app.getPath('documents'), exportFileName(name)),
+      filters: [{ name: 'Text file', extensions: ['txt'] }],
+    };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true as const };
+    try {
+      await fs.writeFile(r.filePath, text, 'utf8');
+      return { ok: true as const, path: r.filePath };
+    } catch (err) {
+      return { ok: false as const, error: `Could not save the file: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
 
   ipcMain.handle('chat:send', (_e, chatIdRaw: unknown, text: unknown) => {
     const chatId = asId(chatIdRaw);
@@ -223,9 +332,9 @@ function phoneStaticDir(): string {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  // A second launch shows the existing window (also when it's hidden in the tray).
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+    if (app.isReady()) showWindow();
   });
 
   app.whenReady().then(() => {
@@ -270,11 +379,13 @@ if (!app.requestSingleInstanceLock()) {
     });
     registerIpc();
     createWindow();
+    createTray();
     void setup.run(true); // first launch: download the model through the local engine if it's missing
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
+    app.on('activate', () => showWindow());
   });
+
+  // Any real quit (tray Quit, Ctrl+Q, app.quit) lets the window close instead of hiding.
+  app.on('before-quit', () => { quitting = true; });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
@@ -284,6 +395,8 @@ if (!app.requestSingleInstanceLock()) {
     for (const c of activeTurns.values()) c.abort();
     for (const c of activeRooms.values()) c.abort();
     phone?.stop();
+    tray?.destroy();
+    tray = null;
     db?.close();
   });
 }

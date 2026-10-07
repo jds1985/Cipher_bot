@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { botChatExportLines, exportFileName, exportTime, formatChatExport, roomExportLines } from '../main/exportChat';
 import type { Message, RoomMessage } from '../shared/types';
 
@@ -63,3 +64,9 @@ test('default file name is <name>-chat.txt without characters file systems rejec
   assert.equal(exportFileName('   '), 'cipher-chat.txt');
 });
 
+test('export stays local: main.ts writes the file after a native Save dialog; the export module has no network code', () => {
+  const main = fs.readFileSync(require.resolve('../main/main.js'), 'utf8');
+  assert.match(main, /showSaveDialog/);
+  const mod = fs.readFileSync(require.resolve('../main/exportChat.js'), 'utf8');
+  assert.doesNotMatch(mod, /require\(["'](node:)?(http|https|net|dgram)["']\)|fetch\(/);
+});

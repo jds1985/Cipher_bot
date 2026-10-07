@@ -4,6 +4,7 @@ import type { ChatEvent, CipherApi, NewBotForm, NewRoomForm, PhoneLinkStatus, Ro
 const api: CipherApi = {
   listBots: () => ipcRenderer.invoke('bots:list'),
   createBot: (bot: NewBotForm) => ipcRenderer.invoke('bots:create', bot),
+  updateBot: (botId, bot: NewBotForm) => ipcRenderer.invoke('bots:update', botId, bot),
   setBotFolder: (botId, folderPath) => ipcRenderer.invoke('bots:setFolder', botId, folderPath),
   setBotTools: (botId, enabled) => ipcRenderer.invoke('bots:setTools', botId, enabled),
   deleteBot: (botId) => ipcRenderer.invoke('bots:delete', botId),
@@ -11,6 +12,9 @@ const api: CipherApi = {
   pickAttachFile: (botId) => ipcRenderer.invoke('dialog:pickAttachFile', botId),
   openBotChat: (botId) => ipcRenderer.invoke('chats:openForBot', botId),
   listMessages: (chatId) => ipcRenderer.invoke('messages:list', chatId),
+  clearBotChat: (botId) => ipcRenderer.invoke('chats:clearForBot', botId),
+  copyText: (text) => ipcRenderer.invoke('clipboard:writeText', text),
+  exportChat: (kind, id) => ipcRenderer.invoke('chat:export', kind, id),
   sendMessage: (chatId, text) => ipcRenderer.invoke('chat:send', chatId, text),
   stop: (chatId) => ipcRenderer.invoke('chat:stop', chatId),
   onChatEvent: (cb) => {

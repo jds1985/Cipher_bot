@@ -38,8 +38,8 @@
         </div>
         <section id="bot-form-view" class="view" hidden>
           <form id="bot-form" class="card">
-            <img class="empty-art" src="assets/empty-state.png" alt="" width="200" height="165" />
-            <h2>Create a Cipher bot</h2>
+            <img id="bot-form-art" class="empty-art" src="assets/empty-state.png" alt="" width="200" height="165" />
+            <h2 id="bot-form-title">Create a Cipher bot</h2>
             <label>Name
               <input id="bot-name" maxlength="80" required placeholder="e.g. Notes helper" />
             </label>
@@ -57,7 +57,7 @@
             <p id="bot-form-error" class="error" hidden></p>
             <div class="row end">
               <button type="button" id="bot-cancel" class="secondary">Cancel</button>
-              <button type="submit">Create Cipher bot</button>
+              <button type="submit" id="bot-submit">Create Cipher bot</button>
             </div>
           </form>
         </section>
@@ -139,7 +139,12 @@
               </label>
               <span id="chat-folder-label" class="muted folder"></span>
               <button type="button" id="chat-folder-pick" class="secondary small">Choose folder…</button>
+              <button type="button" id="bot-edit" class="secondary small" title="Edit this Cipher bot's name, job and icon">Edit…</button>
               <button type="button" id="bot-delete" class="secondary small danger" title="Delete this Cipher bot">Delete…</button>
+            </div>
+            <div class="row chat-actions" id="chat-actions">
+              <button type="button" id="chat-export" class="secondary small" title="Save this chat as a text file">Export…</button>
+              <button type="button" id="chat-clear" class="secondary small" title="Delete this chat's messages (the Cipher bot stays)">Clear chat…</button>
             </div>
           </header>
           <div id="messages"></div>

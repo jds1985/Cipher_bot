@@ -148,9 +148,17 @@ export type AttachPickResult =
   | { ok: true; relPath: string; block: string }
   | { ok: false; error: string; needFolder?: boolean };
 
+/** Result of exporting the open chat to a text file. */
+export type ExportChatResult =
+  | { ok: true; path: string }
+  | { ok: false; canceled: true }
+  | { ok: false; canceled?: false; error: string };
+
 export interface CipherApi {
   listBots(): Promise<Bot[]>;
   createBot(bot: NewBotForm): Promise<Bot>;
+  /** Edit a Cipher bot's name, job, icon shape and color (same fields and validation as create). */
+  updateBot(botId: number, bot: NewBotForm): Promise<Bot>;
   setBotFolder(botId: number, folderPath: string | null): Promise<Bot>;
   setBotTools(botId: number, enabled: boolean): Promise<Bot>;
   /** Delete a Cipher bot after the UI confirm step. Cascades chats; removes from rooms. */
@@ -164,6 +172,12 @@ export interface CipherApi {
   /** The bot's one chat (its most recent one), created on first open. */
   openBotChat(botId: number): Promise<Chat>;
   listMessages(chatId: number): Promise<Message[]>;
+  /** Delete the messages of the bot's one chat (after the UI confirm step). The bot and its rooms stay. */
+  clearBotChat(botId: number): Promise<Chat>;
+  /** Copy text to the system clipboard (through the main process). */
+  copyText(text: string): Promise<void>;
+  /** Export a bot's chat or a room to a plain-text file chosen in the native Save dialog. */
+  exportChat(kind: 'bot' | 'room', id: number): Promise<ExportChatResult>;
   sendMessage(chatId: number, text: string): Promise<void>;
   stop(chatId: number): Promise<void>;
   onChatEvent(cb: (e: ChatEvent) => void): () => void;
