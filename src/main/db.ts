@@ -243,6 +243,33 @@ export class CipherDb {
     return bot;
   }
 
+  /**
+   * Delete a Cipher bot and its 1:1 chats/messages (FK CASCADE).
+   * Also removes the bot from any rooms (room_members CASCADE). Rooms that then have
+   * fewer than 2 members are deleted entirely (their messages cascade) — a room needs
+   * at least two Cipher bots.
+   */
+  deleteBot(id: number): { deletedRoomIds: number[] } {
+    if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    return this.db.transaction(() => {
+      const touched = (
+        this.db.prepare('SELECT room_id FROM room_members WHERE bot_id = ?').all(id) as { room_id: number }[]
+      ).map((r) => r.room_id);
+      this.db.prepare('DELETE FROM bots WHERE id = ?').run(id);
+      const deletedRoomIds: number[] = [];
+      for (const roomId of touched) {
+        const left = (
+          this.db.prepare('SELECT COUNT(*) AS n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }
+        ).n;
+        if (left < 2) {
+          this.db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+          deletedRoomIds.push(roomId);
+        }
+      }
+      return { deletedRoomIds };
+    })();
+  }
+
   // ---- chats ----
   listChats(botId: number): Chat[] {
     return (this.db.prepare('SELECT * FROM chats WHERE bot_id = ? ORDER BY updated_at DESC, id DESC').all(botId) as ChatRow[]).map(toChat);

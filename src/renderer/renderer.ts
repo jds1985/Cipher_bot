@@ -11,6 +11,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 const el = {
   splash: $('splash'),
+  search: $<HTMLInputElement>('search'),
   botList: $('bot-list'), roomList: $('room-list'),
   newBot: $<HTMLButtonElement>('new-bot'), newRoom: $<HTMLButtonElement>('new-room'), newRoomMark: $('new-room-mark'),
   formView: $('bot-form-view'), roomFormView: $('room-form-view'), chatView: $('chat-view'), setupView: $('setup-view'),
@@ -24,7 +25,10 @@ const el = {
   chatIcon: $('chat-icon'), chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), roomNote: $('room-note'),
   botSettings: $('bot-settings'), chatTools: $<HTMLInputElement>('chat-tools'),
   chatFolderLabel: $('chat-folder-label'), chatFolderPick: $<HTMLButtonElement>('chat-folder-pick'),
+  botDelete: $<HTMLButtonElement>('bot-delete'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
+  attach: $<HTMLButtonElement>('attach'), attachChip: $('attach-chip'), attachChipName: $('attach-chip-name'),
+  attachClear: $<HTMLButtonElement>('attach-clear'), attachError: $('attach-error'),
   send: $<HTMLButtonElement>('send'), stop: $<HTMLButtonElement>('stop'),
   settingsView: $('settings-view'), openSettings: $<HTMLButtonElement>('open-settings'),
   settingsClose: $<HTMLButtonElement>('settings-close'),
@@ -32,6 +36,9 @@ const el = {
   phoneStart: $<HTMLButtonElement>('phone-start'), phoneStop: $<HTMLButtonElement>('phone-stop'),
   phoneRefresh: $<HTMLButtonElement>('phone-refresh'), phoneStatus: $('phone-status'),
   phoneCode: $('phone-code'), phoneExpiry: $('phone-expiry'), phoneUrls: $('phone-urls'),
+  phoneQrWrap: $('phone-qr-wrap'), phoneQr: $<HTMLImageElement>('phone-qr'), phonePrimaryUrl: $('phone-primary-url'),
+  confirmModal: $('confirm-modal'), confirmTitle: $('confirm-title'), confirmBody: $('confirm-body'),
+  confirmCancel: $<HTMLButtonElement>('confirm-cancel'), confirmOk: $<HTMLButtonElement>('confirm-ok'),
 };
 
 const CHAT_PLACEHOLDER = el.input.placeholder;
@@ -57,8 +64,12 @@ const state = {
   /** Bot ids currently streaming a reply (working-dot). */
   speakingBots: new Set<number>(),
   online: false,
-  phone: { running: false, port: 17865, pairingCode: null, pairingExpiresAt: null, urls: [], sessionCount: 0 } as PhoneLinkStatus,
+  phone: { running: false, port: 17865, pairingCode: null, pairingExpiresAt: null, urls: [], sessionCount: 0, primaryUrl: null, qrDataUrl: null } as PhoneLinkStatus,
   setup: { phase: 'checking', percent: null, completed: 0, total: 0, message: null } as SetupState,
+  /** Client-side filter for bot/room names and open-chat messages. */
+  searchQuery: '',
+  /** Desktop-only pending attach block for the next 1:1 send (rooms skipped). */
+  pendingAttach: null as { relPath: string; block: string } | null,
 };
 
 const currentBot = () => state.bots.find((b) => b.id === state.botId) ?? null;
@@ -165,18 +176,26 @@ function railButton(cls: string, label: string, active: boolean, onClick: () => 
   return btn;
 }
 
+function nameMatches(hay: string, q: string): boolean {
+  if (!q) return true;
+  return hay.toLowerCase().includes(q);
+}
+
 function renderRail(): void {
   const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen;
+  const q = state.searchQuery.trim().toLowerCase();
   el.botList.replaceChildren(...state.bots.map((b) => {
     const working = state.speakingBots.has(b.id);
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.append(botIcon(b, 42));
+    if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
   el.roomList.replaceChildren(...state.rooms.map((r) => {
     const label = `Room: ${roomName(r)}`;
     const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
     btn.append(roomMark(r));
+    if (!nameMatches(roomName(r), q) && !nameMatches(r.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
   el.openSettings.classList.toggle('active', state.settingsOpen);
@@ -198,6 +217,8 @@ async function selectBot(botId: number): Promise<void> {
   state.roomFormOpen = false;
   state.settingsOpen = false;
   state.roomId = null;
+  state.pendingAttach = null;
+  clearAttachError();
   state.botId = botId;
   state.chat = await api.openBotChat(botId);
   state.messages = await api.listMessages(state.chat.id);
@@ -214,6 +235,8 @@ async function selectRoom(roomId: number): Promise<void> {
   state.settingsOpen = false;
   state.botId = null;
   state.chat = null;
+  state.pendingAttach = null;
+  clearAttachError();
   state.roomId = roomId;
   state.roomMessages = await api.listRoomMessages(roomId);
   state.error = null;
@@ -257,15 +280,26 @@ function renderBotChat(): void {
   el.chatFolderLabel.textContent = bot.folderPath ?? 'No folder chosen';
   el.chatFolderLabel.title = bot.folderPath ?? '';
 
+  const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
   for (const m of state.messages) {
-    if (m.role === 'user') items.push(node('div', 'msg user', m.content));
+    const match = !q || m.content.toLowerCase().includes(q);
+    let row: HTMLElement | null = null;
+    if (m.role === 'user') row = node('div', 'msg user', m.content);
     else if (m.role === 'assistant') {
-      if (m.content) items.push(node('div', 'msg assistant', m.content));
-      if (m.toolCalls?.length) items.push(node('div', 'msg note', `Reading file: ${toolCallLabel(m)}`));
+      if (m.content) row = node('div', 'msg assistant', m.content);
+      if (m.toolCalls?.length) {
+        const note = node('div', 'msg note', `Reading file: ${toolCallLabel(m)}`);
+        if (!match) note.classList.add('search-hidden');
+        items.push(note);
+      }
     } else {
       const bad = m.content.startsWith('Error:');
-      items.push(node('div', `msg note${bad ? ' bad' : ''}`, bad ? `Couldn't read the file: ${m.content.slice(7)}` : `Read ${m.content.length} characters from the file`));
+      row = node('div', `msg note${bad ? ' bad' : ''}`, bad ? `Couldn't read the file: ${m.content.slice(7)}` : `Read ${m.content.length} characters from the file`);
+    }
+    if (row) {
+      if (!match) row.classList.add('search-hidden');
+      items.push(row);
     }
   }
   const busy = state.busy.has(chat.id);
@@ -275,6 +309,7 @@ function renderBotChat(): void {
   el.messages.replaceChildren(...items);
   el.messages.scrollTop = el.messages.scrollHeight;
   setComposer(busy, CHAT_PLACEHOLDER);
+  renderAttachUi(true);
 }
 
 /** A room reply: the speaking bot's icon + name, then the text. */
@@ -298,10 +333,13 @@ function renderRoom(): void {
   el.roomNote.hidden = false; // "File reading is off in rooms"
   el.botSettings.hidden = true;
 
+  const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
   for (const m of state.roomMessages) {
-    if (m.role === 'user') items.push(node('div', 'msg user', m.content));
-    else items.push(roomReply(m.botId, m.content));
+    const match = !q || m.content.toLowerCase().includes(q);
+    const row = m.role === 'user' ? node('div', 'msg user', m.content) : roomReply(m.botId, m.content);
+    if (!match) row.classList.add('search-hidden');
+    items.push(row);
   }
   const live = state.roomLive.get(room.id);
   if (live && live.botId !== null) items.push(roomReply(live.botId, live.text, true));
@@ -312,6 +350,7 @@ function renderRoom(): void {
   el.messages.replaceChildren(...items);
   el.messages.scrollTop = el.messages.scrollHeight;
   setComposer(!!live, ROOM_PLACEHOLDER);
+  renderAttachUi(false); // attach is 1:1 only
 }
 
 function updateLive(): void {
@@ -331,8 +370,8 @@ const plainError = (e: unknown): string =>
 
 async function send(): Promise<void> {
   const text = el.input.value.trim();
-  if (!text) return;
   if (state.roomId !== null) {
+    if (!text) return;
     const roomId = state.roomId;
     if (state.roomLive.has(roomId)) return;
     state.error = null;
@@ -351,19 +390,25 @@ async function send(): Promise<void> {
   }
   const chat = state.chat;
   if (!chat || state.busy.has(chat.id)) return;
+  const attachBlock = state.pendingAttach?.block ?? null;
+  const outgoing = attachBlock ? (text ? `${text}\n\n${attachBlock}` : attachBlock) : text;
+  if (!outgoing.trim()) return;
   state.error = null;
   state.live = '';
   state.busy.add(chat.id);
   if (state.botId != null) { state.speakingBots.add(state.botId); renderRail(); }
   el.input.value = '';
+  const clearedAttach = state.pendingAttach;
+  state.pendingAttach = null;
   renderChat();
   try {
-    await api.sendMessage(chat.id, text);
+    await api.sendMessage(chat.id, outgoing);
   } catch (e) {
     state.busy.delete(chat.id);
     if (state.botId != null) { state.speakingBots.delete(state.botId); renderRail(); }
     state.error = plainError(e);
     el.input.value = text;
+    state.pendingAttach = clearedAttach;
     renderChat();
   }
 }
@@ -599,14 +644,29 @@ function renderSettings(): void {
     el.phoneCode.textContent = ph.pairingCode;
     const ms = (ph.pairingExpiresAt ?? 0) - Date.now();
     el.phoneExpiry.textContent = ms > 0 ? ` · expires in ~${Math.ceil(ms / 60000)} min` : ' · expired';
+    const showQr = !!(ph.qrDataUrl && ph.primaryUrl);
+    el.phoneQrWrap.hidden = !showQr;
+    if (showQr) {
+      el.phoneQr.src = ph.qrDataUrl!;
+      el.phonePrimaryUrl.textContent = ph.primaryUrl!;
+    }
     el.phoneUrls.replaceChildren(...ph.urls.map((u) => {
       const li = document.createElement('li');
       const code = document.createElement('code');
       code.className = 'cmd';
       code.textContent = u;
-      li.append(code);
+      if (ph.primaryUrl && u === ph.primaryUrl) {
+        const mark = document.createElement('span');
+        mark.className = 'muted';
+        mark.textContent = ' (QR)';
+        li.append(code, mark);
+      } else {
+        li.append(code);
+      }
       return li;
     }));
+  } else {
+    el.phoneQrWrap.hidden = true;
   }
 }
 
@@ -620,6 +680,108 @@ async function replaceBot(updated: Bot): Promise<void> {
   state.bots = state.bots.map((b) => (b.id === updated.id ? updated : b));
   renderRail();
   renderChat();
+}
+
+// ---------- attach (desktop 1:1 only) ----------
+function renderAttachUi(botMode: boolean): void {
+  const show = botMode && !!state.botId;
+  el.attach.hidden = !show;
+  el.attach.disabled = !show || (state.chat ? state.busy.has(state.chat.id) : false);
+  if (state.pendingAttach && show) {
+    el.attachChip.hidden = false;
+    el.attachChipName.textContent = state.pendingAttach.relPath;
+  } else {
+    el.attachChip.hidden = true;
+  }
+}
+
+function clearAttachError(): void {
+  el.attachError.hidden = true;
+  el.attachError.textContent = '';
+}
+
+function showAttachError(msg: string): void {
+  el.attachError.textContent = msg;
+  el.attachError.hidden = false;
+}
+
+async function attachFile(): Promise<void> {
+  clearAttachError();
+  const bot = currentBot();
+  if (!bot || state.roomId !== null) return;
+  if (!bot.folderPath) {
+    const folder = await api.pickFolder();
+    if (!folder) {
+      showAttachError('Choose a folder for this Cipher bot before attaching a file.');
+      return;
+    }
+    await replaceBot(await api.setBotFolder(bot.id, folder));
+  }
+  const result = await api.pickAttachFile(bot.id);
+  if (!result.ok) {
+    if (result.needFolder) {
+      showAttachError(result.error);
+      return;
+    }
+    if (result.error !== 'No file selected.') showAttachError(result.error);
+    return;
+  }
+  state.pendingAttach = { relPath: result.relPath, block: result.block };
+  renderAttachUi(true);
+}
+
+// ---------- delete bot (confirm required) ----------
+type ConfirmAction = (() => void | Promise<void>) | null;
+let pendingConfirm: ConfirmAction = null;
+
+function openConfirm(title: string, body: string, onOk: () => void | Promise<void>): void {
+  el.confirmTitle.textContent = title;
+  el.confirmBody.textContent = body;
+  pendingConfirm = onOk;
+  el.confirmModal.hidden = false;
+  el.confirmOk.focus();
+}
+
+function closeConfirm(): void {
+  el.confirmModal.hidden = true;
+  pendingConfirm = null;
+}
+
+async function requestDeleteBot(): Promise<void> {
+  const bot = currentBot();
+  if (!bot) return;
+  const inRooms = state.rooms.filter((r) => r.memberIds.includes(bot.id));
+  const roomNote = inRooms.length
+    ? ` It will also be removed from ${inRooms.length} room${inRooms.length === 1 ? '' : 's'}; any room left with fewer than 2 Cipher bots will be deleted.`
+    : '';
+  openConfirm(
+    `Delete ${bot.name}?`,
+    `This permanently deletes this Cipher bot and its chat history.${roomNote}`,
+    async () => {
+      const result = await api.deleteBot(bot.id);
+      state.pendingAttach = null;
+      await loadBots();
+      await loadRooms();
+      if (state.bots.length) await selectBot(state.bots[0].id);
+      else {
+        state.botId = null;
+        state.chat = null;
+        state.messages = [];
+        state.formOpen = true;
+        renderRail();
+        applyView();
+      }
+      if (result.deletedRoomIds.length) {
+        /* rooms already reloaded */
+      }
+    },
+  );
+}
+
+function onSearchInput(): void {
+  state.searchQuery = el.search.value;
+  renderRail();
+  if (!el.chatView.hidden) renderChat();
 }
 
 // ---------- wiring ----------
@@ -660,6 +822,17 @@ el.chatFolderPick.addEventListener('click', async () => {
   const folder = bot && (await api.pickFolder());
   if (bot && folder) await replaceBot(await api.setBotFolder(bot.id, folder));
 });
+el.botDelete.addEventListener('click', () => void requestDeleteBot());
+el.attach.addEventListener('click', () => void attachFile());
+el.attachClear.addEventListener('click', () => { state.pendingAttach = null; clearAttachError(); renderAttachUi(true); });
+el.search.addEventListener('input', onSearchInput);
+el.confirmCancel.addEventListener('click', closeConfirm);
+el.confirmOk.addEventListener('click', () => {
+  const action = pendingConfirm;
+  closeConfirm();
+  if (action) void Promise.resolve(action()).catch((e) => { state.error = plainError(e); renderChat(); });
+});
+el.confirmModal.addEventListener('click', (e) => { if (e.target === el.confirmModal) closeConfirm(); });
 el.composer.addEventListener('submit', (e) => { e.preventDefault(); void send(); });
 el.input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); }

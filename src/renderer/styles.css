@@ -189,3 +189,44 @@ label.member-opt .bot-icon { width: 30px; height: 30px; }
 .phone-status { margin-top: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 .phone-status ul { margin: 4px 0 0; padding-left: 18px; }
 .phone-status code { font-size: 1.15rem; letter-spacing: .08em; }
+
+/* ---------- v1.7: search, QR, attach, delete confirm ---------- */
+.search-bar { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.search-label { margin: 0; display: block; }
+.search-bar input[type=search] {
+  width: 100%; max-width: 420px; padding: 7px 12px; border-radius: 18px; background: var(--bg);
+  border: 1px solid var(--line); color: var(--text);
+}
+.search-bar input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.phone-qr-wrap { margin: 10px 0 12px; text-align: center; }
+.phone-qr { display: inline-block; width: 168px; height: 168px; border-radius: 8px; border: 1px solid var(--line); background: #15171c; }
+.phone-qr-caption { margin: 6px 0 0; font-size: 12px; }
+.phone-qr-caption code { font-size: 12px; letter-spacing: 0; word-break: break-all; }
+.composer-circle.attach { background: var(--panel2); color: var(--text); border: 1px solid var(--line); }
+.composer-circle.attach:hover { background: var(--line); color: #fff; }
+.composer-circle.attach:disabled { opacity: .4; }
+.attach-chip {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 72px; z-index: 6;
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 12px;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 16px; font-size: 12px;
+  max-width: min(640px, calc(100% - 28px));
+}
+.attach-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-error { position: absolute; left: 50%; transform: translateX(-50%); bottom: 72px; z-index: 6;
+  margin: 0; max-width: min(640px, calc(100% - 28px)); font-size: 12px; }
+button.danger, button.danger-btn { background: #6b2a2a; color: #fff; }
+button.danger:hover, button.danger-btn:hover { background: #8a3535; }
+button.secondary.danger { background: var(--panel2); color: var(--err); border-color: #6b2a2a; }
+button.secondary.danger:hover { background: #3a1c1c; }
+.modal {
+  position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  background: #000a;
+}
+.modal-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px;
+  width: min(420px, 92%); box-shadow: 0 16px 48px #000a;
+}
+.modal-card h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.modal-card p { margin: 0 0 16px; }
+.rail-btn.filtered-out { display: none; }
+.msg.search-hidden { display: none; }
