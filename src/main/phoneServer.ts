@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
+import QRCode from 'qrcode';
 import type { ChatEvent, RoomEvent } from '../shared/types';
 import type { CipherDb } from './db';
 
@@ -31,6 +32,14 @@ export interface PhoneLinkStatus {
   pairingExpiresAt: number | null;
   urls: string[];
   sessionCount: number;
+  /**
+   * Primary recommended LAN URL for the QR payload and for phones on Wi‑Fi.
+   * Prefer the first non-loopback address; fall back to 127.0.0.1 for local checks.
+   * Encoding is URL-only — the pairing code is never baked into the QR.
+   */
+  primaryUrl: string | null;
+  /** PNG data URL of a QR encoding primaryUrl only (null when not running / no URL). */
+  qrDataUrl: string | null;
 }
 
 export interface PhoneServerDeps {
@@ -92,6 +101,16 @@ export function buildPhoneUrls(port: number, ips: string[] = lanIPv4Addresses())
   return urls;
 }
 
+/**
+ * Pick the URL the QR should encode: first non-loopback LAN URL, else loopback.
+ * Pairing code is intentionally excluded — users type that separately.
+ */
+export function primaryPhoneUrl(urls: string[]): string | null {
+  if (!urls.length) return null;
+  const lan = urls.find((u) => !/127\.0\.0\.1|\[::1\]|localhost/i.test(u));
+  return lan ?? urls[0] ?? null;
+}
+
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -141,6 +160,9 @@ export class PhoneServer {
   private chatAbort = new Map<number, AbortController>();
   private roomAbort = new Map<number, AbortController>();
   private readonly port: number;
+  /** Cached QR for the current primary URL (URL-only; never includes pairing code). */
+  private qrDataUrl: string | null = null;
+  private qrForUrl: string | null = null;
 
   constructor(private deps: PhoneServerDeps) {
     this.port = deps.port ?? PHONE_LINK_PORT;
@@ -148,13 +170,17 @@ export class PhoneServer {
 
   status(): PhoneLinkStatus {
     this.expirePairingIfNeeded();
+    const urls = this.server ? buildPhoneUrls(this.port) : [];
+    const primaryUrl = this.server ? primaryPhoneUrl(urls) : null;
     return {
       running: !!this.server,
       port: this.port,
       pairingCode: this.pairing?.code ?? null,
       pairingExpiresAt: this.pairing?.expiresAt ?? null,
-      urls: this.server ? buildPhoneUrls(this.port) : [],
+      urls,
       sessionCount: this.sessions.size,
+      primaryUrl,
+      qrDataUrl: primaryUrl && this.qrForUrl === primaryUrl ? this.qrDataUrl : null,
     };
   }
 
@@ -168,8 +194,37 @@ export class PhoneServer {
         });
       });
       this.server.listen(this.port, '0.0.0.0');
+      this.server.once('listening', () => { void this.refreshQr(); });
+    } else {
+      void this.refreshQr();
     }
     this.refreshPairingCode();
+    const s = this.status();
+    this.deps.onStatus?.(s);
+    return s;
+  }
+
+  /** Build / refresh the QR for the primary LAN URL only (pairing code stays typed). */
+  async refreshQr(): Promise<PhoneLinkStatus> {
+    const urls = this.server ? buildPhoneUrls(this.port) : [];
+    const primary = this.server ? primaryPhoneUrl(urls) : null;
+    if (!primary) {
+      this.qrDataUrl = null;
+      this.qrForUrl = null;
+    } else if (this.qrForUrl !== primary || !this.qrDataUrl) {
+      try {
+        this.qrDataUrl = await QRCode.toDataURL(primary, {
+          margin: 1,
+          width: 168,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#e6e8ee', light: '#15171c' },
+        });
+        this.qrForUrl = primary;
+      } catch {
+        this.qrDataUrl = null;
+        this.qrForUrl = null;
+      }
+    }
     const s = this.status();
     this.deps.onStatus?.(s);
     return s;
@@ -196,6 +251,8 @@ export class PhoneServer {
     this.sse.clear();
     this.sessions.clear();
     this.pairing = null;
+    this.qrDataUrl = null;
+    this.qrForUrl = null;
     if (this.server) {
       this.server.close();
       this.server = null;

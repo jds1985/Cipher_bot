@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CipherDb } from '../main/db';
-import { PhoneServer, PAIR_TTL_MS, PHONE_LINK_PORT, buildPhoneUrls } from '../main/phoneServer';
+import { PhoneServer, PAIR_TTL_MS, PHONE_LINK_PORT, buildPhoneUrls, primaryPhoneUrl } from '../main/phoneServer';
 import {
   assertOutboundAllowed, isEngineDownloadUrl, isPhoneLinkSafeUrl, parseOnlineSetting, onlineSettingValue, ONLINE_SETTING_KEY,
 } from '../main/networkGuard';
@@ -72,6 +72,16 @@ test('buildPhoneUrls includes loopback and LAN-style addresses', () => {
   assert.ok(urls.some((u) => u.includes('192.168.1.10')));
   assert.ok(urls.some((u) => u.includes('127.0.0.1')));
   assert.ok(PAIR_TTL_MS >= 10 * 60 * 1000 && PAIR_TTL_MS <= 15 * 60 * 1000);
+});
+
+test('primaryPhoneUrl prefers LAN over loopback; QR payload is URL-only', () => {
+  const urls = buildPhoneUrls(17865, ['10.0.0.5']);
+  const primary = primaryPhoneUrl(urls);
+  assert.equal(primary, 'http://10.0.0.5:17865/');
+  assert.ok(!primary!.includes('pair'));
+  assert.ok(!/[A-Z0-9]{6}/.test(new URL(primary!).pathname));
+  assert.equal(primaryPhoneUrl(['http://127.0.0.1:17865/']), 'http://127.0.0.1:17865/');
+  assert.equal(primaryPhoneUrl([]), null);
 });
 
 test('pairing: bad code rejected; expired code rejected; valid session required for APIs', async () => {

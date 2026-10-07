@@ -136,15 +136,31 @@ export interface PhoneLinkStatus {
   pairingExpiresAt: number | null;
   urls: string[];
   sessionCount: number;
+  /** Recommended LAN URL encoded in the QR (URL only; pairing code is separate). */
+  primaryUrl: string | null;
+  /** PNG data URL for the QR of primaryUrl, or null while generating / stopped. */
+  qrDataUrl: string | null;
 }
 
 /** API exposed by the preload script on window.cipher. */
+/** Result of picking a file to attach into a 1:1 chat message (desktop only). */
+export type AttachPickResult =
+  | { ok: true; relPath: string; block: string }
+  | { ok: false; error: string; needFolder?: boolean };
+
 export interface CipherApi {
   listBots(): Promise<Bot[]>;
   createBot(bot: NewBotForm): Promise<Bot>;
   setBotFolder(botId: number, folderPath: string | null): Promise<Bot>;
   setBotTools(botId: number, enabled: boolean): Promise<Bot>;
+  /** Delete a Cipher bot after the UI confirm step. Cascades chats; removes from rooms. */
+  deleteBot(botId: number): Promise<{ deletedRoomIds: number[] }>;
   pickFolder(): Promise<string | null>;
+  /**
+   * Desktop-only: pick a file inside this bot's folder and read it through the read_file sandbox
+   * for inclusion in the next user message. Not available on phone UI.
+   */
+  pickAttachFile(botId: number): Promise<AttachPickResult>;
   /** The bot's one chat (its most recent one), created on first open. */
   openBotChat(botId: number): Promise<Chat>;
   listMessages(chatId: number): Promise<Message[]>;

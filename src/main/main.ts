@@ -9,6 +9,8 @@ import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
 import { ONLINE_SETTING_KEY, assertOutboundAllowed, onlineSettingValue, parseOnlineSetting } from './networkGuard';
 import { PhoneServer, PHONE_LINK_PORT } from './phoneServer';
+import { readFileForAttach } from './attachFile';
+import { ToolError } from './readFileTool';
 
 let db: CipherDb;
 let setup: SetupManager;
@@ -137,6 +139,7 @@ function registerIpc(): void {
   ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
   ipcMain.handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
   ipcMain.handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
+  ipcMain.handle('bots:delete', (_e, botId: unknown) => db.deleteBot(asId(botId)));
 
   ipcMain.handle('dialog:pickFolder', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
@@ -145,6 +148,34 @@ function registerIpc(): void {
     if (r.canceled || !r.filePaths[0]) return null;
     pickedFolders.add(r.filePaths[0]);
     return r.filePaths[0];
+  });
+
+  /**
+   * Desktop-only attach: open a file picker (defaulting to the bot's folder), then read through
+   * the same read_file sandbox. Rejects paths outside the folder (incl. .. and symlink escape).
+   */
+  ipcMain.handle('dialog:pickAttachFile', async (e, botIdRaw: unknown) => {
+    const botId = asId(botIdRaw);
+    const bot = db.getBot(botId);
+    if (!bot) return { ok: false as const, error: 'Cipher bot not found.' };
+    if (!bot.folderPath) {
+      return { ok: false as const, error: 'Choose a folder for this Cipher bot before attaching a file.', needFolder: true };
+    }
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      title: 'Attach a text file from this Cipher bot\'s folder',
+      defaultPath: bot.folderPath,
+      properties: ['openFile' as const],
+    };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (r.canceled || !r.filePaths[0]) return { ok: false as const, error: 'No file selected.' };
+    try {
+      const attached = await readFileForAttach(bot.folderPath, r.filePaths[0]);
+      return { ok: true as const, relPath: attached.relPath, block: attached.block };
+    } catch (err) {
+      const msg = err instanceof ToolError ? err.message : (err instanceof Error ? err.message : 'Could not attach the file.');
+      return { ok: false as const, error: msg };
+    }
   });
 
   // One chat per bot: its most recent chat, created on first open. Older chats stay in the database, hidden.
