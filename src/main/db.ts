@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import type { Bot, Chat, Message, NewBot, Role, Room, RoomMessage, ToolCall } from '../shared/types';
 import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIcon, DEFAULT_BOT_COLOR } from './botIcons';
+import { validateBotProfile } from './createBot';
 
 const SCHEMA_VERSION = 4;
 /** Longest optional room name. */
@@ -214,19 +215,26 @@ export class CipherDb {
   }
 
   createBot(input: NewBot): Bot {
-    const name = String(input.name ?? '').trim();
-    if (!name) throw new Error('Please give your Cipher bot a name.');
-    if (name.length > 80) throw new Error('Cipher bot names must be 80 characters or fewer.');
-    const prompt = String(input.systemPrompt ?? '');
-    if (prompt.length > 20000) throw new Error('The job description is too long (max 20000 characters).');
-    // Shape and color are picked on create; anything off the whitelist becomes the default.
+    // Same validation as edit (validateBotProfile): name, job, and whitelisted shape/color (unknown → default).
     // The v1.4 icon column gets the shape key too, so an older Cipher still shows a matching icon.
-    const shape = normalizeBotShape(input.shape);
-    const color = normalizeBotColor(input.color);
+    const { name, systemPrompt: prompt, shape, color } = validateBotProfile(input);
     const info = this.db
       .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path, icon, shape, color) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null, shape, shape, color);
     return this.getBot(Number(info.lastInsertRowid))!;
+  }
+
+  /**
+   * Edit a Cipher bot's name, job (system prompt), icon shape and color. Uses the same validator as createBot.
+   * File reading, folder and chats are left as they are. The v1.4 icon column follows the shape, as on create.
+   */
+  updateBot(id: number, input: { name?: unknown; systemPrompt?: unknown; shape?: unknown; color?: unknown }): Bot {
+    if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    const { name, systemPrompt, shape, color } = validateBotProfile(input);
+    this.db
+      .prepare('UPDATE bots SET name = ?, system_prompt = ?, icon = ?, shape = ?, color = ? WHERE id = ?')
+      .run(name, systemPrompt, shape, shape, color, id);
+    return this.getBot(id)!;
   }
 
   setBotFolder(id: number, folderPath: string | null): Bot {
@@ -296,6 +304,20 @@ export class CipherDb {
     if (!this.getBot(botId)) throw new Error('Cipher bot not found.');
     const info = this.db.prepare('INSERT INTO chats (bot_id, title) VALUES (?, ?)').run(botId, title);
     return this.getChat(Number(info.lastInsertRowid))!;
+  }
+
+  /**
+   * Clear a bot's chat: delete the messages of its one (visible) chat and reset the title, keeping the chat row,
+   * so it stays "one chat per bot" with the same chat id. The bot, its settings, its rooms and room messages,
+   * and any older hidden chats are not touched.
+   */
+  clearBotChat(botId: number): Chat {
+    const chat = this.getBotChat(botId); // throws if the bot doesn't exist
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM messages WHERE chat_id = ?').run(chat.id);
+      this.db.prepare("UPDATE chats SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(DEFAULT_CHAT_TITLE, chat.id);
+    })();
+    return this.getChat(chat.id)!;
   }
 
   // ---- messages ----

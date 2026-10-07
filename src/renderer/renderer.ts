@@ -18,6 +18,7 @@ const el = {
   form: $<HTMLFormElement>('bot-form'), botName: $<HTMLInputElement>('bot-name'), botJob: $<HTMLTextAreaElement>('bot-job'),
   shapePicker: $('shape-picker'), colorPicker: $('color-picker'),
   botFormError: $('bot-form-error'), botCancel: $<HTMLButtonElement>('bot-cancel'),
+  botFormArt: $('bot-form-art'), botFormTitle: $('bot-form-title'), botSubmit: $<HTMLButtonElement>('bot-submit'),
   roomForm: $<HTMLFormElement>('room-form'), roomName: $<HTMLInputElement>('room-name'), roomMembers: $('room-members'),
   roomFormError: $('room-form-error'), roomCancel: $<HTMLButtonElement>('room-cancel'), roomCreate: $<HTMLButtonElement>('room-create'),
   setupText: $('setup-text'), setupProgress: $<HTMLProgressElement>('setup-progress'), setupDetail: $('setup-detail'),
@@ -25,7 +26,8 @@ const el = {
   chatIcon: $('chat-icon'), chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), roomNote: $('room-note'),
   botSettings: $('bot-settings'), chatTools: $<HTMLInputElement>('chat-tools'),
   chatFolderLabel: $('chat-folder-label'), chatFolderPick: $<HTMLButtonElement>('chat-folder-pick'),
-  botDelete: $<HTMLButtonElement>('bot-delete'),
+  botDelete: $<HTMLButtonElement>('bot-delete'), botEdit: $<HTMLButtonElement>('bot-edit'),
+  chatExport: $<HTMLButtonElement>('chat-export'), chatClear: $<HTMLButtonElement>('chat-clear'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
   attach: $<HTMLButtonElement>('attach'), attachChip: $('attach-chip'), attachChipName: $('attach-chip-name'),
   attachClear: $<HTMLButtonElement>('attach-clear'), attachError: $('attach-error'),
@@ -59,6 +61,8 @@ const state = {
   /** Rooms with a round in progress, and who is speaking + what they've streamed so far. */
   roomLive: new Map<number, { botId: number | null; text: string }>(),
   formOpen: false,
+  /** The bot being edited in the edit modal (the create form, reused), or null. */
+  editBotId: null as number | null,
   roomFormOpen: false,
   settingsOpen: false,
   /** Bot ids currently streaming a reply (working-dot). */
@@ -129,12 +133,15 @@ function applyView(): void {
     botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen,
     settingsOpen: state.settingsOpen, setup: state.setup,
   });
-  el.formView.hidden = view !== 'form';
+  // The edit modal reuses the create form, shown over the chat.
+  const editing = state.editBotId !== null && view === 'chat';
+  el.formView.hidden = view !== 'form' && !editing;
+  el.formView.classList.toggle('edit-modal', editing);
   el.roomFormView.hidden = view !== 'room-form';
   el.settingsView.hidden = view !== 'settings';
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
-  el.botCancel.hidden = state.bots.length === 0; // nothing to go back to on first run
+  el.botCancel.hidden = state.bots.length === 0 && !editing; // nothing to go back to on first run
   if (view === 'setup') renderSetup();
   if (view === 'chat') renderChat();
   if (view === 'settings') renderSettings();
@@ -214,6 +221,7 @@ async function loadRooms(): Promise<void> {
 /** Open a bot's one chat (created on first open). */
 async function selectBot(botId: number): Promise<void> {
   state.formOpen = false;
+  state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
   state.roomId = null;
@@ -231,6 +239,7 @@ async function selectBot(botId: number): Promise<void> {
 
 async function selectRoom(roomId: number): Promise<void> {
   state.formOpen = false;
+  state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
   state.botId = null;
@@ -251,6 +260,60 @@ function toolCallLabel(m: Message): string {
     const p = (c.function?.arguments as { path?: unknown })?.path;
     return typeof p === 'string' ? p : '';
   }).join(', ');
+}
+
+// ---------- copy a message ----------
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** The small copy icon (two overlapping rounded squares), built with DOM calls (no inline styles). */
+function copyIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '14');
+  svg.setAttribute('height', '14');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  for (const [x, y] of [[8, 8], [4, 4]]) {
+    const r = document.createElementNS(SVG_NS, 'rect');
+    r.setAttribute('x', String(x)); r.setAttribute('y', String(y));
+    r.setAttribute('width', '12'); r.setAttribute('height', '12'); r.setAttribute('rx', '2.5');
+    r.setAttribute('fill', 'none'); r.setAttribute('stroke', 'currentColor'); r.setAttribute('stroke-width', '2');
+    svg.append(r);
+  }
+  return svg;
+}
+
+function copyButton(text: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.title = 'Copy message';
+  btn.setAttribute('aria-label', 'Copy message');
+  btn.append(copyIcon());
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      await api.copyText(text);
+      btn.classList.add('copied');
+      btn.title = 'Copied';
+      btn.setAttribute('aria-label', 'Copied');
+      window.setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.title = 'Copy message';
+        btn.setAttribute('aria-label', 'Copy message');
+      }, 1200);
+    } catch (err) {
+      state.error = plainError(err);
+      renderChat();
+    }
+  });
+  return btn;
+}
+
+/** A user or bot message bubble: the text plus a small copy button. */
+function bubble(cls: string, text: string): HTMLElement {
+  const msg = node('div', `msg ${cls}`);
+  msg.append(node('span', 'msg-text', text), copyButton(text));
+  return msg;
 }
 
 function renderChat(): void {
@@ -274,6 +337,7 @@ function renderBotChat(): void {
   el.chatTitle.hidden = false;
   el.roomNote.hidden = true;
   el.botSettings.hidden = false;
+  el.chatClear.hidden = false;
   el.chatTools.checked = bot.toolsEnabled;
   el.chatFolderPick.hidden = !bot.toolsEnabled;
   el.chatFolderLabel.hidden = !bot.toolsEnabled;
@@ -285,9 +349,9 @@ function renderBotChat(): void {
   for (const m of state.messages) {
     const match = !q || m.content.toLowerCase().includes(q);
     let row: HTMLElement | null = null;
-    if (m.role === 'user') row = node('div', 'msg user', m.content);
+    if (m.role === 'user') row = bubble('user', m.content);
     else if (m.role === 'assistant') {
-      if (m.content) row = node('div', 'msg assistant', m.content);
+      if (m.content) row = bubble('assistant', m.content);
       if (m.toolCalls?.length) {
         const note = node('div', 'msg note', `Reading file: ${toolCallLabel(m)}`);
         if (!match) note.classList.add('search-hidden');
@@ -320,6 +384,7 @@ function roomReply(botId: number | null, text: string, live = false): HTMLElemen
   if (bot) speaker.append(botIcon(bot, 26));
   speaker.append(node('span', 'name', bot ? bot.name : 'Cipher bot'));
   msg.append(speaker, node('div', 'text', text));
+  if (!live) msg.append(copyButton(text));
   return msg;
 }
 
@@ -332,12 +397,13 @@ function renderRoom(): void {
   el.chatTitle.textContent = room.name.trim() ? members.map((b) => b.name).join(', ') : `${members.length} Cipher bots`;
   el.roomNote.hidden = false; // "File reading is off in rooms"
   el.botSettings.hidden = true;
+  el.chatClear.hidden = true; // Clear chat is for 1:1 chats only
 
   const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
   for (const m of state.roomMessages) {
     const match = !q || m.content.toLowerCase().includes(q);
-    const row = m.role === 'user' ? node('div', 'msg user', m.content) : roomReply(m.botId, m.content);
+    const row = m.role === 'user' ? bubble('user', m.content) : roomReply(m.botId, m.content);
     if (!match) row.classList.add('search-hidden');
     items.push(row);
   }
@@ -545,10 +611,19 @@ function resetPickers(): void {
   recolorShapePicker();
 }
 
+/** Labels for the shared bot form: "Create a Cipher bot" or "Edit <name>". */
+function setBotFormMode(editName: string | null): void {
+  el.botFormTitle.textContent = editName === null ? 'Create a Cipher bot' : `Edit ${editName}`;
+  el.botSubmit.textContent = editName === null ? 'Create Cipher bot' : 'Save';
+  el.botFormArt.hidden = editName !== null;
+}
+
 function openBotForm(): void {
   el.form.reset();
   resetPickers();
+  setBotFormMode(null);
   el.botFormError.hidden = true;
+  state.editBotId = null;
   state.formOpen = true;
   state.roomFormOpen = false;
   state.settingsOpen = false;
@@ -557,11 +632,50 @@ function openBotForm(): void {
   el.botName.focus();
 }
 
+/** Edit a Cipher bot: the create form, prefilled, shown as a modal over the chat. */
+function openEditBot(): void {
+  const bot = currentBot();
+  if (!bot) return;
+  el.form.reset();
+  el.botName.value = bot.name;
+  el.botJob.value = bot.systemPrompt;
+  // A bad stored shape/color shows (and saves) as the default, same as everywhere else.
+  const shape = shapeOf(bot.shape);
+  const color = colorOf(bot.color);
+  for (const i of el.shapePicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === shape;
+  for (const i of el.colorPicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === color;
+  recolorShapePicker();
+  setBotFormMode(bot.name);
+  el.botFormError.hidden = true;
+  state.editBotId = bot.id;
+  applyView();
+  el.botName.focus();
+}
+
+function closeEditBot(): void {
+  if (state.editBotId === null) return;
+  state.editBotId = null;
+  applyView();
+}
+
 async function submitBotForm(e: Event): Promise<void> {
   e.preventDefault();
   el.botFormError.hidden = true;
+  const form = { name: el.botName.value, job: el.botJob.value, shape: shapeOf(pickedShape()), color: colorOf(pickedColor()) };
+  if (state.editBotId !== null) {
+    try {
+      const updated = await api.updateBot(state.editBotId, form);
+      state.editBotId = null;
+      applyView();
+      await replaceBot(updated); // the left column and the chat header update right away
+    } catch (err) {
+      el.botFormError.textContent = plainError(err);
+      el.botFormError.hidden = false;
+    }
+    return;
+  }
   try {
-    const bot = await api.createBot({ name: el.botName.value, job: el.botJob.value, shape: shapeOf(pickedShape()), color: colorOf(pickedColor()) });
+    const bot = await api.createBot(form);
     state.formOpen = false;
     await loadBots();
     await selectBot(bot.id);
@@ -619,6 +733,7 @@ async function submitRoomForm(e: Event): Promise<void> {
 
 function closeForms(): void {
   state.formOpen = false;
+  state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
   renderRail();
@@ -627,6 +742,7 @@ function closeForms(): void {
 
 function openSettings(): void {
   state.settingsOpen = true;
+  state.editBotId = null;
   state.formOpen = false;
   state.roomFormOpen = false;
   renderRail();
@@ -734,9 +850,10 @@ async function attachFile(): Promise<void> {
 type ConfirmAction = (() => void | Promise<void>) | null;
 let pendingConfirm: ConfirmAction = null;
 
-function openConfirm(title: string, body: string, onOk: () => void | Promise<void>): void {
+function openConfirm(title: string, body: string, onOk: () => void | Promise<void>, okLabel = 'Delete'): void {
   el.confirmTitle.textContent = title;
   el.confirmBody.textContent = body;
+  el.confirmOk.textContent = okLabel;
   pendingConfirm = onOk;
   el.confirmModal.hidden = false;
   el.confirmOk.focus();
@@ -778,6 +895,41 @@ async function requestDeleteBot(): Promise<void> {
   );
 }
 
+// ---------- clear chat (confirm required; 1:1 only) ----------
+function requestClearChat(): void {
+  const bot = currentBot();
+  if (!bot || state.roomId !== null) return;
+  openConfirm(
+    `Clear chat with ${bot.name}?`,
+    'This permanently deletes the messages in this chat. The Cipher bot, its settings and its rooms stay.',
+    async () => {
+      const chat = await api.clearBotChat(bot.id);
+      if (state.botId !== bot.id) return;
+      state.chat = chat;
+      state.messages = [];
+      state.live = '';
+      state.error = null;
+      state.pendingAttach = null;
+      clearAttachError();
+      renderChat();
+    },
+    'Clear chat',
+  );
+}
+
+// ---------- export the open chat or room to a text file ----------
+async function exportOpenChat(): Promise<void> {
+  const target = state.roomId !== null ? { kind: 'room' as const, id: state.roomId } : state.botId !== null ? { kind: 'bot' as const, id: state.botId } : null;
+  if (!target) return;
+  try {
+    const r = await api.exportChat(target.kind, target.id);
+    if (!r.ok && !r.canceled) { state.error = r.error; renderChat(); }
+  } catch (err) {
+    state.error = plainError(err);
+    renderChat();
+  }
+}
+
 function onSearchInput(): void {
   state.searchQuery = el.search.value;
   renderRail();
@@ -798,7 +950,11 @@ el.newBot.addEventListener('click', openBotForm);
 el.newRoom.addEventListener('click', openRoomForm);
 el.openSettings.addEventListener('click', openSettings);
 el.settingsClose.addEventListener('click', closeForms);
-el.botCancel.addEventListener('click', closeForms);
+el.botCancel.addEventListener('click', () => { if (state.editBotId !== null) closeEditBot(); else closeForms(); });
+el.formView.addEventListener('click', (e) => { if (state.editBotId !== null && e.target === el.formView) closeEditBot(); });
+el.botEdit.addEventListener('click', openEditBot);
+el.chatClear.addEventListener('click', requestClearChat);
+el.chatExport.addEventListener('click', () => void exportOpenChat());
 el.roomCancel.addEventListener('click', closeForms);
 el.onlineSwitch.addEventListener('change', async () => {
   state.online = await api.setOnline(el.onlineSwitch.checked);

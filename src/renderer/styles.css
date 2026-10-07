@@ -230,3 +230,22 @@ button.secondary.danger:hover { background: #3a1c1c; }
 .modal-card p { margin: 0 0 16px; }
 .rail-btn.filtered-out { display: none; }
 .msg.search-hidden { display: none; }
+
+/* ---------- v1.8: edit bot modal, copy message, clear/export chat ---------- */
+/* The create form, reused as a modal over the chat when editing a bot. */
+#bot-form-view.edit-modal { position: fixed; inset: 0; z-index: 200; background: #000a; overflow-y: auto; }
+#bot-form-view.edit-modal .card { box-shadow: 0 16px 48px #000a; }
+.chat-actions { flex: none; }
+/* Small copy button next to each message bubble; shows on hover or keyboard focus. */
+.msg { position: relative; }
+.msg .copy-btn { position: absolute; top: 4px; width: 26px; height: 26px; padding: 0; display: grid; place-items: center;
+  background: var(--panel2); color: var(--muted); border: 1px solid var(--line); border-radius: 50%; opacity: 0;
+  transition: opacity .12s ease; white-space: normal; }
+.msg.user .copy-btn { left: -32px; }
+.msg.assistant .copy-btn { right: -32px; }
+.msg:hover .copy-btn, .msg .copy-btn:focus-visible, .msg .copy-btn.copied { opacity: 1; }
+.msg .copy-btn:hover { background: var(--line); color: var(--text); }
+.msg .copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.msg .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+/* With file reading on, the header's controls can wrap to a second line in narrow windows. */
+#chat-header { flex-wrap: wrap; row-gap: 6px; }
