@@ -62,6 +62,14 @@ const api: CipherApi = {
     ipcRenderer.on('phone:status', listener);
     return () => ipcRenderer.removeListener('phone:status', listener);
   },
+  getLockState: () => ipcRenderer.invoke('lock:state'),
+  unlock: (passphrase) => ipcRenderer.invoke('lock:unlock', passphrase),
+  enableLock: (passphrase, confirm) => ipcRenderer.invoke('lock:enable', passphrase, confirm),
+  changeLock: (current, passphrase, confirm) => ipcRenderer.invoke('lock:change', current, passphrase, confirm),
+  disableLock: (current) => ipcRenderer.invoke('lock:disable', current),
+  backup: () => ipcRenderer.invoke('data:backup'),
+  pickRestore: () => ipcRenderer.invoke('data:restorePick'),
+  confirmRestore: () => ipcRenderer.invoke('data:restoreConfirm'),
 };
 
 contextBridge.exposeInMainWorld('cipher', api);

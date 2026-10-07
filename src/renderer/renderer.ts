@@ -1,4 +1,4 @@
-import type { Bot, Chat, ChatEvent, CipherApi, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState } from '../shared/types';
+import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult } from '../shared/types';
 import { decideView, plusMenuItems, roomTitle, setupCopy, showsSplash, splashRemainingMs, SPLASH_MAX_MS, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
@@ -44,6 +44,15 @@ const el = {
   phoneQrWrap: $('phone-qr-wrap'), phoneQr: $<HTMLImageElement>('phone-qr'), phonePrimaryUrl: $('phone-primary-url'),
   confirmModal: $('confirm-modal'), confirmTitle: $('confirm-title'), confirmBody: $('confirm-body'),
   confirmCancel: $<HTMLButtonElement>('confirm-cancel'), confirmOk: $<HTMLButtonElement>('confirm-ok'),
+  lockScreen: $('lock-screen'), lockForm: $<HTMLFormElement>('lock-form'), lockPass: $<HTMLInputElement>('lock-pass'),
+  lockPassError: $('lock-pass-error'), lockUnlock: $<HTMLButtonElement>('lock-unlock'),
+  lockStatus: $('lock-status'), lockMsg: $('lock-msg'), lockError: $('lock-error'),
+  lockSetForm: $<HTMLFormElement>('lock-set-form'), lockSetNew: $<HTMLInputElement>('lock-set-new'), lockSetConfirm: $<HTMLInputElement>('lock-set-confirm'),
+  lockChangeForm: $<HTMLFormElement>('lock-change-form'), lockChangeCurrent: $<HTMLInputElement>('lock-change-current'),
+  lockChangeNew: $<HTMLInputElement>('lock-change-new'), lockChangeConfirm: $<HTMLInputElement>('lock-change-confirm'),
+  lockOffForm: $<HTMLFormElement>('lock-off-form'), lockOffCurrent: $<HTMLInputElement>('lock-off-current'),
+  backupBtn: $<HTMLButtonElement>('backup-btn'), backupMsg: $('backup-msg'), backupError: $('backup-error'),
+  restoreBtn: $<HTMLButtonElement>('restore-btn'), restoreError: $('restore-error'),
 };
 
 const CHAT_PLACEHOLDER = el.input.placeholder;
@@ -81,6 +90,8 @@ const state = {
   searchQuery: '',
   /** Desktop-only pending attach block for the next 1:1 send (rooms skipped). */
   pendingAttach: null as { relPath: string; block: string } | null,
+  /** App lock (v1.13). Starts locked until main says otherwise, so nothing loads before the check. */
+  lock: { enabled: true, locked: true } as LockState,
 };
 
 const currentBot = () => state.bots.find((b) => b.id === state.botId) ?? null;
@@ -187,6 +198,7 @@ function renderSetup(): void {
 
 function onSetupState(st: SetupState): void {
   state.setup = st;
+  if (state.lock.locked) return;
   applyView();
 }
 
@@ -762,6 +774,8 @@ function closeForms(): void {
 }
 
 function openSettings(): void {
+  void api.getLockState().then((ls) => { state.lock = ls; if (state.settingsOpen) renderLockSettings(); });
+  for (const p of [el.lockMsg, el.lockError, el.backupMsg, el.backupError, el.restoreError]) p.hidden = true;
   state.settingsOpen = true;
   state.policyOpen = false;
   state.editBotId = null;
@@ -772,6 +786,7 @@ function openSettings(): void {
 }
 
 function renderSettings(): void {
+  renderLockSettings();
   el.onlineSwitch.checked = state.online;
   const ph = state.phone;
   el.phoneStart.hidden = ph.running;
@@ -806,6 +821,151 @@ function renderSettings(): void {
   } else {
     el.phoneQrWrap.hidden = true;
   }
+}
+
+// ---------- Settings: lock, backup, restore (v1.13) ----------
+// Passphrases are read from the field, the field is cleared, and the value goes to main once (never stored here).
+function renderLockSettings(): void {
+  const on = state.lock.enabled;
+  el.lockStatus.textContent = on ? 'The lock is on.' : 'The lock is off.';
+  el.lockStatus.classList.toggle('on', on);
+  el.lockSetForm.hidden = on;
+  el.lockChangeForm.hidden = !on;
+  el.lockOffForm.hidden = !on;
+}
+
+function lockFeedback(ok: string | null, error: string | null): void {
+  el.lockMsg.textContent = ok ?? '';
+  el.lockMsg.hidden = ok === null;
+  el.lockError.textContent = error ?? '';
+  el.lockError.hidden = error === null;
+}
+
+/** Read and clear password fields. */
+function takeValues(...inputs: HTMLInputElement[]): string[] {
+  const values = inputs.map((i) => i.value);
+  for (const i of inputs) i.value = '';
+  return values;
+}
+
+async function submitLockSet(e: Event): Promise<void> {
+  e.preventDefault();
+  const [pass, confirm] = takeValues(el.lockSetNew, el.lockSetConfirm);
+  if (pass.length < 8) { lockFeedback(null, 'The passphrase must be at least 8 characters.'); return; }
+  if (pass !== confirm) { lockFeedback(null, 'The two passphrases don\'t match.'); return; }
+  try {
+    state.lock = await api.enableLock(pass, confirm);
+    renderLockSettings();
+    lockFeedback('The lock is on. Cipher will ask for the passphrase next time it starts or its window is shown again.', null);
+  } catch (err) {
+    lockFeedback(null, plainError(err));
+  }
+}
+
+function lockResultMessage(r: UnlockResult, ok: string): void {
+  if (r.ok) lockFeedback(ok, null);
+  else lockFeedback(null, r.error);
+}
+
+async function submitLockChange(e: Event): Promise<void> {
+  e.preventDefault();
+  const [current, pass, confirm] = takeValues(el.lockChangeCurrent, el.lockChangeNew, el.lockChangeConfirm);
+  if (pass.length < 8) { lockFeedback(null, 'The new passphrase must be at least 8 characters.'); return; }
+  if (pass !== confirm) { lockFeedback(null, 'The two new passphrases don\'t match.'); return; }
+  try {
+    lockResultMessage(await api.changeLock(current, pass, confirm), 'Passphrase changed.');
+  } catch (err) {
+    lockFeedback(null, plainError(err));
+  }
+}
+
+async function submitLockOff(e: Event): Promise<void> {
+  e.preventDefault();
+  const [current] = takeValues(el.lockOffCurrent);
+  try {
+    const r = await api.disableLock(current);
+    if (r.ok) state.lock = await api.getLockState();
+    renderLockSettings();
+    lockResultMessage(r, 'The lock is off.');
+  } catch (err) {
+    lockFeedback(null, plainError(err));
+  }
+}
+
+async function backupNow(): Promise<void> {
+  el.backupMsg.hidden = true;
+  el.backupError.hidden = true;
+  el.backupBtn.disabled = true;
+  try {
+    const r = await api.backup();
+    if (r.ok) { el.backupMsg.textContent = `Backup saved: ${r.path}`; el.backupMsg.hidden = false; }
+    else if (!r.canceled) { el.backupError.textContent = r.error; el.backupError.hidden = false; }
+  } catch (err) {
+    el.backupError.textContent = plainError(err);
+    el.backupError.hidden = false;
+  } finally {
+    el.backupBtn.disabled = false;
+  }
+}
+
+async function restoreNow(): Promise<void> {
+  el.restoreError.hidden = true;
+  const showError = (msg: string) => { el.restoreError.textContent = msg; el.restoreError.hidden = false; };
+  let r;
+  try { r = await api.pickRestore(); } catch (err) { showError(plainError(err)); return; }
+  if (!r.ok) { if (!r.canceled) showError(r.error); return; }
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  openConfirm(
+    `Restore from "${r.file}"?`,
+    `This replaces all your current Cipher bots, chats, rooms and routines with the ones in this backup ` +
+      `(${n(r.bots, 'Cipher bot', 'Cipher bots')}, ${n(r.rooms, 'room', 'rooms')}). ` +
+      'Before replacing, Cipher saves a copy of the current database next to it (cipher.db.before-restore-<date>-<time>), then restarts. ' +
+      'The lock on this computer stays as it is, and Online is turned off.',
+    async () => {
+      try { await api.confirmRestore(); } catch (err) { showError(plainError(err)); }
+    },
+    'Restore and restart',
+  );
+}
+
+// ---------- lock screen (v1.13) ----------
+// Full-window overlay, shown by default in the HTML (fails closed). While locked the window holds no chat data:
+// main refuses every data request and sends no chat events; locking again reloads the page.
+let unlockRetryTimer: number | undefined;
+function showLockScreen(): void {
+  el.lockScreen.hidden = false;
+  el.lockPassError.hidden = true;
+  el.lockPass.focus();
+}
+
+function hideLockScreen(): void {
+  el.lockScreen.hidden = true;
+  el.lockPass.value = '';
+  el.lockPassError.hidden = true;
+}
+
+async function submitUnlock(e: Event): Promise<void> {
+  e.preventDefault();
+  const [pass] = takeValues(el.lockPass);
+  el.lockUnlock.disabled = true;
+  let r: UnlockResult;
+  try {
+    r = await api.unlock(pass);
+  } catch (err) {
+    r = { ok: false, error: plainError(err), waitMs: 0 };
+  }
+  if (r.ok) {
+    el.lockUnlock.disabled = false;
+    state.lock = await api.getLockState();
+    hideLockScreen();
+    await loadAppData();
+    return;
+  }
+  el.lockPassError.textContent = r.error;
+  el.lockPassError.hidden = false;
+  window.clearTimeout(unlockRetryTimer);
+  unlockRetryTimer = window.setTimeout(() => { el.lockUnlock.disabled = false; el.lockPass.focus(); }, r.waitMs);
+  el.lockPass.focus();
 }
 
 // ---------- policy (read-only; text lives in policy.ts) ----------
@@ -1178,6 +1338,12 @@ el.onlineSwitch.addEventListener('change', async () => {
   state.online = await api.setOnline(el.onlineSwitch.checked);
   renderSettings();
 });
+el.lockForm.addEventListener('submit', (e) => void submitUnlock(e));
+el.lockSetForm.addEventListener('submit', (e) => void submitLockSet(e));
+el.lockChangeForm.addEventListener('submit', (e) => void submitLockChange(e));
+el.lockOffForm.addEventListener('submit', (e) => void submitLockOff(e));
+el.backupBtn.addEventListener('click', () => void backupNow());
+el.restoreBtn.addEventListener('click', () => void restoreNow());
 el.phoneStart.addEventListener('click', async () => { state.phone = await api.startPhoneLink(); renderSettings(); });
 el.phoneStop.addEventListener('click', async () => { state.phone = await api.stopPhoneLink(); renderSettings(); });
 el.phoneRefresh.addEventListener('click', async () => { state.phone = await api.refreshPhoneLinkCode(); renderSettings(); });
@@ -1236,7 +1402,8 @@ function hideSplash(): void {
 if (!showsSplash(location.hash)) { splashDone = true; el.splash.remove(); }
 window.setTimeout(hideSplash, SPLASH_MAX_MS);
 
-async function init(): Promise<void> {
+/** Load bots, rooms and the first (or notice-requested) chat. Only after the lock check says unlocked. */
+async function loadAppData(): Promise<void> {
   try {
     state.setup = await api.getSetup();
     state.online = await api.getOnline();
@@ -1250,6 +1417,15 @@ async function init(): Promise<void> {
     initDone = true;
     if (pendingOpenBot !== null && pendingOpenBot !== state.botId && state.bots.some((b) => b.id === pendingOpenBot)) void selectBot(pendingOpenBot);
     pendingOpenBot = null;
+  }
+}
+
+async function init(): Promise<void> {
+  try {
+    state.lock = await api.getLockState();
+    if (state.lock.locked) showLockScreen(); // nothing else loads until the passphrase is right
+    else { hideLockScreen(); await loadAppData(); }
+  } finally {
     window.setTimeout(hideSplash, splashRemainingMs(performance.now() - splashStart));
   }
 }

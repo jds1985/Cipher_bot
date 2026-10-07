@@ -102,8 +102,8 @@ test('notifier never sees the prompt or the reply: it only gets the bot id and o
   assert.match(src, /isSupported: \(\) => Notification\.isSupported\(\)/);
   assert.match(src, /new Notification\(\{ title, body, \.\.\.\(icon\.isEmpty\(\) \? \{\} : \{ icon \}\) \}\)/);
   assert.match(src, /const icon = nativeImage\.createFromPath\(appIconPath\(\)\);/);
-  assert.match(src, /openBotChat: \(botId\) => openBotChatInWindow\(botId\)/);
-  assert.match(src, /function openBotChatInWindow\(botId: number\): void \{\s*showWindow\(\);/);
+  assert.match(src, /openBotChat: \(botId\) => void openBotChatInWindow\(botId\)/);
+  assert.match(src, /async function openBotChatInWindow\(botId: number\): Promise<void> \{\s*await showWindow\(\);/);
   assert.match(src, /webContents\.send\('routine:openBot', botId\)/);
   // No notice while quitting.
   assert.match(src, /if \(!quitting\) routineNotifier\?\.notify/);

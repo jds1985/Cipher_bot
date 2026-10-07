@@ -56,7 +56,13 @@ export interface PhoneServerDeps {
   stopRoom: (roomId: number) => void;
   /** Called when status changes (code refresh, start/stop). */
   onStatus?: (s: PhoneLinkStatus) => void;
+  /** True while Cipher is locked on the desktop: the API then refuses everything, pairing included. */
+  isLocked?: () => boolean;
 }
+
+/** HTTP status and message the phone API returns for every request while Cipher is locked on the desktop. */
+export const PHONE_LOCKED_STATUS = 423;
+export const PHONE_LOCKED_MESSAGE = 'Cipher is locked on the desktop.';
 
 interface PairingState {
   code: string;
@@ -262,6 +268,21 @@ export class PhoneServer {
     return s;
   }
 
+  /**
+   * Cipher was locked: end open event streams so nothing more reaches a phone. Paired sessions are kept, so the
+   * phone works again after the desktop is unlocked; until then every API call is refused.
+   */
+  closeStreams(): void {
+    for (const client of this.sse) {
+      try { client.res.end(); } catch { /* ignore */ }
+    }
+    this.sse.clear();
+  }
+
+  private locked(): boolean {
+    return this.deps.isLocked?.() === true;
+  }
+
   /** New pairing code; previous code is invalidated. Sessions stay. */
   refreshPairingCode(): PhoneLinkStatus {
     this.pairing = { code: genCode(), expiresAt: Date.now() + PAIR_TTL_MS };
@@ -330,6 +351,7 @@ export class PhoneServer {
   }
 
   private broadcastChat(ev: ChatEvent): void {
+    if (this.locked()) return;
     const line = `data: ${JSON.stringify({ channel: 'chat', ...ev })}\n\n`;
     for (const c of this.sse) {
       if (c.chatId === ev.chatId) {
@@ -339,6 +361,7 @@ export class PhoneServer {
   }
 
   private broadcastRoom(ev: RoomEvent): void {
+    if (this.locked()) return;
     const line = `data: ${JSON.stringify({ channel: 'room', ...ev })}\n\n`;
     for (const c of this.sse) {
       if (c.roomId === ev.roomId) {
@@ -362,6 +385,9 @@ export class PhoneServer {
   }
 
   private async handleApi(req: http.IncomingMessage, res: http.ServerResponse, method: string, url: URL): Promise<void> {
+    // Locked on the desktop: refuse everything (status, pairing, chats, sends, events). Nothing is read from the DB.
+    if (this.locked()) return json(res, PHONE_LOCKED_STATUS, { error: PHONE_LOCKED_MESSAGE, locked: true });
+
     // Pairing does not require a session; everything else does.
     if (method === 'POST' && url.pathname === '/api/pair') {
       const raw = await readBody(req);

@@ -4,7 +4,7 @@ import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIc
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
 
-const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 5;
 /** Longest optional room name. */
 export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
@@ -222,6 +222,11 @@ export class CipherDb {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Write a consistent copy of the whole database to dest (better-sqlite3's online backup API). Local only. */
+  async backup(dest: string): Promise<void> {
+    await this.db.backup(dest);
   }
 
   // ---- bots ----

@@ -75,7 +75,7 @@ test('main wires delete through the guards and a native right-click menu with De
   const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
   assert.match(main, /assertBotDeletable\(db, botId, activeTurns\.keys\(\), activeRooms\.keys\(\)\);\s*return db\.deleteBot\(botId\);/);
   assert.match(main, /assertRoomDeletable\(roomId, activeRooms\.keys\(\)\);\s*db\.deleteRoom\(roomId\);/);
-  assert.match(main, /ipcMain\.handle\('menu:item'/);
+  assert.match(main, /\bhandle\('menu:item'/);
   assert.match(main, /label: kind === 'room' \? 'Delete room…' : 'Delete Cipher bot…'/);
   // The renderer confirms before calling delete.
   const js = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'renderer.ts'), 'utf8');
