@@ -89,6 +89,45 @@ test('routine notice: bot name and finished/failed only, no message or reply, OS
   assert.match(p, /no notification if that bot's chat is already open in front of you, or if you stop the routine/);
 });
 
+test('lock: passphrase never leaves the computer; salted scrypt hash in lock.json (not cipher.db); no account', () => {
+  const p = section(/^Lock$/);
+  assert.match(p, /off unless you turn it on in Settings → Lock/);
+  assert.match(p, /each time it starts and each time its window is shown again after being hidden/);
+  assert.match(p, /Your passphrase never leaves this computer and is never saved/);
+  assert.match(p, /only a salted scrypt hash of it, in a small file, lock\.json, in Cipher's user data folder, separate from cipher\.db/);
+  assert.match(p, /There is no account/);
+  assert.match(p, /After 5 wrong tries in a row, Cipher makes you wait/);
+  // True to the code: the lock file name and the throttle.
+  const lock = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'lock.ts'), 'utf8');
+  assert.match(lock, /export const LOCK_FILE_NAME = 'lock\.json';/);
+  assert.match(lock, /export const FREE_ATTEMPTS = 5;/);
+  assert.match(lock, /scryptCb\(/);
+});
+
+test('lock: not encryption; cipher.db and backups readable; phone link refuses all while locked; routines go on; forgotten passphrase', () => {
+  const p = section(/^Lock$/);
+  assert.match(p, /The lock does not encrypt anything/);
+  assert.match(p, /cipher\.db and any backup files stay readable by anyone with access to your user account's files/);
+  assert.match(p, /Phone link refuses every request, pairing included; only its page loads/);
+  assert.match(p, /"Cipher is locked on the desktop"/);
+  assert.match(p, /Routines keep running while locked, and their notification \(bot name only\) still shows/);
+  assert.match(p, /There is no recovery/);
+  assert.match(p, /quit Cipher and delete lock\.json from Cipher's user data folder\. That removes the lock and keeps your chats/);
+  // Nothing claims the lock encrypts or protects the database file.
+  assert.doesNotMatch(all, /lock (encrypts|protects your (chats|files|database))|encrypted (database|chats)/i);
+});
+
+test('backup and restore: local files you choose, not encrypted, contain everything, no lock, pre-restore copy, Online off', () => {
+  const p = section(/^Backup and restore$/);
+  assert.match(p, /a file you choose on this computer/);
+  assert.match(p, /Nothing is uploaded/);
+  assert.match(p, /A backup is not encrypted and contains all your Cipher bots, chats, rooms, routines and settings/);
+  assert.match(p, /It does not include the lock: restoring never changes whether Cipher is locked or what the passphrase is/);
+  assert.match(p, /cipher\.db\.before-restore-<date>-<time>/);
+  assert.match(p, /Restore turns Online off/);
+  assert.match(section(/stay on this computer/), /settings \(except the app lock; see Lock\) are saved in one database file, cipher\.db/);
+});
+
 test('no account, telemetry, analytics or crash reporting, and the code really has none', () => {
   assert.match(section(/Accounts/), /no account or sign-in/);
   assert.match(section(/Accounts/), /no telemetry, analytics, crash reporting or auto-updater/);
