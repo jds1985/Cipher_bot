@@ -37,12 +37,15 @@ export function formatChatExport(opts: { kind: 'bot' | 'room'; name: string; exp
   return out.join('\n') + '\n';
 }
 
-/** A 1:1 chat's lines: the user's messages ("You") and the bot's replies. File-reading steps are left out. */
+/**
+ * A 1:1 chat's lines: the user's messages ("You", or "You (routine)" for ones the bot's routine sent) and the
+ * bot's replies. File-reading steps are left out.
+ */
 export function botChatExportLines(bot: Pick<Bot, 'name'>, messages: readonly Message[]): ExportLine[] {
   const lines: ExportLine[] = [];
   for (const m of messages) {
     if (m.role === 'tool' || !m.content) continue;
-    lines.push({ createdAt: m.createdAt, speaker: m.role === 'user' ? 'You' : bot.name, text: m.content });
+    lines.push({ createdAt: m.createdAt, speaker: m.role === 'user' ? (m.routine ? 'You (routine)' : 'You') : bot.name, text: m.content });
   }
   return lines;
 }

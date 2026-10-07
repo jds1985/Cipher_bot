@@ -38,6 +38,26 @@ export interface Message {
   toolCalls: ToolCall[] | null;
   toolName: string | null;
   createdAt: string;
+  /** True for a user message sent by the bot's daily routine (not typed by the user). */
+  routine: boolean;
+}
+
+/** A bot's daily routine: a saved prompt sent to its chat at a local time (at most one per bot). */
+export interface Routine {
+  botId: number;
+  prompt: string;
+  /** Local time of day, "HH:MM" (24-hour). */
+  time: string;
+  enabled: boolean;
+  /** Local date ("YYYY-MM-DD") of the last run, or null if it never ran. */
+  lastRunDate: string | null;
+}
+
+/** Fields on the routine panel. */
+export interface RoutineForm {
+  prompt: string;
+  time: string;
+  enabled: boolean;
 }
 
 export interface NewBot {
@@ -174,6 +194,10 @@ export interface CipherApi {
   listMessages(chatId: number): Promise<Message[]>;
   /** Delete the messages of the bot's one chat (after the UI confirm step). The bot and its rooms stay. */
   clearBotChat(botId: number): Promise<Chat>;
+  /** The bot's routine, or null if it has none. */
+  getRoutine(botId: number): Promise<Routine | null>;
+  /** Save the bot's routine (validated in main). */
+  setRoutine(botId: number, routine: RoutineForm): Promise<Routine>;
   /** Copy text to the system clipboard (through the main process). */
   copyText(text: string): Promise<void>;
   /** Export a bot's chat or a room to a plain-text file chosen in the native Save dialog. */
