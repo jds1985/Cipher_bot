@@ -97,7 +97,7 @@
             <h2>Settings</h2>
             <div class="settings-block" id="lock-block">
               <h3>Lock</h3>
-              <p class="muted">Cipher asks for this passphrase each time it starts and each time its window is shown again (for example, from the tray). The passphrase never leaves this computer; only a salted hash is kept, in lock.json. The lock does not encrypt your chats, and there is no recovery if you forget the passphrase.</p>
+              <p class="muted">Cipher locks each time it starts and as soon as its window is closed to the tray, and asks for this passphrase before showing anything again. The passphrase never leaves this computer; only a salted hash is kept, in lock.json. The lock does not encrypt your chats, and there is no recovery if you forget the passphrase.</p>
               <p id="lock-status" class="lock-status"></p>
               <form id="lock-set-form" class="lock-form" hidden>
                 <label>New passphrase (at least 8 characters)

@@ -152,7 +152,8 @@ export const LOCKED_MESSAGE = 'Cipher is locked.';
 
 /**
  * The app lock state. Off when there is no lock file. When on, Cipher starts locked, and main locks it again
- * whenever the hidden window is shown. The passphrase passes through unlock()/set/change/disable once and isn't kept.
+ * the moment the window hides to the tray (see lockOnHide). The passphrase passes through unlock()/set/change/disable
+ * once and isn't kept.
  */
 export class AppLock {
   private locked: boolean;
@@ -224,6 +225,18 @@ export class AppLock {
     this.locked = false;
     return r;
   }
+}
+
+/**
+ * Lock at the moment the window hides to the tray. No-op (false) when the lock is off or already locked; otherwise
+ * locks first, then runs afterLock (main: close phone streams and swap the page for the lock screen), and returns true.
+ * From the lock() call on, data IPC refuses and the phone link answers 423.
+ */
+export function lockOnHide(lock: AppLock, afterLock: () => void): boolean {
+  if (!lock.isEnabled() || lock.isLocked()) return false;
+  lock.lock();
+  afterLock();
+  return true;
 }
 
 function tooManyMessage(waitMs: number): string {

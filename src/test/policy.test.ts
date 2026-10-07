@@ -92,11 +92,12 @@ test('routine notice: bot name and finished/failed only, no message or reply, OS
 test('lock: passphrase never leaves the computer; salted scrypt hash in lock.json (not cipher.db); no account', () => {
   const p = section(/^Lock$/);
   assert.match(p, /off unless you turn it on in Settings → Lock/);
-  assert.match(p, /each time it starts and each time its window is shown again after being hidden/);
+  assert.match(p, /Cipher locks each time it starts and as soon as its window is closed to the tray, and asks for your passphrase before showing anything again/);
+  assert.doesNotMatch(p, /shown again after being hidden/, 'old wording (locked on re-show) is gone');
   assert.match(p, /Your passphrase never leaves this computer and is never saved/);
   assert.match(p, /only a salted scrypt hash of it, in a small file, lock\.json, in Cipher's user data folder, separate from cipher\.db/);
   assert.match(p, /There is no account/);
-  assert.match(p, /After 5 wrong tries in a row, Cipher makes you wait/);
+  assert.match(p, /After 5 wrong tries in a row, Cipher makes you wait before you can try again \(the wait resets if Cipher is restarted\)/);
   // True to the code: the lock file name and the throttle.
   const lock = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'lock.ts'), 'utf8');
   assert.match(lock, /export const LOCK_FILE_NAME = 'lock\.json';/);
@@ -108,7 +109,8 @@ test('lock: not encryption; cipher.db and backups readable; phone link refuses a
   const p = section(/^Lock$/);
   assert.match(p, /The lock does not encrypt anything/);
   assert.match(p, /cipher\.db and any backup files stay readable by anyone with access to your user account's files/);
-  assert.match(p, /Phone link refuses every request, pairing included; only its page loads/);
+  assert.match(p, /While Cipher is locked, including while it sits locked in the tray, Phone link refuses every request, pairing included, and closes open phone connections; only its page loads/);
+  assert.match(p, /A reply that is still being written when Cipher locks finishes and is saved, but can't be read until you unlock/);
   assert.match(p, /"Cipher is locked on the desktop"/);
   assert.match(p, /Routines keep running while locked, and their notification \(bot name only\) still shows/);
   assert.match(p, /There is no recovery/);
@@ -149,4 +151,18 @@ test('the routine panel hint says the same: only while open or in the tray, skip
   assert.match(hint, /skipped \(no catch-up\)/);
   assert.match(hint, /File reading is off for routines/);
   assert.match(hint, /only on this computer/);
+});
+
+test('lock on hide: the Phone link section no longer says it simply keeps working in the tray; hints match the code', () => {
+  assert.match(section(/^Phone link$/), /It keeps running while Cipher is in the tray \(but while Cipher is locked it refuses every request; see Lock\), and stops when you stop it or quit Cipher/);
+  const root = path.join(__dirname, '..', '..', 'src');
+  const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+  assert.match(html, /Cipher locks each time it starts and as soon as its window is closed to the tray, and asks for this passphrase before showing anything again\./);
+  const renderer = fs.readFileSync(path.join(root, 'renderer', 'renderer.ts'), 'utf8');
+  assert.match(renderer, /Cipher will lock when its window is closed to the tray or next time it starts\./);
+  for (const text of [all, html, renderer]) assert.doesNotMatch(text, /window is shown again/, 'no "locks when shown again" wording left');
+  // True to the code: the wait is in memory only (a new AppLock starts a fresh throttle), and closing to the tray locks.
+  const lock = fs.readFileSync(path.join(root, 'main', 'lock.ts'), 'utf8');
+  assert.match(lock, /this\.throttle = new AttemptThrottle\(\);/);
+  assert.match(fs.readFileSync(path.join(root, 'main', 'main.ts'), 'utf8'), /function hideToTray\(win: BrowserWindow\): void \{\s*lockOnHide\(appLock,/);
 });

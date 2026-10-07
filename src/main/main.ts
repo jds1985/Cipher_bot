@@ -16,7 +16,7 @@ import { ToolError } from './readFileTool';
 import { RoutineScheduler } from './routine';
 import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
 import { RoutineNotifier, routineOutcome } from './routineNotice';
-import { AppLock, LockStore, lockGuard } from './lock';
+import { AppLock, LockStore, lockGuard, lockOnHide } from './lock';
 import { backupFileName, restoreDatabase, validateBackupFile } from './backup';
 
 let db: CipherDb;
@@ -68,12 +68,23 @@ const appIconPath = (): string => path.join(__dirname, '..', 'renderer', 'assets
 async function showWindow(): Promise<void> {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) { createWindow(); return; }
-  // With the lock on, a window shown again after being hidden (tray, second launch, dock) asks for the passphrase:
-  // lock, then reload the page (which starts on the lock screen and holds no chat data) before showing it.
+  // With the lock on, Cipher already locked when the window hid (hideToTray). Safety net: if a hidden window is
+  // somehow unlocked, lock and reload the page (lock screen, no chat data) before showing it.
   if (!win.isVisible() && appLock.isEnabled() && !appLock.isLocked()) await lockApp(win);
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+/**
+ * Close to the tray. With the lock on, Cipher locks right here, before the window hides: from then on data IPC
+ * refuses, every phone /api/* request gets 423, open phone streams close, and the page is swapped for the lock
+ * screen while hidden. A reply already being written keeps running in main and is saved; it can't be read until
+ * unlock. Routines keep running. With the lock off, hiding changes nothing (the phone link keeps working).
+ */
+function hideToTray(win: BrowserWindow): void {
+  lockOnHide(appLock, () => void lockApp(win));
+  win.hide();
 }
 
 /** Page loads done by lockApp; the changing query makes each one a fresh document (a hash-only change wouldn't be). */
@@ -162,13 +173,16 @@ function createWindow(): BrowserWindow {
     },
   });
   win.removeMenu();
-  // Close hides to the tray (Cipher keeps running: phone link and replies continue). A real quit closes.
+  // Close hides to the tray (Cipher keeps running: phone link, routines and replies continue; with the lock on, it
+  // locks as it hides). A real quit closes.
   win.on('close', (e) => {
     if (!quitting && tray && !tray.isDestroyed()) {
       e.preventDefault();
-      win.hide();
+      hideToTray(win);
     }
   });
+  // Any other way the window gets hidden locks too (no-op when the lock is off or Cipher is already locked).
+  win.on('hide', () => { if (!quitting) lockOnHide(appLock, () => void lockApp(win)); });
   // There's no menu bar, so Ctrl+Q (Cmd+Q) is handled here: it really quits.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && (input.control || input.meta) && !input.alt && !input.shift && input.key.toLowerCase() === 'q') {

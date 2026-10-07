@@ -856,7 +856,7 @@ async function submitLockSet(e: Event): Promise<void> {
   try {
     state.lock = await api.enableLock(pass, confirm);
     renderLockSettings();
-    lockFeedback('The lock is on. Cipher will ask for the passphrase next time it starts or its window is shown again.', null);
+    lockFeedback('The lock is on. Cipher will lock when its window is closed to the tray or next time it starts.', null);
   } catch (err) {
     lockFeedback(null, plainError(err));
   }

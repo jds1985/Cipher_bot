@@ -6,7 +6,7 @@ import path from 'node:path';
 import { CipherDb } from '../main/db';
 import {
   AppLock, AttemptThrottle, FIRST_WAIT_MS, LOCK_FILE_NAME, LOCKED_MESSAGE, LockStore, SCRYPT_PARAMS, UNLOCKED_CHANNELS,
-  hashPassphrase, lockGuard, parseLockRecord, validateNewPassphrase, verifyPassphrase,
+  hashPassphrase, lockGuard, lockOnHide, parseLockRecord, validateNewPassphrase, verifyPassphrase,
 } from '../main/lock';
 import { PhoneServer, PHONE_LOCKED_MESSAGE, PHONE_LOCKED_STATUS } from '../main/phoneServer';
 
@@ -85,7 +85,7 @@ test('app lock: starts locked when on; unlock needs the right passphrase; change
   assert.equal(lock.isLocked(), true);
   assert.deepEqual(await lock.unlock(PASS), { ok: true });
   assert.equal(lock.isLocked(), false);
-  assert.equal(lock.lock(), true, 'locks again (window re-shown)');
+  assert.equal(lock.lock(), true, 'locks again (window closed to the tray)');
   assert.deepEqual(await lock.unlock(PASS), { ok: true });
 
   const badChange = await lock.change('nope nope', 'new passphrase', 'new passphrase');
@@ -170,7 +170,24 @@ test('IPC gating: while locked every data handler refuses; only lock, setup and 
   assert.match(main, /function broadcastPhone\(\): void \{\s*if \(isLocked\(\)\) return;/);
 });
 
-test('re-showing a hidden window locks first and reloads the page (no chat data kept in it); tray Show goes through it', () => {
+test('closing to the tray locks at the moment it hides (before win.hide); every hide path and every show path is covered', () => {
+  const main = src('main/main.ts');
+  // close → hideToTray: lock first (lockOnHide → lockApp: closes phone streams, swaps the page), then hide.
+  assert.match(main, /e\.preventDefault\(\);\s*hideToTray\(win\);/);
+  assert.match(main, /function hideToTray\(win: BrowserWindow\): void \{\s*lockOnHide\(appLock, \(\) => void lockApp\(win\)\);\s*win\.hide\(\);\s*\}/);
+  // Any other hide (e.g. the window manager) locks too.
+  assert.match(main, /win\.on\('hide', \(\) => \{ if \(!quitting\) lockOnHide\(appLock, \(\) => void lockApp\(win\)\); \}\);/);
+  // Hiding never aborts a reply or a routine: it keeps running in main and is saved (pushes are just withheld).
+  const lockApp = /async function lockApp[\s\S]*?\n\}\n/.exec(main)![0];
+  const hide = /function hideToTray[\s\S]*?\n\}\n/.exec(main)![0];
+  for (const b of [lockApp, hide]) assert.doesNotMatch(b, /abort|activeTurns|activeRooms|routines|phone\.stop|phone\?\.stop/);
+  // Show paths (tray Show/click, second launch, macOS activate, a routine notice) all go through showWindow.
+  assert.match(main, /tray\.on\('click', \(\) => void showWindow\(\)\);/);
+  assert.match(main, /app\.on\('activate', \(\) => void showWindow\(\)\);/);
+  assert.match(main, /async function openBotChatInWindow\(botId: number\): Promise<void> \{[\s\S]*?await showWindow\(\);/);
+});
+
+test('re-showing a hidden window shows the lock screen (safety net: locks if somehow unlocked while hidden); tray Show goes through it', () => {
   const main = src('main/main.ts');
   assert.match(main, /if \(!win\.isVisible\(\) && appLock\.isEnabled\(\) && !appLock\.isLocked\(\)\) await lockApp\(win\);/);
   assert.match(main, /async function lockApp\(win: BrowserWindow\): Promise<void> \{\s*appLock\.lock\(\);\s*openBotId = null;\s*phone\?\.closeStreams\(\);/);
@@ -263,6 +280,82 @@ test('phone link refuses everything while locked (pairing, status, chats, sends,
   } finally {
     server.stop();
     db.close();
+  }
+});
+
+async function phoneWithLock(lock: AppLock, port: number) {
+  const dir = tmpDir();
+  const db = new CipherDb(path.join(dir, 'c.db'));
+  const bot = db.createBot({ name: 'Ada', systemPrompt: '', toolsEnabled: false, folderPath: null });
+  db.addMessage({ chatId: db.getBotChat(bot.id).id, role: 'user', content: 'very private words' });
+  const builtPhone = path.join(__dirname, '..', 'phone');
+  const server = new PhoneServer({
+    db, staticDir: fs.existsSync(path.join(builtPhone, 'index.html')) ? builtPhone : path.join(root, 'src', 'phone'), model: 'fake', port,
+    sendChat: async () => {}, stopChat: () => {}, sendRoom: async () => {}, stopRoom: () => {},
+    isLocked: () => lock.isLocked(), // as in main
+  });
+  server.start();
+  await server.whenListening();
+  const base = `http://127.0.0.1:${port}`;
+  const code = server.status().pairingCode!;
+  const token = (JSON.parse((await req(base, '/api/pair', { method: 'POST', body: { code } })).text) as { token: string }).token;
+  const ac = new AbortController();
+  const stream = await fetch(`${base}/api/bots/${bot.id}/events?token=${token}`, { signal: ac.signal });
+  assert.equal(stream.status, 200);
+  const close = () => { ac.abort(); server.stop(); db.close(); };
+  return { server, base, token, bot, stream, close };
+}
+
+test('hide to the tray with the lock on: locked at once; the very next phone request (pairing too) gets 423 and the stream closes; data IPC refuses', async () => {
+  const dir = tmpDir();
+  await new AppLock(new LockStore(dir)).enable(PASS, PASS);
+  const lock = new AppLock(new LockStore(dir));
+  assert.deepEqual(await lock.unlock(PASS), { ok: true });
+  const p = await phoneWithLock(lock, 28951);
+  try {
+    assert.equal((await req(p.base, '/api/bots', { token: p.token })).status, 200, 'unlocked and shown: phone works');
+    const steps: string[] = [];
+    // What hideToTray does: lockOnHide(appLock, () => lockApp(win)) — lockApp closes the phone streams.
+    assert.equal(lockOnHide(lock, () => { steps.push(lock.isLocked() ? 'locked-then-cleanup' : 'cleanup-before-lock'); p.server.closeStreams(); }), true);
+    steps.push('win.hide');
+    assert.deepEqual(steps, ['locked-then-cleanup', 'win.hide'], 'locks before the window hides');
+    assert.equal(lock.isLocked(), true);
+    const bots = await req(p.base, '/api/bots', { token: p.token });
+    assert.equal(bots.status, PHONE_LOCKED_STATUS, 'phone request right after the hide');
+    assert.ok(!bots.text.includes('Ada'));
+    p.server.refreshPairingCode();
+    assert.equal((await req(p.base, '/api/pair', { method: 'POST', body: { code: p.server.status().pairingCode } })).status, PHONE_LOCKED_STATUS);
+    assert.equal((await req(p.base, `/api/bots/${p.bot.id}/send`, { method: 'POST', token: p.token, body: { text: 'hi' } })).status, PHONE_LOCKED_STATUS);
+    const reader = p.stream.body!.getReader();
+    let done = false;
+    for (let i = 0; i < 5 && !done; i++) done = (await reader.read()).done;
+    assert.equal(done, true, 'open stream closed at hide');
+    const listBots = lockGuard('bots:list', () => lock.isLocked(), () => ['Ada']);
+    assert.throws(() => listBots(), new RegExp(LOCKED_MESSAGE.replace('.', '\\.')), 'data IPC refuses while hidden');
+    assert.equal(lockOnHide(lock, () => assert.fail('already locked: nothing to do')), false, 'a second hide event is a no-op');
+    // Show again → still locked (lock screen); unlock → phone works again with the same session.
+    assert.equal(lock.isLocked(), true);
+    assert.deepEqual(await lock.unlock(PASS), { ok: true });
+    assert.equal((await req(p.base, '/api/bots', { token: p.token })).status, 200, 'after unlock: 200 again');
+  } finally {
+    p.close();
+  }
+});
+
+test('hide to the tray with the lock off: nothing locks and the phone keeps working (stream stays open)', async () => {
+  const lock = new AppLock(new LockStore(tmpDir())); // no lock.json
+  const p = await phoneWithLock(lock, 28952);
+  try {
+    assert.equal(lockOnHide(lock, () => assert.fail('must not run with the lock off')), false);
+    assert.equal(lock.isLocked(), false);
+    assert.equal((await req(p.base, '/api/bots', { token: p.token })).status, 200);
+    assert.equal((await req(p.base, `/api/bots/${p.bot.id}/chat`, { token: p.token })).status, 200);
+    const reader = p.stream.body!.getReader();
+    const first = await Promise.race([reader.read().then((r) => (r.done ? 'closed' : 'data')), new Promise((r) => setTimeout(() => r('open'), 300))]);
+    assert.notEqual(first, 'closed', 'stream not closed');
+    assert.equal(lockGuard('bots:list', () => lock.isLocked(), () => 'ok')(), 'ok');
+  } finally {
+    p.close();
   }
 });
 

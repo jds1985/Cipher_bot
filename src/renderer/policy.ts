@@ -44,7 +44,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'Phone link',
     paragraphs: [
       'The phone is a window to this desktop. It shows your chats and sends your messages; every reply is made and saved here, on this computer.',
-      'Phone link is off each time Cipher starts, until you turn it on in Settings. It keeps running while Cipher is in the tray, and stops when you stop it or quit Cipher.',
+      'Phone link is off each time Cipher starts, until you turn it on in Settings. It keeps running while Cipher is in the tray (but while Cipher is locked it refuses every request; see Lock), and stops when you stop it or quit Cipher.',
       'It is meant for a phone on the same local network; no Cipher server or cloud service is involved. While it is on, Cipher listens on port 17865 on this computer\'s network connections, so any device that can reach this computer can open the pairing page, but only a paired phone can see or send chats. ' +
         'A phone pairs with a code shown on this desktop; each code works once and expires after about 12 minutes. A paired phone stays paired until you stop Phone link or quit Cipher.',
       'Phone link uses plain HTTP, so chats sent between this computer and the phone are not encrypted on your local network. Use it only on a network you trust.',
@@ -69,10 +69,10 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Lock',
     paragraphs: [
-      'The app lock is off unless you turn it on in Settings → Lock. When it is on, Cipher asks for your passphrase each time it starts and each time its window is shown again after being hidden (for example, from the tray). After 5 wrong tries in a row, Cipher makes you wait before you can try again.',
+      'The app lock is off unless you turn it on in Settings → Lock. When it is on, Cipher locks each time it starts and as soon as its window is closed to the tray, and asks for your passphrase before showing anything again. After 5 wrong tries in a row, Cipher makes you wait before you can try again (the wait resets if Cipher is restarted).',
       'Your passphrase never leaves this computer and is never saved. Cipher keeps only a salted scrypt hash of it, in a small file, lock.json, in Cipher\'s user data folder, separate from cipher.db. There is no account.',
       'The lock does not encrypt anything. It stops someone using the Cipher window and Phone link, but cipher.db and any backup files stay readable by anyone with access to your user account\'s files.',
-      'While Cipher is locked, Phone link refuses every request, pairing included; only its page loads, to show "Cipher is locked on the desktop" on the phone. Routines keep running while locked, and their notification (bot name only) still shows.',
+      'While Cipher is locked, including while it sits locked in the tray, Phone link refuses every request, pairing included, and closes open phone connections; only its page loads, to show "Cipher is locked on the desktop" on the phone. Routines keep running while locked, and their notification (bot name only) still shows. A reply that is still being written when Cipher locks finishes and is saved, but can\'t be read until you unlock.',
       'There is no recovery: Cipher can\'t reset a forgotten passphrase. If you forget it, quit Cipher and delete lock.json from Cipher\'s user data folder. That removes the lock and keeps your chats. Anyone who can change your user account\'s files can do the same, which is another reason the lock is not protection for the files themselves.',
     ],
   },
