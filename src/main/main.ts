@@ -112,7 +112,7 @@ function registerIpc(): void {
   ipcMain.handle('setup:get', () => setup.state);
   ipcMain.handle('setup:start', () => { void setup.run(true); });
   ipcMain.handle('setup:check', () => { void setup.run(false); });
-  // Opens the engine's download page. Blocked while Online is off (no outbound internet).
+  // Opens the engine's download page. Allowed even when Online is off (user-clicked setup path).
   ipcMain.handle('engine:openDownloadPage', () => {
     assertOutboundAllowed(isOnline(), ENGINE_DOWNLOAD_URL);
     return shell.openExternal(ENGINE_DOWNLOAD_URL);

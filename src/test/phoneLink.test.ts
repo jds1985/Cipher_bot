@@ -6,7 +6,7 @@ import path from 'node:path';
 import { CipherDb } from '../main/db';
 import { PhoneServer, PAIR_TTL_MS, PHONE_LINK_PORT, buildPhoneUrls } from '../main/phoneServer';
 import {
-  assertOutboundAllowed, isPhoneLinkSafeUrl, parseOnlineSetting, onlineSettingValue, ONLINE_SETTING_KEY,
+  assertOutboundAllowed, isEngineDownloadUrl, isPhoneLinkSafeUrl, parseOnlineSetting, onlineSettingValue, ONLINE_SETTING_KEY,
 } from '../main/networkGuard';
 
 const tmpDb = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cipher-phone-')), 'c.db');
@@ -54,12 +54,17 @@ test('Online off blocks non-loopback outbound; loopback always allowed; phone-li
   assert.doesNotThrow(() => assertOutboundAllowed(false, 'http://127.0.0.1:11434/api/tags'));
   assert.doesNotThrow(() => assertOutboundAllowed(false, 'http://localhost:17865/'));
   assert.throws(() => assertOutboundAllowed(false, 'https://example.com/'), /Online is off/);
-  assert.throws(() => assertOutboundAllowed(false, 'https://ollama.com/download'), /Online is off/);
+  // "Get the engine" is the one user-clicked exception when Online is off.
+  assert.equal(isEngineDownloadUrl('https://ollama.com/download'), true);
+  assert.doesNotThrow(() => assertOutboundAllowed(false, 'https://ollama.com/download'));
   assert.doesNotThrow(() => assertOutboundAllowed(true, 'https://ollama.com/download'));
+  // Other ollama.com pages stay blocked while Online is off.
+  assert.throws(() => assertOutboundAllowed(false, 'https://ollama.com/blog'), /Online is off/);
   assert.equal(isPhoneLinkSafeUrl('http://127.0.0.1:17865/api/bots'), true);
   assert.equal(isPhoneLinkSafeUrl('https://evil.example/pull'), false);
   // Module boundary: phone link never treats a public host as safe for app-initiated fetches.
   assert.equal(isPhoneLinkSafeUrl('https://api.openai.com/v1'), false);
+  assert.equal(isPhoneLinkSafeUrl('https://ollama.com/download'), false);
 });
 
 test('buildPhoneUrls includes loopback and LAN-style addresses', () => {
