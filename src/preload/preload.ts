@@ -45,6 +45,12 @@ const api: CipherApi = {
     ipcRenderer.on('setup:state', listener);
     return () => ipcRenderer.removeListener('setup:state', listener);
   },
+  reportOpenBot: (botId) => ipcRenderer.send('ui:openBot', botId),
+  onOpenBot: (cb) => {
+    const listener = (_e: IpcRendererEvent, botId: number) => cb(botId);
+    ipcRenderer.on('routine:openBot', listener);
+    return () => ipcRenderer.removeListener('routine:openBot', listener);
+  },
   getOnline: () => ipcRenderer.invoke('online:get'),
   setOnline: (on) => ipcRenderer.invoke('online:set', on),
   getPhoneLink: () => ipcRenderer.invoke('phone:get'),

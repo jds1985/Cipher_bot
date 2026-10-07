@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
@@ -15,6 +15,7 @@ import { readFileForAttach } from './attachFile';
 import { ToolError } from './readFileTool';
 import { RoutineScheduler } from './routine';
 import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
+import { RoutineNotifier, routineOutcome } from './routineNotice';
 
 let db: CipherDb;
 let setup: SetupManager;
@@ -201,13 +202,55 @@ function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => voi
  * Run a bot's routine: its saved prompt goes to the bot's chat as a user message marked as from the routine,
  * and the bot replies through the local model as usual. File reading is always off for routine turns.
  */
-function runRoutineTurn(chatId: number, prompt: string): void {
+function runRoutineTurn(botId: number, chatId: number, prompt: string): void {
   if (activeTurns.has(chatId)) return;
   const controller = new AbortController();
   activeTurns.set(chatId, controller);
-  void runChatTurn({ db, model: currentModel(), emit: broadcastChat, forceToolsOff: true, fromRoutine: true }, chatId, prompt, controller.signal)
-    .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
-    .finally(() => activeTurns.delete(chatId));
+  // Note whether the turn failed, for the finished/failed notice (which never includes the prompt or reply).
+  let failed = false;
+  const emit = (ev: ChatEvent) => { if (ev.type === 'error') failed = true; broadcastChat(ev); };
+  void runChatTurn({ db, model: currentModel(), emit, forceToolsOff: true, fromRoutine: true }, chatId, prompt, controller.signal)
+    .catch((err: unknown) => { failed = true; broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }); })
+    .finally(() => {
+      activeTurns.delete(chatId);
+      if (!quitting) routineNotifier?.notify(botId, routineOutcome({ aborted: controller.signal.aborted, failed }));
+    });
+}
+
+/** The bot whose 1:1 chat the window shows (reported by the renderer), for the routine notice. */
+let openBotId: number | null = null;
+
+/** Open a bot's chat in the window (clicking a routine notice). Waits for the page if the window was just created. */
+function openBotChatInWindow(botId: number): void {
+  showWindow();
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win || win.webContents.isDestroyed()) return;
+  const send = () => win.webContents.send('routine:openBot', botId);
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send);
+  else send();
+}
+
+/**
+ * Routine finished/failed notice through the OS notification service (Electron Notification; no network).
+ * Bot name + outcome only; skipped when that bot's chat is open in the focused window; nothing if unsupported.
+ */
+let routineNotifier: RoutineNotifier | null = null;
+function createRoutineNotifier(): RoutineNotifier {
+  return new RoutineNotifier({
+    isSupported: () => Notification.isSupported(),
+    create: ({ title, body }) => {
+      const icon = nativeImage.createFromPath(appIconPath());
+      return new Notification({ title, body, ...(icon.isEmpty() ? {} : { icon }) });
+    },
+    windowState: () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win || win.isDestroyed()) return null;
+      return { visible: win.isVisible(), focused: win.isFocused(), minimized: win.isMinimized() };
+    },
+    openBotId: () => openBotId,
+    botName: (botId) => db.getBot(botId)?.name ?? null,
+    openBotChat: (botId) => openBotChatInWindow(botId),
+  });
 }
 
 function registerIpc(): void {
@@ -235,6 +278,7 @@ function registerIpc(): void {
     return phone.refreshPairingCode();
   });
 
+  ipcMain.on('ui:openBot', (_e, botId: unknown) => { openBotId = Number.isSafeInteger(botId) && (botId as number) > 0 ? (botId as number) : null; });
   ipcMain.handle('bots:list', () => db.listBots());
   ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
   ipcMain.handle('bots:update', (_e, botId: unknown, input: unknown) =>
@@ -423,13 +467,14 @@ if (!app.requestSingleInstanceLock()) {
       stopRoom: (roomId) => { activeRooms.get(roomId)?.abort(); },
     });
     registerIpc();
+    routineNotifier = createRoutineNotifier();
     // Daily routines: a main-process timer, only while Cipher runs (window open or in the tray). No OS scheduler.
     routines = new RoutineScheduler({
       listRoutines: () => db.listRoutines(),
       chatIdForBot: (botId) => db.getBotChat(botId).id,
       isBusy: (chatId) => activeTurns.has(chatId),
       markRun: (botId, dateKey) => db.markRoutineRun(botId, dateKey),
-      run: (_botId, chatId, prompt) => runRoutineTurn(chatId, prompt),
+      run: (botId, chatId, prompt) => runRoutineTurn(botId, chatId, prompt),
     });
     routines.start();
     createWindow();

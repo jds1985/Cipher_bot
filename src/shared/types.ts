@@ -224,6 +224,10 @@ export interface CipherApi {
   openEngineDownload(): Promise<void>;
   onSetupState(cb: (s: SetupState) => void): () => void;
   /** Online switch: default off; persists; enables nothing new in v1.6 when on. */
+  /** Tell main which bot's 1:1 chat is on screen (null: a room, another screen, or nothing), for the routine notice. */
+  reportOpenBot(botId: number | null): void;
+  /** Clicking a routine notice asks the window to open that bot's chat. */
+  onOpenBot(cb: (botId: number) => void): () => void;
   getOnline(): Promise<boolean>;
   setOnline(on: boolean): Promise<boolean>;
   /** Phone link: start/stop LAN server, refresh pairing code, read status. */

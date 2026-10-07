@@ -155,6 +155,15 @@ function applyView(): void {
   if (view === 'chat') renderChat();
   if (view === 'settings') renderSettings();
   if (view === 'policy') renderPolicy();
+  reportOpenBot(view === 'chat' && state.roomId === null ? state.botId : null);
+}
+
+/** Main skips the routine notice when that bot's chat is already open in the focused window. */
+let reportedOpenBot: number | null | undefined;
+function reportOpenBot(botId: number | null): void {
+  if (botId === reportedOpenBot) return;
+  reportedOpenBot = botId;
+  api.reportOpenBot(botId);
 }
 
 // ---------- setup screen ----------
@@ -1197,6 +1206,13 @@ el.stop.addEventListener('click', () => {
 });
 api.onChatEvent((ev) => void onChatEvent(ev));
 api.onRoomEvent(onRoomEvent);
+// Clicking a routine notice: open that bot's chat (after startup has loaded the bots, if it hasn't yet).
+let initDone = false;
+let pendingOpenBot: number | null = null;
+api.onOpenBot((botId) => {
+  if (!initDone) { pendingOpenBot = botId; return; }
+  if (state.bots.some((b) => b.id === botId)) void selectBot(botId);
+});
 
 // ---------- window focus ----------
 // Bot icon animations pause while the window is in the background (see .unfocused in styles.css).
@@ -1227,9 +1243,13 @@ async function init(): Promise<void> {
     state.phone = await api.getPhoneLink();
     await loadBots();
     await loadRooms();
-    if (state.bots.length) await selectBot(state.bots[0].id);
+    const first = state.bots.find((b) => b.id === pendingOpenBot) ?? state.bots[0];
+    if (first) await selectBot(first.id);
     else applyView();
   } finally {
+    initDone = true;
+    if (pendingOpenBot !== null && pendingOpenBot !== state.botId && state.bots.some((b) => b.id === pendingOpenBot)) void selectBot(pendingOpenBot);
+    pendingOpenBot = null;
     window.setTimeout(hideSplash, splashRemainingMs(performance.now() - splashStart));
   }
 }
