@@ -18,6 +18,8 @@ export interface EngineDeps {
   fetchImpl?: typeof fetch;
   /** Phone link / tests: never offer tools for this turn, regardless of bot settings. */
   forceToolsOff?: boolean;
+  /** Routine turns: the user message is marked as sent by the bot's routine. */
+  fromRoutine?: boolean;
 }
 
 /** Convert stored messages into Ollama's chat format. */
@@ -53,7 +55,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   if (!text) throw new Error('Message is empty.');
   const toolsOn = bot.toolsEnabled && !deps.forceToolsOff;
 
-  emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text }) });
+  emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text, routine: deps.fromRoutine === true }) });
 
   let partial = '';
   try {

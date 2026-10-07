@@ -13,10 +13,12 @@ import { ONLINE_SETTING_KEY, assertOutboundAllowed, onlineSettingValue, parseOnl
 import { PhoneServer, PHONE_LINK_PORT } from './phoneServer';
 import { readFileForAttach } from './attachFile';
 import { ToolError } from './readFileTool';
+import { RoutineScheduler } from './routine';
 
 let db: CipherDb;
 let setup: SetupManager;
 let phone: PhoneServer;
+let routines: RoutineScheduler | null = null;
 const activeTurns = new Map<number, AbortController>();
 /** Rooms with a round in progress (one round at a time per room). */
 const activeRooms = new Map<number, AbortController>();
@@ -188,6 +190,19 @@ function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => voi
   return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff }, chatId, text, signal);
 }
 
+/**
+ * Run a bot's routine: its saved prompt goes to the bot's chat as a user message marked as from the routine,
+ * and the bot replies through the local model as usual. File reading is always off for routine turns.
+ */
+function runRoutineTurn(chatId: number, prompt: string): void {
+  if (activeTurns.has(chatId)) return;
+  const controller = new AbortController();
+  activeTurns.set(chatId, controller);
+  void runChatTurn({ db, model: currentModel(), emit: broadcastChat, forceToolsOff: true, fromRoutine: true }, chatId, prompt, controller.signal)
+    .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
+    .finally(() => activeTurns.delete(chatId));
+}
+
 function registerIpc(): void {
   ipcMain.handle('setup:get', () => setup.state);
   ipcMain.handle('setup:start', () => { void setup.run(true); });
@@ -217,6 +232,9 @@ function registerIpc(): void {
   ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
   ipcMain.handle('bots:update', (_e, botId: unknown, input: unknown) =>
     db.updateBot(asId(botId), formToProfile((input && typeof input === 'object' ? input : {}) as Partial<NewBotForm>)));
+  ipcMain.handle('routines:get', (_e, botId: unknown) => db.getRoutine(asId(botId)));
+  ipcMain.handle('routines:set', (_e, botId: unknown, input: unknown) =>
+    db.setRoutine(asId(botId), (input && typeof input === 'object' ? input : {}) as Record<string, unknown>));
   ipcMain.handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
   ipcMain.handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
   ipcMain.handle('bots:delete', (_e, botId: unknown) => db.deleteBot(asId(botId)));
@@ -378,6 +396,15 @@ if (!app.requestSingleInstanceLock()) {
       stopRoom: (roomId) => { activeRooms.get(roomId)?.abort(); },
     });
     registerIpc();
+    // Daily routines: a main-process timer, only while Cipher runs (window open or in the tray). No OS scheduler.
+    routines = new RoutineScheduler({
+      listRoutines: () => db.listRoutines(),
+      chatIdForBot: (botId) => db.getBotChat(botId).id,
+      isBusy: (chatId) => activeTurns.has(chatId),
+      markRun: (botId, dateKey) => db.markRoutineRun(botId, dateKey),
+      run: (_botId, chatId, prompt) => runRoutineTurn(chatId, prompt),
+    });
+    routines.start();
     createWindow();
     createTray();
     void setup.run(true); // first launch: download the model through the local engine if it's missing
@@ -392,6 +419,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('will-quit', () => {
+    routines?.stop();
     for (const c of activeTurns.values()) c.abort();
     for (const c of activeRooms.values()) c.abort();
     phone?.stop();

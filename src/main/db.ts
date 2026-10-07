@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
-import type { Bot, Chat, Message, NewBot, Role, Room, RoomMessage, ToolCall } from '../shared/types';
+import type { Bot, Chat, Message, NewBot, Role, Room, RoomMessage, Routine, ToolCall } from '../shared/types';
 import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIcon, DEFAULT_BOT_COLOR } from './botIcons';
 import { validateBotProfile } from './createBot';
+import { validateRoutine } from './routine';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 /** Longest optional room name. */
 export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
@@ -13,7 +14,8 @@ interface BotRow {
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
-interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string }
+interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number }
+interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
 interface RoomRow { id: number; name: string; created_at: string; updated_at: string }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
 
@@ -27,7 +29,10 @@ const toChat = (r: ChatRow): Chat => ({
 const toMessage = (r: MessageRow): Message => ({
   id: r.id, chatId: r.chat_id, role: r.role, content: r.content,
   toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls) as ToolCall[]) : null,
-  toolName: r.tool_name, createdAt: r.created_at,
+  toolName: r.tool_name, createdAt: r.created_at, routine: r.routine === 1,
+});
+const toRoutine = (r: RoutineRow): Routine => ({
+  botId: r.bot_id, prompt: r.prompt, time: r.time, enabled: r.enabled === 1, lastRunDate: r.last_run_date,
 });
 
 const toRoomMessage = (r: RoomMessageRow): RoomMessage => ({
@@ -47,6 +52,8 @@ export interface NewMessage {
   content: string;
   toolCalls?: ToolCall[] | null;
   toolName?: string | null;
+  /** A user message sent by the bot's routine. */
+  routine?: boolean;
 }
 
 /** Local SQLite store for bots, chats, messages and rooms. */
@@ -134,10 +141,23 @@ export class CipherDb {
       );
       CREATE INDEX IF NOT EXISTS room_messages_room ON room_messages(room_id, id);
     `);
+    // v5 (idempotent; nothing is deleted): one optional daily routine per bot (deleted with its bot), and
+    // messages.routine marks the user messages a routine sent.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS routines (
+        bot_id        INTEGER PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+        prompt        TEXT NOT NULL,
+        time          TEXT NOT NULL,
+        enabled       INTEGER NOT NULL DEFAULT 0,
+        last_run_date TEXT,
+        updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+    `);
+    this.addColumnIfMissing('messages', 'routine', 'routine INTEGER NOT NULL DEFAULT 0');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
-  private addColumnIfMissing(table: 'bots' | 'chats', column: string, definition: string): void {
+  private addColumnIfMissing(table: 'bots' | 'chats' | 'messages', column: string, definition: string): void {
     const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
   }
@@ -328,8 +348,9 @@ export class CipherDb {
   addMessage(m: NewMessage): Message {
     const tx = this.db.transaction((): number => {
       const info = this.db
-        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name) VALUES (?, ?, ?, ?, ?)')
-        .run(m.chatId, m.role, m.content, m.toolCalls && m.toolCalls.length ? JSON.stringify(m.toolCalls) : null, m.toolName ?? null);
+        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(m.chatId, m.role, m.content, m.toolCalls && m.toolCalls.length ? JSON.stringify(m.toolCalls) : null, m.toolName ?? null,
+          m.routine && m.role === 'user' ? 1 : 0);
       this.db.prepare("UPDATE chats SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(m.chatId);
       // Title a fresh chat after the first user message.
       if (m.role === 'user') {
@@ -340,6 +361,36 @@ export class CipherDb {
     });
     const id = tx();
     return toMessage(this.db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as MessageRow);
+  }
+
+  // ---- routines (v1.9) ----
+  listRoutines(): Routine[] {
+    return (this.db.prepare('SELECT * FROM routines ORDER BY bot_id').all() as RoutineRow[]).map(toRoutine);
+  }
+
+  getRoutine(botId: number): Routine | null {
+    const r = this.db.prepare('SELECT * FROM routines WHERE bot_id = ?').get(botId) as RoutineRow | undefined;
+    return r ? toRoutine(r) : null;
+  }
+
+  /**
+   * Create or replace the bot's routine (validated by validateRoutine). Changing the time or turning it on
+   * keeps the last-run date, so a routine never runs twice on the same day.
+   */
+  setRoutine(botId: number, input: { prompt?: unknown; time?: unknown; enabled?: unknown }): Routine {
+    if (!this.getBot(botId)) throw new Error('Cipher bot not found.');
+    const r = validateRoutine(input);
+    this.db.prepare(`
+      INSERT INTO routines (bot_id, prompt, time, enabled) VALUES (?, ?, ?, ?)
+      ON CONFLICT(bot_id) DO UPDATE SET prompt = excluded.prompt, time = excluded.time, enabled = excluded.enabled,
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    `).run(botId, r.prompt, r.time, r.enabled ? 1 : 0);
+    return this.getRoutine(botId)!;
+  }
+
+  /** Record that the routine ran on this local date. */
+  markRoutineRun(botId: number, dateKey: string): void {
+    this.db.prepare('UPDATE routines SET last_run_date = ? WHERE bot_id = ?').run(dateKey, botId);
   }
 
   // ---- rooms ----
