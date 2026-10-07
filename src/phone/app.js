@@ -21,24 +21,28 @@
   async function api(path, opts) {
     const res = await fetch(path, opts);
     const body = await res.json().catch(() => ({}));
+    // 423: Cipher is locked on the desktop. Everything is refused (pairing too) until it's unlocked there.
+    if (res.status === 423) { closeEvents(); setBusy(false); show('locked'); throw new Error(body.error || 'Cipher is locked on the desktop.'); }
     if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
     return body;
   }
 
   function show(view) {
+    $('locked-view').hidden = view !== 'locked';
     $('pair-view').hidden = view !== 'pair';
     $('list-view').hidden = view !== 'list';
     $('chat-view').hidden = view !== 'chat';
   }
 
   async function ensurePaired() {
-    if (!state.token) { show('pair'); return false; }
     try {
+      // Always ask first: while Cipher is locked on the desktop this shows the locked message, even before pairing.
       const st = await api('/api/status', { headers: headers() });
+      if (!state.token) { show('pair'); return false; }
       if (!st.paired) { state.token = ''; localStorage.removeItem('cipher_session'); show('pair'); return false; }
       return true;
     } catch {
-      show('pair');
+      if ($('locked-view').hidden) show('pair');
       return false;
     }
   }
@@ -122,6 +126,8 @@
     state.chatId = data.chatId;
     for (const m of data.messages) appendMsg(m.role, m.content);
     state.es = new EventSource('/api/bots/' + botId + '/events?token=' + encodeURIComponent(state.token));
+    // The stream ends when the desktop locks: check the status, which shows the locked message if so.
+    state.es.onerror = () => { api('/api/status', { headers: headers() }).catch(() => {}); };
     // EventSource can't set Authorization; use cookie set at pair time.
     let live = null;
     state.es.onmessage = (ev) => {
@@ -158,6 +164,8 @@
       else appendMsg('assistant', m.content, 'Bot ' + (m.botId ?? ''));
     }
     state.es = new EventSource('/api/rooms/' + roomId + '/events?token=' + encodeURIComponent(state.token));
+    // The stream ends when the desktop locks: check the status, which shows the locked message if so.
+    state.es.onerror = () => { api('/api/status', { headers: headers() }).catch(() => {}); };
     let live = null;
     state.es.onmessage = (ev) => {
       const d = JSON.parse(ev.data);
@@ -217,6 +225,7 @@
     } catch { /* ignore */ }
   }
 
+  $('locked-retry').addEventListener('click', async () => { if (await ensurePaired()) await loadList().catch(() => {}); });
   $('pair-btn').addEventListener('click', () => void pair());
   $('pair-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void pair(); } });
   $('back').addEventListener('click', () => { closeEvents(); setBusy(false); void loadList(); });

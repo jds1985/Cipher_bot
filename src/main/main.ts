@@ -16,11 +16,16 @@ import { ToolError } from './readFileTool';
 import { RoutineScheduler } from './routine';
 import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
 import { RoutineNotifier, routineOutcome } from './routineNotice';
+import { AppLock, LockStore, lockGuard, lockOnHide } from './lock';
+import { backupFileName, restoreDatabase, validateBackupFile } from './backup';
 
 let db: CipherDb;
 let setup: SetupManager;
 let phone: PhoneServer;
 let routines: RoutineScheduler | null = null;
+/** App lock (v1.13). Off unless lock.json exists. While locked, no chat data goes to the window or the phone. */
+let appLock: AppLock;
+const isLocked = (): boolean => appLock?.isLocked() ?? false;
 const activeTurns = new Map<number, AbortController>();
 /** Rooms with a round in progress (one round at a time per room). */
 const activeRooms = new Map<number, AbortController>();
@@ -36,15 +41,18 @@ function broadcastSetup(s: SetupState): void {
 }
 
 function broadcastPhone(): void {
+  if (isLocked()) return; // the status carries the pairing code
   const s = phone.status();
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('phone:status', s);
 }
 
 function broadcastChat(ev: ChatEvent): void {
+  if (isLocked()) return; // while locked, replies (e.g. routines) are saved but not sent to the window
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('chat:event', ev);
 }
 
 function broadcastRoom(ev: RoomEvent): void {
+  if (isLocked()) return;
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('room:event', ev);
 }
 
@@ -53,15 +61,44 @@ let tray: Tray | null = null;
 /** True once a real quit has begun (tray Quit, Ctrl+Q, app.quit from anywhere), so close no longer hides. */
 let quitting = false;
 
+const dbPath = (): string => path.join(app.getPath('userData'), 'cipher.db');
 const appIconPath = (): string => path.join(__dirname, '..', 'renderer', 'assets', 'icon.png');
 
 /** Show and focus the (possibly hidden or minimized) window, or create it if there is none. */
-function showWindow(): void {
+async function showWindow(): Promise<void> {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) { createWindow(); return; }
+  // With the lock on, Cipher already locked when the window hid (hideToTray). Safety net: if a hidden window is
+  // somehow unlocked, lock and reload the page (lock screen, no chat data) before showing it.
+  if (!win.isVisible() && appLock.isEnabled() && !appLock.isLocked()) await lockApp(win);
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+/**
+ * Close to the tray. With the lock on, Cipher locks right here, before the window hides: from then on data IPC
+ * refuses, every phone /api/* request gets 423, open phone streams close, and the page is swapped for the lock
+ * screen while hidden. A reply already being written keeps running in main and is saved; it can't be read until
+ * unlock. Routines keep running. With the lock off, hiding changes nothing (the phone link keeps working).
+ */
+function hideToTray(win: BrowserWindow): void {
+  lockOnHide(appLock, () => void lockApp(win));
+  win.hide();
+}
+
+/** Page loads done by lockApp; the changing query makes each one a fresh document (a hash-only change wouldn't be). */
+let lockLoads = 0;
+
+/** Lock now: replace the window's page with a fresh one (dropping any chat data it held) and stop serving the phone. */
+async function lockApp(win: BrowserWindow): Promise<void> {
+  appLock.lock();
+  openBotId = null;
+  phone?.closeStreams();
+  if (!win.webContents.isDestroyed()) {
+    await win.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lock: String(++lockLoads) }, hash: 'nosplash' })
+      .catch(() => undefined);
+  }
 }
 
 /**
@@ -77,11 +114,11 @@ function createTray(): void {
     tray = new Tray(icon.resize({ width: size, height: size, quality: 'best' }));
     tray.setToolTip('Cipher');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Show Cipher', click: () => showWindow() },
+      { label: 'Show Cipher', click: () => void showWindow() },
       { type: 'separator' },
       { label: 'Quit', click: () => { quitting = true; app.quit(); } },
     ]));
-    tray.on('click', () => showWindow());
+    tray.on('click', () => void showWindow());
   } catch {
     tray = null;
   }
@@ -136,13 +173,16 @@ function createWindow(): BrowserWindow {
     },
   });
   win.removeMenu();
-  // Close hides to the tray (Cipher keeps running: phone link and replies continue). A real quit closes.
+  // Close hides to the tray (Cipher keeps running: phone link, routines and replies continue; with the lock on, it
+  // locks as it hides). A real quit closes.
   win.on('close', (e) => {
     if (!quitting && tray && !tray.isDestroyed()) {
       e.preventDefault();
-      win.hide();
+      hideToTray(win);
     }
   });
+  // Any other way the window gets hidden locks too (no-op when the lock is off or Cipher is already locked).
+  win.on('hide', () => { if (!quitting) lockOnHide(appLock, () => void lockApp(win)); });
   // There's no menu bar, so Ctrl+Q (Cmd+Q) is handled here: it really quits.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && (input.control || input.meta) && !input.alt && !input.shift && input.key.toLowerCase() === 'q') {
@@ -221,8 +261,8 @@ function runRoutineTurn(botId: number, chatId: number, prompt: string): void {
 let openBotId: number | null = null;
 
 /** Open a bot's chat in the window (clicking a routine notice). Waits for the page if the window was just created. */
-function openBotChatInWindow(botId: number): void {
-  showWindow();
+async function openBotChatInWindow(botId: number): Promise<void> {
+  await showWindow();
   const win = BrowserWindow.getAllWindows()[0];
   if (!win || win.webContents.isDestroyed()) return;
   const send = () => win.webContents.send('routine:openBot', botId);
@@ -249,58 +289,125 @@ function createRoutineNotifier(): RoutineNotifier {
     },
     openBotId: () => openBotId,
     botName: (botId) => db.getBot(botId)?.name ?? null,
-    openBotChat: (botId) => openBotChatInWindow(botId),
+    openBotChat: (botId) => void openBotChatInWindow(botId),
   });
 }
 
+/** Restore: the file picked in the Open dialog and checked, waiting for the user's confirm. Main keeps the path. */
+let pendingRestore: string | null = null;
+
 function registerIpc(): void {
-  ipcMain.handle('setup:get', () => setup.state);
-  ipcMain.handle('setup:start', () => { void setup.run(true); });
-  ipcMain.handle('setup:check', () => { void setup.run(false); });
+  // Every handler goes through the lock guard: while locked, only the lock, setup and online:get channels answer.
+  const handle = (channel: string, fn: Parameters<typeof ipcMain.handle>[1]): void =>
+    ipcMain.handle(channel, lockGuard(channel, isLocked, fn));
+
+  // ---- app lock (v1.13). The passphrase arrives once per call and is never kept, logged or sent on. ----
+  handle('lock:state', () => appLock.state());
+  handle('lock:unlock', async (_e, passphrase: unknown) => appLock.unlock(passphrase));
+  handle('lock:enable', async (_e, passphrase: unknown, confirm: unknown) => { await appLock.enable(passphrase, confirm); return appLock.state(); });
+  handle('lock:change', async (_e, current: unknown, passphrase: unknown, confirm: unknown) => appLock.change(current, passphrase, confirm));
+  handle('lock:disable', async (_e, current: unknown) => appLock.disable(current));
+
+  // ---- backup and restore (v1.13): local files the user picks; no network. ----
+  handle('data:backup', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      title: 'Back up Cipher',
+      defaultPath: path.join(app.getPath('documents'), backupFileName(new Date())),
+      filters: [{ name: 'Cipher backup', extensions: ['db'] }],
+    };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true as const };
+    if (path.resolve(r.filePath) === path.resolve(dbPath())) return { ok: false as const, error: 'Choose a different file than Cipher\'s own database.' };
+    try {
+      await db.backup(r.filePath);
+      return { ok: true as const, path: r.filePath };
+    } catch (err) {
+      return { ok: false as const, error: `Could not save the backup: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
+  handle('data:restorePick', async (e) => {
+    pendingRestore = null;
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      title: 'Restore Cipher from a backup',
+      defaultPath: app.getPath('documents'),
+      filters: [{ name: 'Cipher backup', extensions: ['db'] }, { name: 'All files', extensions: ['*'] }],
+      properties: ['openFile' as const],
+    };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (r.canceled || !r.filePaths[0]) return { ok: false as const, canceled: true as const };
+    const check = validateBackupFile(r.filePaths[0]);
+    if (!check.ok) return { ok: false as const, error: check.error };
+    pendingRestore = r.filePaths[0];
+    return { ok: true as const, file: path.basename(r.filePaths[0]), bots: check.bots, rooms: check.rooms };
+  });
+  handle('data:restoreConfirm', async () => {
+    const source = pendingRestore;
+    pendingRestore = null;
+    if (!source) throw new Error('Choose a backup file first.');
+    if (activeTurns.size || activeRooms.size) throw new Error('A reply or routine is still running. Try again when it has finished.');
+    routines?.stop();
+    phone.stop();
+    try {
+      await restoreDatabase({ live: db, livePath: dbPath(), source });
+    } catch (err) {
+      routines?.start();
+      throw err;
+    }
+    // The live database is closed and replaced: restart Cipher on the restored one.
+    quitting = true;
+    app.relaunch();
+    app.exit(0);
+  });
+
+  handle('setup:get', () => setup.state);
+  handle('setup:start', () => { void setup.run(true); });
+  handle('setup:check', () => { void setup.run(false); });
   // Opens the engine's download page. Allowed even when Online is off (user-clicked setup path).
-  ipcMain.handle('engine:openDownloadPage', () => {
+  handle('engine:openDownloadPage', () => {
     assertOutboundAllowed(isOnline(), ENGINE_DOWNLOAD_URL);
     return shell.openExternal(ENGINE_DOWNLOAD_URL);
   });
 
-  ipcMain.handle('online:get', () => isOnline());
-  ipcMain.handle('online:set', (_e, on: unknown) => {
+  handle('online:get', () => isOnline());
+  handle('online:set', (_e, on: unknown) => {
     const value = Boolean(on);
     db.setSetting(ONLINE_SETTING_KEY, onlineSettingValue(value));
     return isOnline();
   });
 
-  ipcMain.handle('phone:get', () => phone.status());
-  ipcMain.handle('phone:start', () => phone.start());
-  ipcMain.handle('phone:stop', () => phone.stop());
-  ipcMain.handle('phone:refreshCode', () => {
+  handle('phone:get', () => phone.status());
+  handle('phone:start', () => phone.start());
+  handle('phone:stop', () => phone.stop());
+  handle('phone:refreshCode', () => {
     if (!phone.status().running) return phone.start();
     return phone.refreshPairingCode();
   });
 
-  ipcMain.on('ui:openBot', (_e, botId: unknown) => { openBotId = Number.isSafeInteger(botId) && (botId as number) > 0 ? (botId as number) : null; });
-  ipcMain.handle('bots:list', () => db.listBots());
-  ipcMain.handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
-  ipcMain.handle('bots:update', (_e, botId: unknown, input: unknown) =>
+  ipcMain.on('ui:openBot', (_e, botId: unknown) => { if (isLocked()) return; openBotId = Number.isSafeInteger(botId) && (botId as number) > 0 ? (botId as number) : null; });
+  handle('bots:list', () => db.listBots());
+  handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
+  handle('bots:update', (_e, botId: unknown, input: unknown) =>
     db.updateBot(asId(botId), formToProfile((input && typeof input === 'object' ? input : {}) as Partial<NewBotForm>)));
-  ipcMain.handle('routines:get', (_e, botId: unknown) => db.getRoutine(asId(botId)));
-  ipcMain.handle('routines:set', (_e, botId: unknown, input: unknown) =>
+  handle('routines:get', (_e, botId: unknown) => db.getRoutine(asId(botId)));
+  handle('routines:set', (_e, botId: unknown, input: unknown) =>
     db.setRoutine(asId(botId), (input && typeof input === 'object' ? input : {}) as Record<string, unknown>));
-  ipcMain.handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
-  ipcMain.handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
+  handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
+  handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
   // Delete (after the UI confirm): refused while the bot or room is replying.
-  ipcMain.handle('bots:delete', (_e, botIdRaw: unknown) => {
+  handle('bots:delete', (_e, botIdRaw: unknown) => {
     const botId = asId(botIdRaw);
     assertBotDeletable(db, botId, activeTurns.keys(), activeRooms.keys());
     return db.deleteBot(botId);
   });
-  ipcMain.handle('rooms:delete', (_e, roomIdRaw: unknown) => {
+  handle('rooms:delete', (_e, roomIdRaw: unknown) => {
     const roomId = asId(roomIdRaw);
     assertRoomDeletable(roomId, activeRooms.keys());
     db.deleteRoom(roomId);
   });
   // Right-click on a bot or room in the left column: a native context menu with "Delete…".
-  ipcMain.handle('menu:item', (e, kind: unknown) => new Promise<'delete' | null>((resolve) => {
+  handle('menu:item', (e, kind: unknown) => new Promise<'delete' | null>((resolve) => {
     if (kind !== 'bot' && kind !== 'room') { resolve(null); return; }
     const menu = Menu.buildFromTemplate([
       { label: kind === 'room' ? 'Delete room…' : 'Delete Cipher bot…', click: () => resolve('delete') },
@@ -310,7 +417,7 @@ function registerIpc(): void {
     menu.popup({ window: win, callback: () => { setTimeout(() => resolve(null), 150); } });
   }));
 
-  ipcMain.handle('dialog:pickFolder', async (e) => {
+  handle('dialog:pickFolder', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = { title: 'Choose a folder this Cipher bot may read', properties: ['openDirectory' as const] };
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
@@ -323,7 +430,7 @@ function registerIpc(): void {
    * Desktop-only attach: open a file picker (defaulting to the bot's folder), then read through
    * the same read_file sandbox. Rejects paths outside the folder (incl. .. and symlink escape).
    */
-  ipcMain.handle('dialog:pickAttachFile', async (e, botIdRaw: unknown) => {
+  handle('dialog:pickAttachFile', async (e, botIdRaw: unknown) => {
     const botId = asId(botIdRaw);
     const bot = db.getBot(botId);
     if (!bot) return { ok: false as const, error: 'Cipher bot not found.' };
@@ -348,21 +455,21 @@ function registerIpc(): void {
   });
 
   // One chat per bot: its most recent chat, created on first open. Older chats stay in the database, hidden.
-  ipcMain.handle('chats:openForBot', (_e, botId: unknown) => db.getBotChat(asId(botId)));
-  ipcMain.handle('messages:list', (_e, chatId: unknown) => db.listMessages(asId(chatId)));
+  handle('chats:openForBot', (_e, botId: unknown) => db.getBotChat(asId(botId)));
+  handle('messages:list', (_e, chatId: unknown) => db.listMessages(asId(chatId)));
   // Clear chat (after the UI confirm): deletes only this bot's 1:1 chat messages. Not while it's replying.
-  ipcMain.handle('chats:clearForBot', (_e, botIdRaw: unknown) => {
+  handle('chats:clearForBot', (_e, botIdRaw: unknown) => {
     const botId = asId(botIdRaw);
     if (activeTurns.has(db.getBotChat(botId).id)) throw new Error('This chat is still replying.');
     return db.clearBotChat(botId);
   });
-  ipcMain.handle('clipboard:writeText', (_e, text: unknown) => {
+  handle('clipboard:writeText', (_e, text: unknown) => {
     if (typeof text !== 'string') throw new Error('Nothing to copy.');
     if (text.length > MAX_COPY_CHARS) throw new Error('This message is too long to copy.');
     clipboard.writeText(text);
   });
   // Export the open chat or room: native Save dialog, then a local plain-text file. No network.
-  ipcMain.handle('chat:export', async (e, kind: unknown, idRaw: unknown) => {
+  handle('chat:export', async (e, kind: unknown, idRaw: unknown) => {
     const { name, text } = chatExport(kind, asId(idRaw));
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
@@ -380,7 +487,7 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('chat:send', (_e, chatIdRaw: unknown, text: unknown) => {
+  handle('chat:send', (_e, chatIdRaw: unknown, text: unknown) => {
     const chatId = asId(chatIdRaw);
     if (typeof text !== 'string' || !text.trim()) throw new Error('Message is empty.');
     if (activeTurns.has(chatId)) throw new Error('This chat is still replying.');
@@ -390,16 +497,16 @@ function registerIpc(): void {
       .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => activeTurns.delete(chatId));
   });
-  ipcMain.handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
+  handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
 
   // ---- rooms (group chats). No tools in rooms; see roomEngine.ts. ----
-  ipcMain.handle('rooms:list', () => db.listRooms());
-  ipcMain.handle('rooms:create', (_e, input: unknown) => {
+  handle('rooms:list', () => db.listRooms());
+  handle('rooms:create', (_e, input: unknown) => {
     const form = (input && typeof input === 'object' ? input : {}) as Partial<NewRoomForm>;
     return db.createRoom({ name: form.name, botIds: form.botIds });
   });
-  ipcMain.handle('roomMessages:list', (_e, roomId: unknown) => db.listRoomMessages(asId(roomId)));
-  ipcMain.handle('room:send', (e, roomIdRaw: unknown, text: unknown) => {
+  handle('roomMessages:list', (_e, roomId: unknown) => db.listRoomMessages(asId(roomId)));
+  handle('room:send', (e, roomIdRaw: unknown, text: unknown) => {
     const roomId = asId(roomIdRaw);
     if (typeof text !== 'string' || !text.trim()) throw new Error('Message is empty.');
     if (!db.getRoom(roomId)) throw new Error('Room not found.');
@@ -410,7 +517,7 @@ function registerIpc(): void {
       .catch((err: unknown) => broadcastRoom({ roomId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => activeRooms.delete(roomId));
   });
-  ipcMain.handle('room:stop', (_e, roomId: unknown) => { activeRooms.get(asId(roomId))?.abort(); });
+  handle('room:stop', (_e, roomId: unknown) => { activeRooms.get(asId(roomId))?.abort(); });
 }
 
 function phoneStaticDir(): string {
@@ -423,11 +530,12 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   // A second launch shows the existing window (also when it's hidden in the tray).
   app.on('second-instance', () => {
-    if (app.isReady()) showWindow();
+    if (app.isReady()) void showWindow();
   });
 
   app.whenReady().then(() => {
-    db = new CipherDb(path.join(app.getPath('userData'), 'cipher.db'));
+    db = new CipherDb(dbPath());
+    appLock = new AppLock(new LockStore(app.getPath('userData')));
     // Online defaults off: do not seed '1'. Absence means off.
     lockDownNetwork();
     setup = new SetupManager({ model: currentModel(), onChange: broadcastSetup });
@@ -435,6 +543,7 @@ if (!app.requestSingleInstanceLock()) {
       db,
       staticDir: phoneStaticDir(),
       model: currentModel(),
+      isLocked,
       onStatus: () => broadcastPhone(),
       sendChat: (chatId, text, emit, signal) => {
         // Share abort map with desktop Stop where possible.
@@ -480,7 +589,7 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
     createTray();
     void setup.run(true); // first launch: download the model through the local engine if it's missing
-    app.on('activate', () => showWindow());
+    app.on('activate', () => void showWindow());
   });
 
   // Any real quit (tray Quit, Ctrl+Q, app.quit) lets the window close instead of hiding.

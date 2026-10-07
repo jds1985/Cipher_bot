@@ -75,9 +75,9 @@ test('splash: every launch for about a second, nothing persisted; only a real pr
   // Only the first window of the process shows it; restoring from the tray / second launch only shows the window.
   assert.match(main, /const splash = windowsCreated\+\+ === 0;/);
   assert.match(main, /splash \? \{\} : \{ hash: 'nosplash' \}/);
-  assert.match(main, /function showWindow\(\): void \{[\s\S]*?win\.show\(\);[\s\S]*?\}/);
-  assert.match(main, /app\.on\('second-instance', \(\) => \{\s*if \(app\.isReady\(\)\) showWindow\(\);/);
-  assert.match(main, /app\.on\('activate', \(\) => showWindow\(\)\)/);
+  assert.match(main, /async function showWindow\(\): Promise<void> \{[\s\S]*?win\.show\(\);[\s\S]*?\}/);
+  assert.match(main, /app\.on\('second-instance', \(\) => \{\s*if \(app\.isReady\(\)\) void showWindow\(\);/);
+  assert.match(main, /app\.on\('activate', \(\) => void showWindow\(\)\)/);
   // The splash doesn't hold back setup/model check (they start in main right away) and makes no requests.
   assert.match(main, /createTray\(\);\s*void setup\.run\(true\);/);
   assert.match(html, /<div id="splash" aria-hidden="true"><img src="assets\/splash\.png" alt="Cipher" \/><\/div>/);

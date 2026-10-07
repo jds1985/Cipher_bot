@@ -294,3 +294,23 @@ button.plus-item:disabled { background: transparent; }
 @media (prefers-reduced-motion: reduce) {
   #splash { transition: none; animation: splash-out 0s linear 1.75s forwards; }
 }
+
+/* ---------- v1.13: lock screen and Settings sections ---------- */
+/* Full-window lock overlay under the title strip (window controls stay usable). Shown by default in the HTML;
+   the splash (z-index 100) sits above it on launch. Existing colors and the app icon only. */
+.lock-screen {
+  position: fixed; inset: var(--titlebar-h) 0 0 0; z-index: 90; display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.lock-card { width: min(420px, 92%); margin: 0; text-align: left; }
+.lock-card .lock-art { display: block; margin: 0 auto 12px; }
+.lock-card h2 { text-align: center; }
+.lock-card .lock-note { font-size: 12px; margin: 14px 0 0; }
+.lock-card .error { margin: 0 0 4px; }
+.lock-status { margin: 0 0 10px; font-weight: 600; color: var(--muted); }
+.lock-status.on { color: var(--text); }
+.lock-form { margin: 0 0 8px; }
+.lock-form + .lock-form { padding-top: 10px; border-top: 1px dashed var(--line); }
+.settings-block > .row:not(.end) { margin-top: 4px; }
+.settings-block p.error, .settings-block p.muted { margin: 8px 0 0; }
+.settings-block h3 + p.muted { margin-top: 0; }

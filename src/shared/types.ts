@@ -223,11 +223,11 @@ export interface CipherApi {
   /** Open the engine's download page in the system browser (explicit click only; blocked while Online is off). */
   openEngineDownload(): Promise<void>;
   onSetupState(cb: (s: SetupState) => void): () => void;
-  /** Online switch: default off; persists; enables nothing new in v1.6 when on. */
   /** Tell main which bot's 1:1 chat is on screen (null: a room, another screen, or nothing), for the routine notice. */
   reportOpenBot(botId: number | null): void;
   /** Clicking a routine notice asks the window to open that bot's chat. */
   onOpenBot(cb: (botId: number) => void): () => void;
+  /** Online switch: default off; persists; enables nothing new in v1.6 when on. */
   getOnline(): Promise<boolean>;
   setOnline(on: boolean): Promise<boolean>;
   /** Phone link: start/stop LAN server, refresh pairing code, read status. */
@@ -236,4 +236,30 @@ export interface CipherApi {
   stopPhoneLink(): Promise<PhoneLinkStatus>;
   refreshPhoneLinkCode(): Promise<PhoneLinkStatus>;
   onPhoneLink(cb: (s: PhoneLinkStatus) => void): () => void;
+  /** App lock (v1.13). Hashing and checking happen only in main; the passphrase is sent once per call, never kept. */
+  getLockState(): Promise<LockState>;
+  unlock(passphrase: string): Promise<UnlockResult>;
+  enableLock(passphrase: string, confirm: string): Promise<LockState>;
+  changeLock(current: string, passphrase: string, confirm: string): Promise<UnlockResult>;
+  disableLock(current: string): Promise<UnlockResult>;
+  /** Backup: native Save dialog, then a consistent copy of cipher.db (local file; not encrypted; no lock data). */
+  backup(): Promise<BackupResult>;
+  /** Restore, step 1: native Open dialog and validation; main keeps the chosen file until the confirm. */
+  pickRestore(): Promise<RestorePickResult>;
+  /** Restore, step 2 (after the confirm): copy of the current DB, replace it, then Cipher restarts. */
+  confirmRestore(): Promise<void>;
 }
+
+export interface LockState {
+  enabled: boolean;
+  locked: boolean;
+}
+
+export type UnlockResult = { ok: true } | { ok: false; error: string; waitMs: number };
+
+export type BackupResult = { ok: true; path: string } | { ok: false; canceled: true } | { ok: false; error: string; canceled?: undefined };
+
+export type RestorePickResult =
+  | { ok: true; file: string; bots: number; rooms: number }
+  | { ok: false; canceled: true }
+  | { ok: false; error: string; canceled?: undefined };

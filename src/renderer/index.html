@@ -11,6 +11,18 @@
   </head>
   <body>
     <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher</span></div></div>
+    <div id="lock-screen" class="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
+      <form id="lock-form" class="card lock-card">
+        <img class="lock-art" src="assets/icon.png" alt="" width="72" height="72" />
+        <h2 id="lock-title">Cipher is locked</h2>
+        <label>Passphrase
+          <input id="lock-pass" type="password" autocomplete="current-password" maxlength="1024" />
+        </label>
+        <p id="lock-pass-error" class="error" hidden></p>
+        <div class="row end"><button type="submit" id="lock-unlock">Unlock</button></div>
+        <p class="muted lock-note">There is no recovery: Cipher can't reset a forgotten passphrase. If you forget it, quit Cipher and delete the file lock.json in Cipher's user data folder. That removes the lock and keeps your chats. The lock does not encrypt anything.</p>
+      </form>
+    </div>
     <i id="nosplash" hidden></i>
     <div id="splash" aria-hidden="true"><img src="assets/splash.png" alt="Cipher" /></div>
     <div id="app">
@@ -83,6 +95,53 @@
         <section id="settings-view" class="view" hidden>
           <div class="card settings-card">
             <h2>Settings</h2>
+            <div class="settings-block" id="lock-block">
+              <h3>Lock</h3>
+              <p class="muted">Cipher locks each time it starts and as soon as its window is closed to the tray, and asks for this passphrase before showing anything again. The passphrase never leaves this computer; only a salted hash is kept, in lock.json. The lock does not encrypt your chats, and there is no recovery if you forget the passphrase.</p>
+              <p id="lock-status" class="lock-status"></p>
+              <form id="lock-set-form" class="lock-form" hidden>
+                <label>New passphrase (at least 8 characters)
+                  <input id="lock-set-new" type="password" autocomplete="new-password" minlength="8" maxlength="1024" />
+                </label>
+                <label>Enter it again
+                  <input id="lock-set-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="1024" />
+                </label>
+                <div class="row end"><button type="submit" id="lock-set-btn">Turn on lock</button></div>
+              </form>
+              <form id="lock-change-form" class="lock-form" hidden>
+                <label>Current passphrase
+                  <input id="lock-change-current" type="password" autocomplete="current-password" maxlength="1024" />
+                </label>
+                <label>New passphrase (at least 8 characters)
+                  <input id="lock-change-new" type="password" autocomplete="new-password" minlength="8" maxlength="1024" />
+                </label>
+                <label>Enter it again
+                  <input id="lock-change-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="1024" />
+                </label>
+                <div class="row end"><button type="submit" id="lock-change-btn" class="secondary">Change passphrase</button></div>
+              </form>
+              <form id="lock-off-form" class="lock-form" hidden>
+                <label>Current passphrase
+                  <input id="lock-off-current" type="password" autocomplete="current-password" maxlength="1024" />
+                </label>
+                <div class="row end"><button type="submit" id="lock-off-btn" class="secondary danger">Turn off lock</button></div>
+              </form>
+              <p id="lock-msg" class="muted" hidden></p>
+              <p id="lock-error" class="error" hidden></p>
+            </div>
+            <div class="settings-block">
+              <h3>Backup</h3>
+              <p class="muted">Saves a copy of all your Cipher bots, chats, rooms, routines and settings to a file you choose on this computer. The backup is not encrypted: anyone who can open the file can read your chats. It does not include the lock.</p>
+              <div class="row"><button type="button" id="backup-btn" class="secondary">Back up…</button></div>
+              <p id="backup-msg" class="muted" hidden></p>
+              <p id="backup-error" class="error" hidden></p>
+            </div>
+            <div class="settings-block">
+              <h3>Restore</h3>
+              <p class="muted">Replaces all current Cipher bots and chats with a backup file you choose. Cipher first keeps a copy of the current database next to it, then restarts. The lock on this computer stays as it is, and Online is turned off.</p>
+              <div class="row"><button type="button" id="restore-btn" class="secondary">Restore…</button></div>
+              <p id="restore-error" class="error" hidden></p>
+            </div>
             <div class="settings-block">
               <label class="row switch-row" title="When off, Cipher does not open internet addresses. Local Ollama and Phone link (LAN) still work.">
                 <input type="checkbox" id="online-switch" />
@@ -109,8 +168,12 @@
                 <ul id="phone-urls"></ul>
               </div>
             </div>
+            <div class="settings-block">
+              <h3>Policy</h3>
+              <p class="muted">What stays on this computer, and the exceptions.</p>
+              <div class="row"><button type="button" id="open-policy" class="secondary" title="What stays on this computer, and the exceptions">Policy</button></div>
+            </div>
             <div class="row end">
-              <button type="button" id="open-policy" class="secondary" title="What stays on this computer, and the exceptions">Policy</button>
               <button type="button" id="settings-close" class="secondary">Close</button>
             </div>
           </div>
