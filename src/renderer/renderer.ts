@@ -1,5 +1,5 @@
 import type { Bot, Chat, ChatEvent, CipherApi, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState } from '../shared/types';
-import { decideView, roomTitle, setupCopy } from './view.js';
+import { decideView, plusMenuItems, roomTitle, setupCopy, showsSplash, splashRemainingMs, SPLASH_MAX_MS, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -24,20 +24,17 @@ const el = {
   roomFormError: $('room-form-error'), roomCancel: $<HTMLButtonElement>('room-cancel'), roomCreate: $<HTMLButtonElement>('room-create'),
   setupText: $('setup-text'), setupProgress: $<HTMLProgressElement>('setup-progress'), setupDetail: $('setup-detail'),
   setupGetEngine: $<HTMLButtonElement>('setup-get-engine'), setupRetry: $<HTMLButtonElement>('setup-retry'),
-  chatIcon: $('chat-icon'), chatBotName: $('chat-bot-name'), chatTitle: $('chat-title'), roomNote: $('room-note'),
-  botSettings: $('bot-settings'), chatTools: $<HTMLInputElement>('chat-tools'),
-  chatFolderLabel: $('chat-folder-label'), chatFolderPick: $<HTMLButtonElement>('chat-folder-pick'),
-  botDelete: $<HTMLButtonElement>('bot-delete'), botEdit: $<HTMLButtonElement>('bot-edit'),
-  chatExport: $<HTMLButtonElement>('chat-export'), chatClear: $<HTMLButtonElement>('chat-clear'),
+  chatIcon: $('chat-icon'), chatBotName: $('chat-bot-name'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
-  attach: $<HTMLButtonElement>('attach'), attachChip: $('attach-chip'), attachChipName: $('attach-chip-name'),
+  plus: $<HTMLButtonElement>('plus'), plusMenu: $('plus-menu'),
+  attachChip: $('attach-chip'), attachChipName: $('attach-chip-name'),
   attachClear: $<HTMLButtonElement>('attach-clear'), attachError: $('attach-error'),
   send: $<HTMLButtonElement>('send'), stop: $<HTMLButtonElement>('stop'),
   settingsView: $('settings-view'), openSettings: $<HTMLButtonElement>('open-settings'),
   settingsClose: $<HTMLButtonElement>('settings-close'),
   openPolicy: $<HTMLButtonElement>('open-policy'), policyView: $('policy-view'), policyTitle: $('policy-title'),
   policyBody: $('policy-body'), policyContact: $('policy-contact'), policyClose: $<HTMLButtonElement>('policy-close'),
-  botRoutine: $<HTMLButtonElement>('bot-routine'), routineModal: $('routine-modal'), routineForm: $<HTMLFormElement>('routine-form'),
+  routineModal: $('routine-modal'), routineForm: $<HTMLFormElement>('routine-form'),
   routineTitle: $('routine-title'), routinePrompt: $<HTMLTextAreaElement>('routine-prompt'), routineTime: $<HTMLInputElement>('routine-time'),
   routineEnabled: $<HTMLInputElement>('routine-enabled'), routineError: $('routine-error'), routineCancel: $<HTMLButtonElement>('routine-cancel'),
   onlineSwitch: $<HTMLInputElement>('online-switch'),
@@ -152,6 +149,7 @@ function applyView(): void {
   el.policyView.hidden = view !== 'policy';
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
+  if (view !== 'chat') closePlusMenu();
   el.botCancel.hidden = state.bots.length === 0 && !editing; // nothing to go back to on first run
   if (view === 'setup') renderSetup();
   if (view === 'chat') renderChat();
@@ -206,6 +204,7 @@ function renderRail(): void {
   el.botList.replaceChildren(...state.bots.map((b) => {
     const working = state.speakingBots.has(b.id);
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
+    btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
     btn.append(botIcon(b, 42));
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
@@ -213,6 +212,7 @@ function renderRail(): void {
   el.roomList.replaceChildren(...state.rooms.map((r) => {
     const label = `Room: ${roomName(r)}`;
     const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
+    btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'room', r.id));
     btn.append(roomMark(r));
     if (!nameMatches(roomName(r), q) && !nameMatches(r.name, q)) btn.classList.add('filtered-out');
     return btn;
@@ -232,6 +232,7 @@ async function loadRooms(): Promise<void> {
 
 /** Open a bot's one chat (created on first open). */
 async function selectBot(botId: number): Promise<void> {
+  closePlusMenu();
   state.formOpen = false;
   state.editBotId = null;
   state.roomFormOpen = false;
@@ -252,6 +253,7 @@ async function selectBot(botId: number): Promise<void> {
 }
 
 async function selectRoom(roomId: number): Promise<void> {
+  closePlusMenu();
   state.formOpen = false;
   state.editBotId = null;
   state.roomFormOpen = false;
@@ -348,21 +350,10 @@ function renderBotChat(): void {
   const bot = currentBot();
   const chat = state.chat;
   if (!bot || !chat) return;
+  // Header: the bot's icon and name only (everything else is in the plus menu).
+  el.chatIcon.hidden = false;
   el.chatIcon.replaceChildren(botIcon(bot, 40));
   el.chatBotName.textContent = bot.name;
-  el.chatTitle.textContent = chat.title;
-  el.chatTitle.hidden = false;
-  el.roomNote.hidden = true;
-  el.botSettings.hidden = false;
-  el.chatClear.hidden = false;
-  el.chatTools.checked = bot.toolsEnabled;
-  el.chatFolderPick.hidden = !bot.toolsEnabled;
-  el.chatFolderLabel.hidden = !bot.toolsEnabled;
-  el.chatFolderLabel.textContent = bot.folderPath ?? 'No folder chosen';
-  const routineOn = !!(state.routine && state.routine.botId === bot.id && state.routine.enabled);
-  el.botRoutine.textContent = routineOn ? `Routine ${state.routine!.time}` : 'Routine…';
-  el.botRoutine.classList.toggle('on', routineOn);
-  el.chatFolderLabel.title = bot.folderPath ?? '';
 
   const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
@@ -412,12 +403,10 @@ function renderRoom(): void {
   const room = currentRoom();
   if (!room) return;
   const members = roomMembers(room);
-  el.chatIcon.replaceChildren(roomMark(room));
+  // Header: the room name only.
+  el.chatIcon.hidden = true;
+  el.chatIcon.replaceChildren();
   el.chatBotName.textContent = roomName(room);
-  el.chatTitle.textContent = room.name.trim() ? members.map((b) => b.name).join(', ') : `${members.length} Cipher bots`;
-  el.roomNote.hidden = false; // "File reading is off in rooms"
-  el.botSettings.hidden = true;
-  el.chatClear.hidden = true; // Clear chat is for 1:1 chats only
 
   const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
@@ -887,8 +876,7 @@ async function replaceBot(updated: Bot): Promise<void> {
 // ---------- attach (desktop 1:1 only) ----------
 function renderAttachUi(botMode: boolean): void {
   const show = botMode && !!state.botId;
-  el.attach.hidden = !show;
-  el.attach.disabled = !show || (state.chat ? state.busy.has(state.chat.id) : false);
+  if (!el.plusMenu.hidden) renderPlusMenu(); // keep Attach's busy state current while the menu is open
   if (state.pendingAttach && show) {
     el.attachChip.hidden = false;
     el.attachChipName.textContent = state.pendingAttach.relPath;
@@ -950,8 +938,8 @@ function closeConfirm(): void {
   pendingConfirm = null;
 }
 
-async function requestDeleteBot(): Promise<void> {
-  const bot = currentBot();
+async function requestDeleteBot(botId: number | null = state.botId): Promise<void> {
+  const bot = botById(botId);
   if (!bot) return;
   const inRooms = state.rooms.filter((r) => r.memberIds.includes(bot.id));
   const roomNote = inRooms.length
@@ -961,12 +949,17 @@ async function requestDeleteBot(): Promise<void> {
     `Delete ${bot.name}?`,
     `This permanently deletes this Cipher bot and its chat history.${roomNote}`,
     async () => {
-      const result = await api.deleteBot(bot.id);
-      state.pendingAttach = null;
+      const result = await api.deleteBot(bot.id); // refused (error shown) while the bot is replying
       await loadBots();
       await loadRooms();
-      if (state.bots.length) await selectBot(state.bots[0].id);
+      // Something else stays open if it still exists; otherwise switch to a remaining chat or the empty state.
+      const stillOpen = (state.botId !== null && state.botId !== bot.id && botById(state.botId))
+        || (state.roomId !== null && !result.deletedRoomIds.includes(state.roomId) && currentRoom());
+      if (stillOpen) { renderRail(); applyView(); }
+      else if (state.bots.length) { state.pendingAttach = null; await selectBot(state.bots[0].id); }
       else {
+        state.pendingAttach = null;
+        state.roomId = null;
         state.botId = null;
         state.chat = null;
         state.messages = [];
@@ -974,11 +967,126 @@ async function requestDeleteBot(): Promise<void> {
         renderRail();
         applyView();
       }
-      if (result.deletedRoomIds.length) {
-        /* rooms already reloaded */
-      }
     },
   );
+}
+
+// ---------- delete a room (group chat): confirm first; refused while it's replying ----------
+function requestDeleteRoom(roomId: number): void {
+  const room = state.rooms.find((r) => r.id === roomId);
+  if (!room) return;
+  const name = roomName(room);
+  openConfirm(
+    `Delete room "${name}"?`,
+    'This permanently deletes this room and its messages. The Cipher bots in it stay, with their own chats.',
+    async () => {
+      await api.deleteRoom(room.id); // refused (error shown) while the room is replying
+      await loadRooms();
+      if (state.roomId === room.id) {
+        state.roomId = null;
+        state.roomMessages = [];
+        if (state.bots.length) await selectBot(state.bots[0].id);
+        else { renderRail(); applyView(); }
+      } else {
+        renderRail();
+      }
+    },
+    'Delete room',
+  );
+}
+
+// ---------- right-click a bot or room in the left column: native menu with Delete… ----------
+async function onItemContextMenu(e: MouseEvent, kind: 'bot' | 'room', id: number): Promise<void> {
+  e.preventDefault();
+  if ((await api.showItemMenu(kind)) !== 'delete') return;
+  if (kind === 'bot') void requestDeleteBot(id);
+  else requestDeleteRoom(id);
+}
+
+// ---------- plus menu (inside the composer): the chat's actions ----------
+function currentPlusItems(): PlusItem[] {
+  if (state.roomId !== null) return plusMenuItems({ kind: 'room' });
+  const bot = currentBot();
+  if (!bot) return [];
+  return plusMenuItems({
+    kind: 'bot', toolsEnabled: bot.toolsEnabled, folderPath: bot.folderPath,
+    busy: state.chat ? state.busy.has(state.chat.id) : false,
+    routineTime: state.routine && state.routine.botId === bot.id && state.routine.enabled ? state.routine.time : null,
+  });
+}
+
+function plusMenuButtons(): HTMLButtonElement[] {
+  return [...el.plusMenu.querySelectorAll('button')].filter((b) => !b.disabled);
+}
+
+function renderPlusMenu(): void {
+  const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.item;
+  el.plusMenu.replaceChildren(...currentPlusItems().map((item) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'plus-item';
+    btn.dataset.item = item.id;
+    btn.disabled = item.disabled;
+    btn.setAttribute('role', item.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
+    if (item.checked !== undefined) btn.setAttribute('aria-checked', String(item.checked));
+    btn.append(node('span', 'plus-label', item.label));
+    if (item.checked !== undefined) btn.append(node('span', `plus-state${item.checked ? ' on' : ''}`, item.checked ? 'On' : 'Off'));
+    if (item.hint) { btn.append(node('span', 'plus-hint', item.hint)); btn.title = item.hint; }
+    btn.addEventListener('click', () => { closePlusMenu(); void runPlusItem(item.id); });
+    return btn;
+  }));
+  if (focusedId) (el.plusMenu.querySelector(`[data-item="${focusedId}"]`) as HTMLButtonElement | null)?.focus();
+}
+
+function openPlusMenu(): void {
+  renderPlusMenu();
+  if (!el.plusMenu.childElementCount) return;
+  el.plusMenu.hidden = false;
+  el.plus.setAttribute('aria-expanded', 'true');
+  plusMenuButtons()[0]?.focus();
+}
+
+function closePlusMenu(returnFocus = false): void {
+  if (el.plusMenu.hidden) return;
+  el.plusMenu.hidden = true;
+  el.plus.setAttribute('aria-expanded', 'false');
+  if (returnFocus) el.plus.focus();
+}
+
+/** Each item runs exactly the handler its old header/composer control ran. */
+async function runPlusItem(id: PlusItemId): Promise<void> {
+  switch (id) {
+    case 'attach': return attachFile();
+    case 'export': return exportOpenChat();
+    case 'clear': return requestClearChat();
+    case 'edit': return openEditBot();
+    case 'folder': return chooseFolder();
+    case 'tools': { const bot = currentBot(); if (bot) await setTools(!bot.toolsEnabled); return; }
+    case 'routine': return openRoutine();
+  }
+}
+
+/** Read files on/off (was the header checkbox). */
+async function setTools(enabled: boolean): Promise<void> {
+  const bot = currentBot();
+  if (bot) await replaceBot(await api.setBotTools(bot.id, enabled));
+}
+
+/** Choose folder (was the header button). */
+async function chooseFolder(): Promise<void> {
+  const bot = currentBot();
+  const folder = bot && (await api.pickFolder());
+  if (bot && folder) await replaceBot(await api.setBotFolder(bot.id, folder));
+}
+
+function onPlusMenuKey(e: KeyboardEvent): void {
+  const items = plusMenuButtons();
+  const i = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePlusMenu(true); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+  else if (e.key === 'Home') { e.preventDefault(); items[0]?.focus(); }
+  else if (e.key === 'End') { e.preventDefault(); items[items.length - 1]?.focus(); }
 }
 
 // ---------- clear chat (confirm required; 1:1 only) ----------
@@ -1038,15 +1146,24 @@ el.openSettings.addEventListener('click', openSettings);
 el.settingsClose.addEventListener('click', closeForms);
 el.openPolicy.addEventListener('click', openPolicy);
 el.policyClose.addEventListener('click', closePolicy);
-el.botRoutine.addEventListener('click', openRoutine);
 el.routineCancel.addEventListener('click', closeRoutine);
 el.routineForm.addEventListener('submit', (e) => void submitRoutine(e));
 el.routineModal.addEventListener('click', (e) => { if (e.target === el.routineModal) closeRoutine(); });
 el.botCancel.addEventListener('click', () => { if (state.editBotId !== null) closeEditBot(); else closeForms(); });
 el.formView.addEventListener('click', (e) => { if (state.editBotId !== null && e.target === el.formView) closeEditBot(); });
-el.botEdit.addEventListener('click', openEditBot);
-el.chatClear.addEventListener('click', requestClearChat);
-el.chatExport.addEventListener('click', () => void exportOpenChat());
+el.plus.addEventListener('click', () => { if (el.plusMenu.hidden) openPlusMenu(); else closePlusMenu(true); });
+el.plusMenu.addEventListener('keydown', onPlusMenuKey);
+el.plusMenu.addEventListener('focusout', (e) => {
+  const to = e.relatedTarget as Node | null;
+  if (to && !el.plusMenu.contains(to) && to !== el.plus) closePlusMenu(); // Tab out of the menu closes it
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !el.plusMenu.hidden) { e.preventDefault(); closePlusMenu(true); }
+});
+document.addEventListener('mousedown', (e) => {
+  const t = e.target as Node;
+  if (!el.plusMenu.hidden && !el.plusMenu.contains(t) && !el.plus.contains(t)) closePlusMenu();
+});
 el.roomCancel.addEventListener('click', closeForms);
 el.onlineSwitch.addEventListener('change', async () => {
   state.online = await api.setOnline(el.onlineSwitch.checked);
@@ -1061,17 +1178,6 @@ el.roomForm.addEventListener('submit', (e) => void submitRoomForm(e));
 el.setupGetEngine.addEventListener('click', () => void api.openEngineDownload());
 el.setupRetry.addEventListener('click', () => void api.startSetup());
 api.onSetupState(onSetupState);
-el.chatTools.addEventListener('change', async () => {
-  const bot = currentBot();
-  if (bot) await replaceBot(await api.setBotTools(bot.id, el.chatTools.checked));
-});
-el.chatFolderPick.addEventListener('click', async () => {
-  const bot = currentBot();
-  const folder = bot && (await api.pickFolder());
-  if (bot && folder) await replaceBot(await api.setBotFolder(bot.id, folder));
-});
-el.botDelete.addEventListener('click', () => void requestDeleteBot());
-el.attach.addEventListener('click', () => void attachFile());
 el.attachClear.addEventListener('click', () => { state.pendingAttach = null; clearAttachError(); renderAttachUi(true); });
 el.search.addEventListener('input', onSearchInput);
 el.confirmCancel.addEventListener('click', closeConfirm);
@@ -1100,8 +1206,9 @@ window.addEventListener('blur', () => setUnfocused(true));
 setUnfocused(!document.hasFocus()); // sync on load
 
 // ---------- splash ----------
-// Shows only "Cipher" while the app loads: at least ~0.7 s so it doesn't flicker, at most 1.5 s.
-// It never waits on the model or setup (the CSS also hides it after 2 s as a safety net).
+// Shows "Cipher" on every launch for about a second (nothing is stored, so it can't be "already seen"), then fades.
+// Loading, setup and the model check run in parallel and never wait on it; it never stays past 1.5 s
+// (the CSS also hides it at 1.75 s as a safety net). A window main re-creates later in the same process skips it.
 const splashStart = performance.now();
 let splashDone = false;
 function hideSplash(): void {
@@ -1110,7 +1217,8 @@ function hideSplash(): void {
   el.splash.classList.add('hide');
   window.setTimeout(() => el.splash.remove(), 300);
 }
-window.setTimeout(hideSplash, 1500);
+if (!showsSplash(location.hash)) { splashDone = true; el.splash.remove(); }
+window.setTimeout(hideSplash, SPLASH_MAX_MS);
 
 async function init(): Promise<void> {
   try {
@@ -1122,7 +1230,7 @@ async function init(): Promise<void> {
     if (state.bots.length) await selectBot(state.bots[0].id);
     else applyView();
   } finally {
-    window.setTimeout(hideSplash, Math.max(0, 700 - (performance.now() - splashStart)));
+    window.setTimeout(hideSplash, splashRemainingMs(performance.now() - splashStart));
   }
 }
 
