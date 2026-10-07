@@ -76,6 +76,19 @@ test('routines: only on this computer, only while Cipher is open or in the tray,
   assert.match(p, /file reading off/);
 });
 
+test('routines: explicitly not after you quit Cipher', () => {
+  assert.match(section(/^Routines$/), /only while Cipher is open or in the tray, not after you quit Cipher/);
+});
+
+test('routine notice: bot name and finished/failed only, no message or reply, OS notification system, may stay in history', () => {
+  const p = section(/^Routines$/);
+  assert.match(p, /When a routine finishes or fails, Cipher shows a desktop notification/);
+  assert.match(p, /with the bot's name and "finished" or "failed" only; the routine's message and the reply are not in it/);
+  assert.match(p, /your computer's own notification system, not the internet/);
+  assert.match(p, /may stay in that system's notification history/);
+  assert.match(p, /no notification if that bot's chat is already open in front of you, or if you stop the routine/);
+});
+
 test('no account, telemetry, analytics or crash reporting, and the code really has none', () => {
   assert.match(section(/Accounts/), /no account or sign-in/);
   assert.match(section(/Accounts/), /no telemetry, analytics, crash reporting or auto-updater/);

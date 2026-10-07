@@ -61,8 +61,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Routines',
     paragraphs: [
-      'A routine sends a saved message to one Cipher bot every day at the time you pick. It runs only on this computer, and only while Cipher is open or in the tray. If Cipher isn\'t running at that time, or that bot\'s chat is busy replying for the whole minute, that day\'s run is skipped.',
+      'A routine sends a saved message to one Cipher bot every day at the time you pick. It runs only on this computer, and only while Cipher is open or in the tray, not after you quit Cipher. If Cipher isn\'t running at that time, or that bot\'s chat is busy replying for the whole minute, that day\'s run is skipped.',
       'Routines don\'t use the internet: the message goes to the model on this computer, like any chat. Routines run with file reading off.',
+      'When a routine finishes or fails, Cipher shows a desktop notification (if your system supports them) with the bot\'s name and "finished" or "failed" only; the routine\'s message and the reply are not in it. It goes through your computer\'s own notification system, not the internet, and may stay in that system\'s notification history. There is no notification if that bot\'s chat is already open in front of you, or if you stop the routine.',
     ],
   },
   {
