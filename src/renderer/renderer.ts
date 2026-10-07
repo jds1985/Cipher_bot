@@ -1,5 +1,6 @@
-import type { Bot, Chat, ChatEvent, CipherApi, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, SetupState } from '../shared/types';
+import type { Bot, Chat, ChatEvent, CipherApi, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState } from '../shared/types';
 import { decideView, roomTitle, setupCopy } from './view.js';
+import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
 declare global {
@@ -34,6 +35,11 @@ const el = {
   send: $<HTMLButtonElement>('send'), stop: $<HTMLButtonElement>('stop'),
   settingsView: $('settings-view'), openSettings: $<HTMLButtonElement>('open-settings'),
   settingsClose: $<HTMLButtonElement>('settings-close'),
+  openPolicy: $<HTMLButtonElement>('open-policy'), policyView: $('policy-view'), policyTitle: $('policy-title'),
+  policyBody: $('policy-body'), policyContact: $('policy-contact'), policyClose: $<HTMLButtonElement>('policy-close'),
+  botRoutine: $<HTMLButtonElement>('bot-routine'), routineModal: $('routine-modal'), routineForm: $<HTMLFormElement>('routine-form'),
+  routineTitle: $('routine-title'), routinePrompt: $<HTMLTextAreaElement>('routine-prompt'), routineTime: $<HTMLInputElement>('routine-time'),
+  routineEnabled: $<HTMLInputElement>('routine-enabled'), routineError: $('routine-error'), routineCancel: $<HTMLButtonElement>('routine-cancel'),
   onlineSwitch: $<HTMLInputElement>('online-switch'),
   phoneStart: $<HTMLButtonElement>('phone-start'), phoneStop: $<HTMLButtonElement>('phone-stop'),
   phoneRefresh: $<HTMLButtonElement>('phone-refresh'), phoneStatus: $('phone-status'),
@@ -65,6 +71,10 @@ const state = {
   editBotId: null as number | null,
   roomFormOpen: false,
   settingsOpen: false,
+  /** Policy screen (opened from Settings). */
+  policyOpen: false,
+  /** The open bot's daily routine, or null if it has none. */
+  routine: null as Routine | null,
   /** Bot ids currently streaming a reply (working-dot). */
   speakingBots: new Set<number>(),
   online: false,
@@ -131,7 +141,7 @@ function roomMark(r: Room): HTMLElement {
 function applyView(): void {
   const view = decideView({
     botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen,
-    settingsOpen: state.settingsOpen, setup: state.setup,
+    settingsOpen: state.settingsOpen, policyOpen: state.policyOpen, setup: state.setup,
   });
   // The edit modal reuses the create form, shown over the chat.
   const editing = state.editBotId !== null && view === 'chat';
@@ -139,12 +149,14 @@ function applyView(): void {
   el.formView.classList.toggle('edit-modal', editing);
   el.roomFormView.hidden = view !== 'room-form';
   el.settingsView.hidden = view !== 'settings';
+  el.policyView.hidden = view !== 'policy';
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
   el.botCancel.hidden = state.bots.length === 0 && !editing; // nothing to go back to on first run
   if (view === 'setup') renderSetup();
   if (view === 'chat') renderChat();
   if (view === 'settings') renderSettings();
+  if (view === 'policy') renderPolicy();
 }
 
 // ---------- setup screen ----------
@@ -189,7 +201,7 @@ function nameMatches(hay: string, q: string): boolean {
 }
 
 function renderRail(): void {
-  const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen;
+  const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen && !state.policyOpen;
   const q = state.searchQuery.trim().toLowerCase();
   el.botList.replaceChildren(...state.bots.map((b) => {
     const working = state.speakingBots.has(b.id);
@@ -205,7 +217,7 @@ function renderRail(): void {
     if (!nameMatches(roomName(r), q) && !nameMatches(r.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
-  el.openSettings.classList.toggle('active', state.settingsOpen);
+  el.openSettings.classList.toggle('active', state.settingsOpen || state.policyOpen);
 }
 
 async function loadBots(): Promise<void> {
@@ -224,12 +236,14 @@ async function selectBot(botId: number): Promise<void> {
   state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
+  state.policyOpen = false;
   state.roomId = null;
   state.pendingAttach = null;
   clearAttachError();
   state.botId = botId;
   state.chat = await api.openBotChat(botId);
   state.messages = await api.listMessages(state.chat.id);
+  state.routine = await api.getRoutine(botId);
   state.live = '';
   state.error = null;
   renderRail();
@@ -242,6 +256,8 @@ async function selectRoom(roomId: number): Promise<void> {
   state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
+  state.policyOpen = false;
+  state.routine = null;
   state.botId = null;
   state.chat = null;
   state.pendingAttach = null;
@@ -309,9 +325,10 @@ function copyButton(text: string): HTMLButtonElement {
   return btn;
 }
 
-/** A user or bot message bubble: the text plus a small copy button. */
-function bubble(cls: string, text: string): HTMLElement {
+/** A user or bot message bubble: the text plus a small copy button (and a "Routine" tag for routine messages). */
+function bubble(cls: string, text: string, fromRoutine = false): HTMLElement {
   const msg = node('div', `msg ${cls}`);
+  if (fromRoutine) msg.append(node('span', 'routine-tag', 'Routine'));
   msg.append(node('span', 'msg-text', text), copyButton(text));
   return msg;
 }
@@ -342,6 +359,9 @@ function renderBotChat(): void {
   el.chatFolderPick.hidden = !bot.toolsEnabled;
   el.chatFolderLabel.hidden = !bot.toolsEnabled;
   el.chatFolderLabel.textContent = bot.folderPath ?? 'No folder chosen';
+  const routineOn = !!(state.routine && state.routine.botId === bot.id && state.routine.enabled);
+  el.botRoutine.textContent = routineOn ? `Routine ${state.routine!.time}` : 'Routine…';
+  el.botRoutine.classList.toggle('on', routineOn);
   el.chatFolderLabel.title = bot.folderPath ?? '';
 
   const q = state.searchQuery.trim().toLowerCase();
@@ -349,7 +369,7 @@ function renderBotChat(): void {
   for (const m of state.messages) {
     const match = !q || m.content.toLowerCase().includes(q);
     let row: HTMLElement | null = null;
-    if (m.role === 'user') row = bubble('user', m.content);
+    if (m.role === 'user') row = bubble('user', m.content, m.routine);
     else if (m.role === 'assistant') {
       if (m.content) row = bubble('assistant', m.content);
       if (m.toolCalls?.length) {
@@ -482,11 +502,13 @@ async function send(): Promise<void> {
 function speakingBotForChat(chatId: number): number | null {
   const chat = state.chat?.id === chatId ? state.chat : null;
   if (chat) return chat.botId;
-  // When events arrive for another chat, find the bot from known bots' open chat is unknown; use current only.
-  return state.botId;
+  // Events for a chat that isn't open (a routine or the phone): its bot isn't known here, so no dot.
+  return null;
 }
 
 async function onChatEvent(ev: ChatEvent): Promise<void> {
+  // A reply this window didn't start (a routine or the phone) still shows as replying (live text, Stop).
+  if (ev.type === 'token' || ev.type === 'tool') state.busy.add(ev.chatId);
   if (ev.type === 'token' || ev.type === 'message' || ev.type === 'tool') {
     const botId = speakingBotForChat(ev.chatId);
     if (botId != null) { state.speakingBots.add(botId); renderRail(); }
@@ -733,6 +755,7 @@ async function submitRoomForm(e: Event): Promise<void> {
 
 function closeForms(): void {
   state.formOpen = false;
+  state.policyOpen = false;
   state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
@@ -742,6 +765,7 @@ function closeForms(): void {
 
 function openSettings(): void {
   state.settingsOpen = true;
+  state.policyOpen = false;
   state.editBotId = null;
   state.formOpen = false;
   state.roomFormOpen = false;
@@ -783,6 +807,68 @@ function renderSettings(): void {
     }));
   } else {
     el.phoneQrWrap.hidden = true;
+  }
+}
+
+// ---------- policy (read-only; text lives in policy.ts) ----------
+function renderPolicy(): void {
+  el.policyTitle.textContent = POLICY_TITLE;
+  const parts: HTMLElement[] = [];
+  for (const section of POLICY_SECTIONS) {
+    parts.push(node('h3', undefined, section.heading));
+    for (const p of section.paragraphs) parts.push(node('p', undefined, p));
+  }
+  el.policyBody.replaceChildren(...parts);
+  el.policyContact.textContent = POLICY_CONTACT;
+}
+
+function openPolicy(): void {
+  state.policyOpen = true;
+  state.settingsOpen = false;
+  state.formOpen = false;
+  state.roomFormOpen = false;
+  state.editBotId = null;
+  renderRail();
+  applyView();
+  el.policyView.scrollTop = 0;
+}
+
+function closePolicy(): void {
+  state.policyOpen = false;
+  openSettings();
+}
+
+// ---------- routine (one per bot; runs in main while Cipher is open or in the tray) ----------
+function openRoutine(): void {
+  const bot = currentBot();
+  if (!bot) return;
+  const r = state.routine && state.routine.botId === bot.id ? state.routine : null;
+  el.routineTitle.textContent = `Routine for ${bot.name}`;
+  el.routinePrompt.value = r?.prompt ?? '';
+  el.routineTime.value = r?.time ?? '08:00';
+  el.routineEnabled.checked = r ? r.enabled : true;
+  el.routineError.hidden = true;
+  el.routineModal.hidden = false;
+  el.routinePrompt.focus();
+}
+
+function closeRoutine(): void {
+  el.routineModal.hidden = true;
+}
+
+async function submitRoutine(e: Event): Promise<void> {
+  e.preventDefault();
+  const bot = currentBot();
+  if (!bot) return;
+  el.routineError.hidden = true;
+  try {
+    const saved = await api.setRoutine(bot.id, { prompt: el.routinePrompt.value, time: el.routineTime.value, enabled: el.routineEnabled.checked });
+    if (state.botId === bot.id) state.routine = saved;
+    closeRoutine();
+    renderChat();
+  } catch (err) {
+    el.routineError.textContent = plainError(err);
+    el.routineError.hidden = false;
   }
 }
 
@@ -950,6 +1036,12 @@ el.newBot.addEventListener('click', openBotForm);
 el.newRoom.addEventListener('click', openRoomForm);
 el.openSettings.addEventListener('click', openSettings);
 el.settingsClose.addEventListener('click', closeForms);
+el.openPolicy.addEventListener('click', openPolicy);
+el.policyClose.addEventListener('click', closePolicy);
+el.botRoutine.addEventListener('click', openRoutine);
+el.routineCancel.addEventListener('click', closeRoutine);
+el.routineForm.addEventListener('submit', (e) => void submitRoutine(e));
+el.routineModal.addEventListener('click', (e) => { if (e.target === el.routineModal) closeRoutine(); });
 el.botCancel.addEventListener('click', () => { if (state.editBotId !== null) closeEditBot(); else closeForms(); });
 el.formView.addEventListener('click', (e) => { if (state.editBotId !== null && e.target === el.formView) closeEditBot(); });
 el.botEdit.addEventListener('click', openEditBot);

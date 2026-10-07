@@ -109,7 +109,18 @@
               </div>
             </div>
             <div class="row end">
+              <button type="button" id="open-policy" class="secondary" title="What stays on this computer, and the exceptions">Policy</button>
               <button type="button" id="settings-close" class="secondary">Close</button>
+            </div>
+          </div>
+        </section>
+        <section id="policy-view" class="view" hidden>
+          <div class="card policy-card">
+            <h2 id="policy-title">Policy</h2>
+            <div id="policy-body"></div>
+            <p id="policy-contact" class="policy-contact"></p>
+            <div class="row end">
+              <button type="button" id="policy-close" class="secondary">Back to Settings</button>
             </div>
           </div>
         </section>
@@ -139,6 +150,7 @@
               </label>
               <span id="chat-folder-label" class="muted folder"></span>
               <button type="button" id="chat-folder-pick" class="secondary small">Choose folder…</button>
+              <button type="button" id="bot-routine" class="secondary small" title="Send a saved message to this Cipher bot every day at a time you pick">Routine…</button>
               <button type="button" id="bot-edit" class="secondary small" title="Edit this Cipher bot's name, job and icon">Edit…</button>
               <button type="button" id="bot-delete" class="secondary small danger" title="Delete this Cipher bot">Delete…</button>
             </div>
@@ -178,6 +190,26 @@
           <button type="button" id="confirm-ok" class="danger-btn">Delete</button>
         </div>
       </div>
+    </div>
+    <div id="routine-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="routine-title">
+      <form id="routine-form" class="modal-card routine-card">
+        <h2 id="routine-title">Routine</h2>
+        <label>Message to send
+          <textarea id="routine-prompt" rows="4" maxlength="20000" placeholder="e.g. Give me a short plan for today."></textarea>
+        </label>
+        <div class="row routine-row">
+          <label class="routine-time">Time, every day
+            <input id="routine-time" type="time" required />
+          </label>
+          <label class="row routine-on"><input type="checkbox" id="routine-enabled" /> <span>On</span></label>
+        </div>
+        <p class="muted routine-hint">Sends this message to this Cipher bot every day at this time, as if you typed it (marked "Routine"). It runs only on this computer, and only while Cipher is open or in the tray. If Cipher isn't running at that time, that day's run is skipped (no catch-up). File reading is off for routines. The reply comes from the model on this computer; no internet.</p>
+        <p id="routine-error" class="error" hidden></p>
+        <div class="row end">
+          <button type="button" id="routine-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="routine-save">Save</button>
+        </div>
+      </form>
     </div>
     <script type="module" src="renderer.js"></script>
   </body>

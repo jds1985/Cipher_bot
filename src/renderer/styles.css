@@ -249,3 +249,17 @@ button.secondary.danger:hover { background: #3a1c1c; }
 .msg .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
 /* With file reading on, the header's controls can wrap to a second line in narrow windows. */
 #chat-header { flex-wrap: wrap; row-gap: 6px; }
+
+/* ---------- v1.9: policy screen, routine ---------- */
+#policy-view { overflow-y: auto; }
+.policy-card h3 { margin: 18px 0 6px; font-size: 1rem; }
+.policy-card p { margin: 0 0 10px; color: var(--muted); }
+.policy-card .policy-contact { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--text); }
+.routine-card { width: min(520px, 92%); }
+.routine-row { align-items: flex-end; gap: 16px; margin-bottom: 8px; }
+.routine-time { margin-bottom: 0; }
+.routine-time input { width: 140px; }
+.routine-on { padding-bottom: 8px; }
+.modal-card p.routine-hint { font-size: 12px; margin: 4px 0 12px; }
+button.secondary.small.on { border-color: var(--accent); color: var(--text); }
+.msg .routine-tag { display: block; font-size: 11px; font-weight: 600; letter-spacing: .3px; opacity: .8; margin-bottom: 2px; }
