@@ -17,7 +17,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'Your chats and files stay on this computer, with two exceptions',
     paragraphs: [
       'Cipher keeps your chats and files on this computer, with two exceptions. ' +
-        '1) Phone link: if you turn it on, your chats travel between this computer and your phone over your local Wi‑Fi as plain HTTP, which is not encrypted. ' +
+        '1) Phone link: if you turn it on, your chats travel between this computer and your phone over your local network as plain HTTP, which is not encrypted. ' +
         '2) Model download: on first launch (or whenever the model is missing), Ollama downloads the model from its online registry. Cipher only asks Ollama for the model by name; your chats are not part of that request.',
       'Your Cipher bots, chats, rooms, routines and settings are saved in one database file, cipher.db, in Cipher\'s user data folder on this computer ' +
         '(usually ~/.config/Cipher on Linux, %APPDATA%\\Cipher on Windows, ~/Library/Application Support/Cipher on macOS). ' +
@@ -47,7 +47,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Phone link is off each time Cipher starts, until you turn it on in Settings. It keeps running while Cipher is in the tray, and stops when you stop it or quit Cipher.',
       'It is meant for a phone on the same local network; no Cipher server or cloud service is involved. While it is on, Cipher listens on port 17865 on this computer\'s network connections, so any device that can reach this computer can open the pairing page, but only a paired phone can see or send chats. ' +
         'A phone pairs with a code shown on this desktop; each code works once and expires after about 12 minutes. A paired phone stays paired until you stop Phone link or quit Cipher.',
-      'Phone link uses plain HTTP, so chats sent between this computer and the phone are not encrypted on your Wi‑Fi. Use it only on a network you trust.',
+      'Phone link uses plain HTTP, so chats sent between this computer and the phone are not encrypted on your local network. Use it only on a network you trust.',
     ],
   },
   {
@@ -61,7 +61,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Routines',
     paragraphs: [
-      'A routine sends a saved message to one Cipher bot every day at the time you pick. It runs only on this computer, and only while Cipher is open or in the tray. If Cipher isn\'t running at that time, that day\'s run is skipped.',
+      'A routine sends a saved message to one Cipher bot every day at the time you pick. It runs only on this computer, and only while Cipher is open or in the tray. If Cipher isn\'t running at that time, or that bot\'s chat is busy replying for the whole minute, that day\'s run is skipped.',
       'Routines don\'t use the internet: the message goes to the model on this computer, like any chat. Routines run with file reading off.',
     ],
   },
