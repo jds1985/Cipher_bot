@@ -56,6 +56,8 @@ export interface RoutineNotifierDeps {
   botName(botId: number): string | null;
   /** Clicking the notice: show the window and open that bot's chat. */
   openBotChat(botId: number): void;
+  /** v1.20: a muted bot gets no tray notice. */
+  isMuted?(botId: number): boolean;
 }
 
 /** Keeps shown notices referenced (so their click still works) until clicked or closed, capped. */
@@ -70,6 +72,7 @@ export class RoutineNotifier {
   notify(botId: number, outcome: RoutineOutcome | null): boolean {
     try {
       if (outcome === null) return false;
+      if (this.deps.isMuted?.(botId)) return false;
       if (!this.deps.isSupported()) return false;
       if (!shouldShowRoutineNotice(this.deps.windowState(), this.deps.openBotId(), botId)) return false;
       const n = this.deps.create(routineNoticeContent(outcome, this.deps.botName(botId)));

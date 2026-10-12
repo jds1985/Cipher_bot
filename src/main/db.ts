@@ -4,7 +4,9 @@ import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIc
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
+/** v1.20: longest quoted text kept with a reply. */
+export const QUOTE_MAX = 500;
 export const MEMORY_NOTE_MAX = 2000;
 export const SEARCH_HISTORY_MAX = 200;
 /** Longest optional room name. */
@@ -16,17 +18,18 @@ interface BotRow {
   second_folder_path?: string | null;
   unread?: number;
   memory_note?: string | null;
+  muted?: number;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
-interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null }
+interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null }
 interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
-interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number }
+interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number; muted?: number }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', muted: r.muted === 1, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -35,6 +38,7 @@ const toMessage = (r: MessageRow): Message => ({
   id: r.id, chatId: r.chat_id, role: r.role, content: r.content,
   toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls) as ToolCall[]) : null,
   toolName: r.tool_name, createdAt: r.created_at, routine: r.routine === 1, search: parseSearch(r.search_results ?? null),
+  quote: r.quote_text ?? null, pinned: r.pinned === 1, image: r.image_path ?? null,
 });
 /** v1.18: a stored web-search result set ({ query, results }), or null when absent or unreadable. */
 function parseSearch(raw: string | null): Message['search'] {
@@ -74,6 +78,10 @@ export interface NewMessage {
   routine?: boolean;
   /** v1.18: a web_search tool message's results (query, titles, links, snippets), kept in the chat. */
   search?: Message['search'];
+  /** v1.20: the quoted text this user message replies to (snapshot, capped). */
+  quote?: string | null;
+  /** v1.20: a dropped image, as a path relative to the bot's read folder. */
+  image?: string | null;
 }
 
 /** Local SQLite store for bots, chats, messages and rooms. */
@@ -185,6 +193,12 @@ export class CipherDb {
     this.addColumnIfMissing('messages', 'search_results', 'search_results TEXT');
     // v9 (idempotent): per-bot memory note; local search history.
     this.addColumnIfMissing('bots', 'memory_note', "memory_note TEXT NOT NULL DEFAULT ''");
+    // v10 (idempotent): quotes, pins, dropped images, mute.
+    this.addColumnIfMissing('messages', 'quote_text', 'quote_text TEXT');
+    this.addColumnIfMissing('messages', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('messages', 'image_path', 'image_path TEXT');
+    this.addColumnIfMissing('bots', 'muted', 'muted INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('rooms', 'muted', 'muted INTEGER NOT NULL DEFAULT 0');
     this.db.exec('CREATE TABLE IF NOT EXISTS search_history (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, searched_at TEXT NOT NULL)');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
@@ -247,6 +261,33 @@ export class CipherDb {
   isStoredResultUrl(url: string): boolean {
     const rows = this.db.prepare("SELECT search_results FROM messages WHERE search_results IS NOT NULL AND instr(search_results, ?) > 0").all(JSON.stringify(url).slice(1, -1)) as { search_results: string }[];
     return rows.some((r) => parseSearch(r.search_results)?.results.some((x) => x.url === url) ?? false);
+  }
+
+  /** v1.20: one message of a chat (null if it is not in that chat). */
+  getMessage(chatId: number, id: number): Message | null {
+    const r = this.db.prepare('SELECT * FROM messages WHERE id = ? AND chat_id = ?').get(id, chatId) as MessageRow | undefined;
+    return r ? toMessage(r) : null;
+  }
+
+  /** v1.20: pin or unpin a message in its chat. Returns the chat's pinned messages. */
+  setPinned(chatId: number, id: number, pinned: boolean): Message[] {
+    if (!this.getMessage(chatId, id)) throw new Error('Message not found in this chat.');
+    this.db.prepare('UPDATE messages SET pinned = ? WHERE id = ? AND chat_id = ?').run(pinned ? 1 : 0, id, chatId);
+    return this.listPinned(chatId);
+  }
+
+  listPinned(chatId: number): Message[] {
+    return (this.db.prepare('SELECT * FROM messages WHERE chat_id = ? AND pinned = 1 ORDER BY id').all(chatId) as MessageRow[]).map(toMessage);
+  }
+
+  /** v1.20: mute a bot or a room (no tray notice while muted). Unknown ids are ignored. */
+  setMuted(kind: 'bot' | 'room', id: number, muted: boolean): void {
+    this.db.prepare(`UPDATE ${kind === 'bot' ? 'bots' : 'rooms'} SET muted = ? WHERE id = ?`).run(muted ? 1 : 0, id);
+  }
+
+  isMuted(kind: 'bot' | 'room', id: number): boolean {
+    const r = this.db.prepare(`SELECT muted FROM ${kind === 'bot' ? 'bots' : 'rooms'} WHERE id = ?`).get(id) as { muted: number } | undefined;
+    return r?.muted === 1;
   }
 
   /** v1.19: a bot's memory note (sent in its system prompt every chat). Up to MEMORY_NOTE_MAX characters; '' clears it. */
@@ -449,9 +490,10 @@ export class CipherDb {
   addMessage(m: NewMessage): Message {
     const tx = this.db.transaction((): number => {
       const info = this.db
-        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine, search_results) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine, search_results, quote_text, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(m.chatId, m.role, m.content, m.toolCalls && m.toolCalls.length ? JSON.stringify(m.toolCalls) : null, m.toolName ?? null,
-          m.routine && m.role === 'user' ? 1 : 0, m.search && m.role === 'tool' ? JSON.stringify(m.search) : null);
+          m.routine && m.role === 'user' ? 1 : 0, m.search && m.role === 'tool' ? JSON.stringify(m.search) : null,
+          m.quote && m.role === 'user' ? m.quote.slice(0, QUOTE_MAX) : null, m.image && m.role === 'user' ? m.image : null);
       this.db.prepare("UPDATE chats SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(m.chatId);
       // Title a fresh chat after the first user message.
       if (m.role === 'user') {
@@ -501,7 +543,7 @@ export class CipherDb {
   }
 
   private toRoom(r: RoomRow): Room {
-    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at, unread: r.unread === 1 };
+    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at, unread: r.unread === 1, muted: r.muted === 1 };
   }
 
   listRooms(): Room[] {

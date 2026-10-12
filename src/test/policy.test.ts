@@ -22,9 +22,9 @@ test('policy has the contact placeholder for the user to fill in', () => {
   assert.equal(policy.POLICY_CONTACT, 'Contact: [to be added]');
 });
 
-test('"stays on this computer" names all three exceptions right there: plain-HTTP phone link, the model download, web search', () => {
+test('"stays on this computer" names all four exceptions right there: plain-HTTP phone link, the model download, web search, update check', () => {
   const first = policy.POLICY_SECTIONS[0];
-  assert.match(first.heading, /stay on this computer, with three exceptions/);
+  assert.match(first.heading, /stay on this computer, with four exceptions/);
   assert.match(first.paragraphs[0], /only when Online is on, and only after you press Search[^.]*DuckDuckGo/);
   const p = first.paragraphs[0];
   assert.match(p, /stay|keeps/);
@@ -60,8 +60,8 @@ test('phone link: a window to this desktop, off until turned on, pairing code, p
 test('Online: off unless turned on, enables only web search, and does not claim the app never touches the network', () => {
   const p = section(/^Online/);
   assert.match(p, /off unless you turn it on/);
-  assert.match(p, /the only new things are web search and opening a search result as text/);
-  assert.match(p, /turning it off stops any search or page download that is on the way and closes any search question/);
+  assert.match(p, /the only new things are web search, opening a search result as text \(see Web search\) and the update check/);
+  assert.match(p, /turning it off stops any search, page download, update check or update download that is on the way and closes any search question/);
   assert.match(p, /Only the desktop can turn Online on or off/);
   assert.match(p, /does not mean Cipher Bot never touches the network/);
   assert.match(p, /model download and the "Get the engine" button/);
@@ -89,7 +89,7 @@ test('routine notice: bot name and finished/failed only, no message or reply, OS
   assert.match(p, /with the bot's name and "finished" or "failed" only; the routine's message and the reply are not in it/);
   assert.match(p, /your computer's own notification system, not the internet/);
   assert.match(p, /may stay in that system's notification history/);
-  assert.match(p, /no notification if that bot's chat is already open in front of you, or if you stop the routine/);
+  assert.match(p, /no notification if that bot's chat is already open in front of you, if you stop the routine, or if you muted that bot/);
 });
 
 test('lock: passphrase never leaves the computer; salted scrypt hash in lock.json (not cipher.db); no account', () => {

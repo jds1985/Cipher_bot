@@ -12,6 +12,8 @@ export interface Bot {
   memoryNote: string;
   /** v1.16: a reply arrived while this bot's chat wasn't open (local only; cleared on open). */
   unread: boolean;
+  /** v1.20: muted (no tray notice). */
+  muted: boolean;
   createdAt: string;
   /**
    * Icon shape key from Liz's v1.5 set (hex, circle, square, diamond, triangle, shield, octagon, capsule,
@@ -48,6 +50,12 @@ export interface Message {
   routine: boolean;
   /** v1.18: for a web_search tool message, the query and its results (title, link, snippet); otherwise null. */
   search: { query: string; results: { title: string; url: string; snippet: string }[] } | null;
+  /** v1.20: the quoted text this message replies to, or null. */
+  quote: string | null;
+  /** v1.20: pinned to the top of its chat. */
+  pinned: boolean;
+  /** v1.20: a dropped image (path relative to the bot's read folder), or null. */
+  image: string | null;
 }
 
 /** A bot's daily routine: a saved prompt sent to its chat at a local time (at most one per bot). */
@@ -90,6 +98,8 @@ export interface Room {
   updatedAt: string;
   /** v1.16: a reply arrived while this room wasn't open (local only; cleared on open). */
   unread: boolean;
+  /** v1.20: muted (no tray notice). */
+  muted: boolean;
 }
 
 export interface RoomMessage {
@@ -224,7 +234,8 @@ export interface CipherApi {
   copyText(text: string): Promise<void>;
   /** Export a bot's chat or a room to a plain-text file chosen in the native Save dialog. */
   exportChat(kind: 'bot' | 'room', id: number): Promise<ExportChatResult>;
-  sendMessage(chatId: number, text: string): Promise<void>;
+  /** v1.20: extras: a message of this chat to quote and/or a dropped image (folder-relative path). */
+  sendMessage(chatId: number, text: string, extras?: { quoteId?: number; image?: string }): Promise<void>;
   stop(chatId: number): Promise<void>;
   onChatEvent(cb: (e: ChatEvent) => void): () => void;
   listRooms(): Promise<Room[]>;
@@ -277,6 +288,22 @@ export interface CipherApi {
   clearSearchHistory(): Promise<{ id: number; query: string; searchedAt: string }[]>;
   /** v1.19: a bot's memory note ('' clears it). */
   setBotMemory(botId: number, note: string): Promise<Bot>;
+  /** v1.20: pin/unpin a message; returns the chat's pinned messages. */
+  pinMessage(chatId: number, id: number, on: boolean): Promise<Message[]>;
+  listPinned(chatId: number): Promise<Message[]>;
+  /** v1.20: mute a bot or room (no tray notice). Returns the new state. */
+  setMuted(kind: 'bot' | 'room', id: number, muted: boolean): Promise<boolean>;
+  /** v1.20: a dropped image, checked under the Attach folder rules; preview is a data: URL from its bytes. */
+  attachDroppedImage(botId: number, filePath: string): Promise<{ ok: true; relPath: string; dataUrl: string } | { ok: false; error: string; needFolder?: boolean }>;
+  /** v1.20: a message's image as a data: URL (re-read locally), or null. */
+  getImage(chatId: number, messageId: number): Promise<string | null>;
+  /** v1.20: update check state; download asks first and saves to Downloads (never installs). */
+  getUpdate(): Promise<UpdateState>;
+  downloadUpdate(): Promise<UpdateState>;
+  showUpdateFile(): Promise<void>;
+  onUpdate(cb: (s: UpdateState) => void): () => void;
+  /** v1.20: save a redacted debug log; chat content only when includeChats is true. */
+  exportDebugLog(includeChats: boolean): Promise<{ ok: true; path: string } | { ok: false; canceled?: true; error?: string }>;
   /** v1.19: delete chosen messages of one chat (main asks once). */
   deleteMessages(chatId: number, ids: number[]): Promise<{ deleted: number; canceled?: boolean }>;
   /** Online switch: default off; persists. v1.18: when on, web search works (after the user presses Search). */
@@ -315,3 +342,15 @@ export type RestorePickResult =
   | { ok: true; file: string; bots: number; rooms: number }
   | { ok: false; canceled: true }
   | { ok: false; error: string; canceled?: undefined };
+
+/** v1.20: update check state shown in Settings. */
+export interface UpdateState {
+  available: { version: string; size: number; verified: boolean } | null;
+  lastCheck: string | null;
+  online: boolean;
+  checking: boolean;
+  downloading: boolean;
+  done: number;
+  error: string | null;
+  savedTo: string | null;
+}

@@ -41,6 +41,17 @@ export interface EngineDeps {
   fromRoutine?: boolean;
   /** v1.18: web search hooks (1:1 chats on the desktop and, since v1.19, the phone; never routines). */
   search?: SearchHooks;
+  /** v1.20: the quoted message's text (snapshot) and a dropped image's folder-relative path for this user message. */
+  userExtras?: { quote?: string | null; image?: string | null };
+}
+
+/** v1.20: how a quote and an image are shown to the (text-only) model. */
+export function userContentForModel(m: Pick<Message, 'content' | 'quote' | 'image'>): string {
+  const parts: string[] = [];
+  if (m.quote) parts.push(`Quoting an earlier message:\n${m.quote.split('\n').map((l) => `> ${l}`).join('\n')}`);
+  if (m.image) parts.push(`[The user attached an image: ${m.image.split(/[\\/]/).pop()}]`);
+  parts.push(m.content);
+  return parts.join('\n\n');
 }
 
 /** v1.19: the user's memory note for this bot, sent in the system prompt of every chat. */
@@ -63,7 +74,7 @@ export function buildHistory(bot: Bot, messages: Message[], searchOn = false): O
       if (m.toolCalls?.length) msg.tool_calls = m.toolCalls;
       out.push(msg);
     } else {
-      out.push({ role: 'user', content: m.content });
+      out.push({ role: 'user', content: userContentForModel(m) });
     }
   }
   return out;
@@ -83,7 +94,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   if (!text) throw new Error('Message is empty.');
   const toolsOn = bot.toolsEnabled && !deps.forceToolsOff;
 
-  emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text, routine: deps.fromRoutine === true }) });
+  emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text, routine: deps.fromRoutine === true,
+    quote: deps.userExtras?.quote ?? null, image: deps.userExtras?.image ?? null }) });
 
   // v1.18: web_search is offered only while Online is on, re-checked every round: turning Online off mid-reply
   // removes it from the rest of the reply.

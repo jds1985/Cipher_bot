@@ -58,6 +58,7 @@
           <form id="bot-form" class="card">
             <img id="bot-form-art" class="empty-art" src="assets/empty-state.png" alt="" width="200" height="165" />
             <h2 id="bot-form-title">Create a Cipher bot</h2>
+            <div id="starter-jobs" class="starter-jobs" role="group" aria-label="Starter jobs"></div>
             <label>Name
               <input id="bot-name" maxlength="80" required placeholder="e.g. Notes helper" />
             </label>
@@ -168,6 +169,16 @@
               </div>
             </div>
             <div class="settings-block">
+              <h3>Updates</h3>
+              <p class="muted">Only while Online is on, Cipher Bot asks GitHub about once a day whether a newer Cipher Bot release exists. If there is one, you choose whether to download it; it is saved to your Downloads folder and never installed for you.</p>
+              <p class="muted">Last check: <span id="update-last">never</span></p>
+              <p id="update-status" class="muted"></p>
+              <div class="row wrap">
+                <button type="button" id="update-download" class="secondary" hidden>Download…</button>
+                <button type="button" id="update-show" class="secondary" hidden>Show in folder</button>
+              </div>
+            </div>
+            <div class="settings-block">
               <h3>Phone link</h3>
               <p class="muted">Open your chats in a phone browser on the same Wi‑Fi. The model stays on this computer. Pairing codes expire after about 12 minutes; after pairing, the phone uses a session token.</p>
               <div class="row wrap" id="phone-actions">
@@ -198,6 +209,17 @@
                 <input type="checkbox" id="sound-switch" />
                 <span><strong>Send sound</strong><span class="muted switch-hint"> Off by default. Plays a short sound on this computer when you send a message.</span></span>
               </label>
+            </div>
+            <div class="settings-block">
+              <h3>Keyboard shortcuts</h3>
+              <dl id="shortcut-list" class="shortcut-list"></dl>
+            </div>
+            <div class="settings-block">
+              <h3>Debug log</h3>
+              <p class="muted">Saves a text file for troubleshooting: versions, settings switches, counts and recent errors, with folder paths and addresses' queries removed. It never includes your passphrase or lock, pairing codes, memory notes, search words or folder paths. Chats are left out unless you tick the box.</p>
+              <label class="row switch-row"><input type="checkbox" id="debug-chats" /><span>Include chat content</span></label>
+              <div class="row"><button type="button" id="debug-export" class="secondary">Export debug log…</button></div>
+              <p id="debug-msg" class="muted" hidden></p>
             </div>
             <div class="settings-block">
               <h3>Policy</h3>
@@ -259,6 +281,7 @@
               <strong id="chat-bot-name"></strong>
             </div>
           </header>
+          <div id="pinned-strip" class="pinned-strip" hidden></div>
           <div id="messages"></div>
           <div id="select-bar" class="select-bar" hidden>
             <span id="select-count">0 selected</span>
@@ -268,6 +291,16 @@
           <div id="attach-chip" class="attach-chip" hidden>
             <span id="attach-chip-name"></span>
             <button type="button" id="attach-clear" class="secondary small" aria-label="Remove attachment">×</button>
+          </div>
+          <div id="quote-chip" class="quote-chip" hidden>
+            <img src="assets/cipher-quote.svg" alt="" width="20" height="20" class="quote-icon" />
+            <span id="quote-chip-text"></span>
+            <button type="button" id="quote-clear" class="secondary small" aria-label="Remove quote">×</button>
+          </div>
+          <div id="image-chip" class="image-chip" hidden>
+            <img id="image-chip-preview" class="image-chip-preview" alt="Dropped image" />
+            <span id="image-chip-name"></span>
+            <button type="button" id="image-clear" class="secondary small" aria-label="Remove image">×</button>
           </div>
           <p id="attach-error" class="error attach-error" hidden></p>
           <div id="plus-menu" class="plus-menu" role="menu" aria-label="Chat actions" hidden></div>

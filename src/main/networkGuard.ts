@@ -100,3 +100,25 @@ export function assertLinkOpenAllowed(online: boolean, url: string): void {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('Only web links can be opened.');
   if (!online) throw new Error('Online is off. Turn it on in Settings to open this link.');
 }
+
+// ---------- v1.20: update check ----------
+/** The one update-check request: GitHub's "latest release" API for this repo. */
+export const UPDATE_API_URL = 'https://api.github.com/repos/jds1985/Cipher_bot/releases/latest';
+/** Hosts GitHub serves release files from after redirecting from github.com. */
+export const RELEASE_DOWNLOAD_HOSTS: readonly string[] = ['release-assets.githubusercontent.com', 'objects.githubusercontent.com'];
+
+/**
+ * Gate for every update request and redirect hop. Online must be on. 'api': exactly UPDATE_API_URL.
+ * 'release': https://github.com/jds1985/Cipher_bot/releases/download/<tag>/<cipher_x.y.z_amd64.deb>.
+ * 'asset': a redirect hop, either github.com (same repo's release download path) or GitHub's release download host.
+ */
+export function assertUpdateUrlAllowed(online: boolean, url: string, kind: 'api' | 'release' | 'asset'): void {
+  if (!online) throw new Error('Online is off, so Cipher Bot does not check for updates.');
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Error('Invalid update address.'); }
+  if (u.protocol !== 'https:' || u.port !== '' || u.username || u.password) throw new Error('Update requests must be plain https.');
+  if (kind === 'api') { if (u.toString() !== UPDATE_API_URL) throw new Error('Only the Cipher Bot release check may go online.'); return; }
+  const isRelease = u.hostname === 'github.com' && /^\/jds1985\/Cipher_bot\/releases\/download\/[^/]+\/cipher_\d+\.\d+\.\d+_amd64\.deb$/.test(u.pathname);
+  if (kind === 'release') { if (!isRelease) throw new Error('Only Cipher Bot release files can be downloaded.'); return; }
+  if (!isRelease && !RELEASE_DOWNLOAD_HOSTS.includes(u.hostname)) throw new Error(`The download tried to go to ${u.hostname}; refused.`);
+}

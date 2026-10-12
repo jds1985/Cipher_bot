@@ -71,7 +71,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -90,9 +90,11 @@ export interface PlusItem {
  * to Choose folder ("Attach second folder…" or "Remove second folder") and also needs Read files on.
  */
 export function plusMenuItems(input:
-  | { kind: 'room' }
-  | { kind: 'bot'; toolsEnabled: boolean; folderPath: string | null; secondFolderPath?: string | null; busy: boolean; routineTime: string | null }): PlusItem[] {
-  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }];
+  | { kind: 'room'; muted?: boolean }
+  | { kind: 'bot'; toolsEnabled: boolean; folderPath: string | null; secondFolderPath?: string | null; busy: boolean; routineTime: string | null; muted?: boolean }): PlusItem[] {
+  // v1.20: Mute (no tray notice for this bot or room while on), last in both menus.
+  const mute: PlusItem = { id: 'mute', label: 'Mute notices', disabled: false, checked: input.muted === true };
+  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }, mute];
   return [
     { id: 'attach', label: 'Attach file…', disabled: input.busy },
     { id: 'export', label: 'Export chat…', disabled: false },
@@ -106,6 +108,7 @@ export function plusMenuItems(input:
     },
     { id: 'tools', label: 'Read files', disabled: false, checked: input.toolsEnabled },
     { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
+    mute,
   ];
 }
 
@@ -117,3 +120,25 @@ export function formatMessageTime(iso: string, toLocal: (d: Date) => { h: number
   const { h, m } = toLocal(d);
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
+
+// ---------- v1.20: starter jobs (local presets for the create form) ----------
+export type StarterId = 'writer' | 'researcher' | 'files' | 'blank';
+export interface StarterJob { id: StarterId; label: string; name: string; job: string; icon: string }
+export const STARTER_JOBS: readonly StarterJob[] = [
+  { id: 'writer', label: 'Writer', name: 'Writer', icon: 'assets/cipher-job-writer.svg',
+    job: 'Help me write and edit: drafts, emails to copy, posts and summaries. Match my tone, keep it clear and short, and offer one improved version at a time.' },
+  { id: 'researcher', label: 'Researcher', name: 'Researcher', icon: 'assets/cipher-job-researcher.svg',
+    job: 'Help me research a topic: break the question down, explain the key points, compare options and say what is uncertain. When Online is on you may suggest a web search; cite the links you use.' },
+  { id: 'files', label: 'Files', name: 'Files', icon: 'assets/cipher-job-files.svg',
+    job: 'Help me with the text files in the folder I share with you: find things, summarize them and answer questions about them. Say which file an answer comes from.' },
+  { id: 'blank', label: 'Blank', name: '', icon: 'assets/cipher-job-blank.svg', job: '' },
+];
+
+// ---------- v1.20: keyboard shortcuts (shown in Settings) ----------
+export const SHORTCUTS: readonly { keys: string; action: string }[] = [
+  { keys: 'Enter', action: 'Send the message' },
+  { keys: 'Shift+Enter', action: 'New line in the message' },
+  { keys: 'Escape', action: 'Close the plus menu, or remove the quote being written' },
+  { keys: '↑ / ↓', action: 'Move through the plus menu' },
+  { keys: 'Ctrl+Q', action: 'Quit Cipher Bot' },
+];
