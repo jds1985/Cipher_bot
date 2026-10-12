@@ -212,8 +212,10 @@ label.member-opt .bot-icon { width: 30px; height: 30px; }
   max-width: min(640px, calc(100% - 28px));
 }
 .attach-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attach-error { position: absolute; left: 50%; transform: translateX(-50%); bottom: 72px; z-index: 6;
-  margin: 0; max-width: min(640px, calc(100% - 28px)); font-size: 12px; }
+/* v1.22: notices sit just above the composer (anchored to it, so they follow its height), never on the message box. */
+.attach-error { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + 8px); z-index: 6;
+  width: max-content; max-width: 100%; margin: 0; padding: 4px 12px; text-align: center; font-size: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 4px 14px #0006; }
 button.danger, button.danger-btn { background: #6b2a2a; color: #fff; }
 button.danger:hover, button.danger-btn:hover { background: #8a3535; }
 button.secondary.danger { background: var(--panel2); color: var(--err); border-color: #6b2a2a; }
@@ -514,3 +516,12 @@ mark.find-hit.current { background: var(--accent); color: #fff; }
 #checklist-form { gap: 8px; }
 #checklist-form input { flex: 1; }
 .row.end { justify-content: flex-end; margin-top: 10px; }
+
+/* v1.22 fix: the pinned-strip pin icons and the dock's mute icon follow the accent, like Send. The <img> keeps its
+   local SVG as a CSS mask and is painted with the accent; the image itself is moved out of its box. (img-src 'self'
+   covers mask images; no inline styles.) The circuit frames keep their brand blue. */
+.pinned-item img, .mute-mark {
+  background-color: var(--accent); object-position: -9999px 0;
+  -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+.pinned-item img { -webkit-mask-image: url("assets/cipher-pin.svg"); mask-image: url("assets/cipher-pin.svg"); }
+.mute-mark { -webkit-mask-image: url("assets/cipher-mute.svg"); mask-image: url("assets/cipher-mute.svg"); }
