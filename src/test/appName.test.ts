@@ -77,7 +77,7 @@ test('install and data names are unchanged: package name, productName, appId, ve
     build: { appId: string; productName: string; linux: { executableName?: string; desktop: { entry: { Name: string } } } };
   };
   assert.equal(pkg.name, 'cipher', '.deb is cipher_<version>_amd64.deb');
-  assert.equal(pkg.version, '1.16.0');
+  assert.equal(pkg.version, '1.17.0');
   assert.equal(pkg.productName, 'Cipher', 'Electron derives userData (~/.config/Cipher) and the install dir from this');
   assert.equal(pkg.build.productName, 'Cipher');
   assert.equal(pkg.build.appId, 'com.jds1985.cipher');
