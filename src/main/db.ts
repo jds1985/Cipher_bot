@@ -4,7 +4,9 @@ import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIc
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
+export const MEMORY_NOTE_MAX = 2000;
+export const SEARCH_HISTORY_MAX = 200;
 /** Longest optional room name. */
 export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
@@ -13,6 +15,7 @@ interface BotRow {
   id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string;
   second_folder_path?: string | null;
   unread?: number;
+  memory_note?: string | null;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
@@ -23,7 +26,7 @@ interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistan
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -81,6 +84,8 @@ export class CipherDb {
     this.db = new Database(file);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    // v1.19: deleted content is overwritten with zeros, not just unlinked (search history, memory notes, messages).
+    this.db.pragma('secure_delete = ON');
     this.migrate();
   }
 
@@ -178,6 +183,9 @@ export class CipherDb {
     this.addColumnIfMissing('rooms', 'unread', 'unread INTEGER NOT NULL DEFAULT 0');
     // v8 (idempotent; nothing is deleted): web search results kept with their tool message.
     this.addColumnIfMissing('messages', 'search_results', 'search_results TEXT');
+    // v9 (idempotent): per-bot memory note; local search history.
+    this.addColumnIfMissing('bots', 'memory_note', "memory_note TEXT NOT NULL DEFAULT ''");
+    this.db.exec('CREATE TABLE IF NOT EXISTS search_history (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, searched_at TEXT NOT NULL)');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -239,6 +247,51 @@ export class CipherDb {
   isStoredResultUrl(url: string): boolean {
     const rows = this.db.prepare("SELECT search_results FROM messages WHERE search_results IS NOT NULL AND instr(search_results, ?) > 0").all(JSON.stringify(url).slice(1, -1)) as { search_results: string }[];
     return rows.some((r) => parseSearch(r.search_results)?.results.some((x) => x.url === url) ?? false);
+  }
+
+  /** v1.19: a bot's memory note (sent in its system prompt every chat). Up to MEMORY_NOTE_MAX characters; '' clears it. */
+  setBotMemory(id: number, note: unknown): Bot {
+    if (typeof note !== 'string') throw new Error('The memory note must be text.');
+    const t = note.replace(/\r\n?/g, '\n').trim();
+    if (t.length > MEMORY_NOTE_MAX) throw new Error(`The memory note is longer than ${MEMORY_NOTE_MAX} characters.`);
+    this.db.prepare('UPDATE bots SET memory_note = ? WHERE id = ?').run(t, id);
+    this.flushDeleted();
+    const bot = this.getBot(id);
+    if (!bot) throw new Error('Cipher bot not found.');
+    return bot;
+  }
+
+  /** v1.19: remember a search that was sent (local only). Keeps the newest SEARCH_HISTORY_MAX. */
+  addSearchHistory(query: string, at: string): void {
+    this.db.prepare('INSERT INTO search_history (query, searched_at) VALUES (?, ?)').run(query, at);
+    this.db.prepare('DELETE FROM search_history WHERE id NOT IN (SELECT id FROM search_history ORDER BY id DESC LIMIT ?)').run(SEARCH_HISTORY_MAX);
+  }
+
+  listSearchHistory(): { id: number; query: string; searchedAt: string }[] {
+    return (this.db.prepare('SELECT id, query, searched_at FROM search_history ORDER BY id DESC').all() as { id: number; query: string; searched_at: string }[])
+      .map((r) => ({ id: r.id, query: r.query, searchedAt: r.searched_at }));
+  }
+
+  /** Really deletes: secure_delete zeroes the freed pages, and the WAL is checkpointed and truncated so no old copy stays. */
+  clearSearchHistory(): void {
+    this.db.prepare('DELETE FROM search_history').run();
+    this.flushDeleted();
+  }
+
+  /** Write the WAL back and truncate it, so deleted text is not left in cipher.db-wal. */
+  flushDeleted(): void {
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
+  /** v1.19: delete chosen messages of one chat. Ids from other chats are ignored. Returns how many were deleted. */
+  deleteMessages(chatId: number, ids: unknown): number {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 5000) return 0;
+    const clean = ids.filter((x): x is number => Number.isInteger(x) && x > 0);
+    const del = this.db.prepare('DELETE FROM messages WHERE id = ? AND chat_id = ?');
+    let n = 0;
+    this.db.transaction(() => { for (const id of clean) n += del.run(id, chatId).changes; })();
+    if (n) this.flushDeleted();
+    return n;
   }
 
   getSetting(key: string): string | null {

@@ -19,7 +19,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Cipher Bot keeps your chats and files on this computer, with three exceptions. ' +
         '1) Phone link: if you turn it on, your chats travel between this computer and your phone over your local network as plain HTTP, which is not encrypted. ' +
         '2) Model download: on first launch (or whenever the model is missing), Ollama downloads the model from its online registry. Cipher Bot only asks Ollama for the model by name; your chats are not part of that request. ' +
-        '3) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo. Nothing else from your chats or files is sent.',
+        '3) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo; and only after you choose Open as text on a search result and confirm its address, that one page is downloaded from its site. Nothing else from your chats or files is sent.',
       'Your Cipher bots, chats, rooms, routines and settings (except the app lock; see Lock) are saved in one database file, cipher.db, in Cipher Bot\'s user data folder on this computer ' +
         '(usually ~/.config/Cipher on Linux, %APPDATA%\\Cipher on Windows, ~/Library/Application Support/Cipher on macOS). ' +
         'The file is not encrypted: anyone who can open your user account\'s files can read it.',
@@ -57,9 +57,21 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Online switch',
     paragraphs: [
-      'Online is off unless you turn it on. When it is on, the one new thing is web search (see Web search). When it is off, web search is not offered, and turning it off stops any search that is on the way and closes any search question on screen.',
+      'Online is off unless you turn it on. When it is on, the only new things are web search and opening a search result as text (see Web search). When it is off, neither is offered, and turning it off stops any search or page download that is on the way and closes any search question on screen, on the desktop and the phone. Only the desktop can turn Online on or off.',
       'Online off does not mean Cipher Bot never touches the network. The model download and the "Get the engine" button (which opens ollama.com/download in your web browser) happen regardless of the switch, and Phone link uses your local network when you turn it on.',
       'Apart from those and web search, Cipher Bot\'s own code connects only to Ollama on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
+    ],
+  },
+  {
+    heading: 'Memory notes',
+    paragraphs: [
+      'Each Cipher bot can have a memory note you write in its settings (Edit bot). It is sent to that bot\'s local model with every chat, on this computer, and is saved in cipher.db. Emptying the note deletes it from the database file. Backups include memory notes; restoring one brings them back.',
+    ],
+  },
+  {
+    heading: 'Calculator',
+    paragraphs: [
+      'Cipher bots have a calculator tool for arithmetic. It runs on this computer with its own small parser: it never runs code and has no network access.',
     ],
   },
   {
@@ -68,8 +80,10 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'When Online is on, a Cipher bot may ask to search the web. It shows you the exact search words first, with Search and Cancel. Nothing is sent unless you press Search; Cancel (or no answer) means no search, and the bot answers without one.',
       'When you press Search, the search words and your computer\'s IP address go to DuckDuckGo (html.duckduckgo.com), which runs the search. That is the only address Cipher Bot\'s own code contacts for search; no account, no API key, no cookies. DuckDuckGo\'s own privacy policy applies to what it receives.',
       'The results (titles, links and short snippets) are saved in that chat on this computer. A result link opens in your web browser only when you click it, and only while Online is on.',
-      'Settings shows when the last search was made. Cipher Bot keeps only that time there, never the search words (they stay in the chat, where you can delete them with the chat).',
-      'Routines, rooms, Phone link and a locked Cipher Bot never search.',
+      'Settings shows when the last search was made, and your search history: the search words and times of searches you confirmed, kept only in cipher.db on this computer. Clear search history deletes them for good (the rows are erased from the database file, not just hidden). The search words also stay in the chat, where you can delete them with the chat or by selecting messages.',
+      'On Phone link, a search shows the same Search / Cancel card on the phone; only a paired phone can answer it, and only while Cipher Bot is unlocked. The phone can never turn Online on or off. Locking Cipher Bot or turning Online off closes the card everywhere. Routines, rooms and a locked Cipher Bot never search.',
+      'Open as text (search results only): Cipher Bot first shows you the page\'s full address and asks. If you confirm, it downloads that one page from its site, so the site sees your computer\'s IP address, like any visit. Only http and https pages on the public internet are opened (never this computer or your local network, checked again on every redirect), only HTML or plain text, at most 1 MB. Cipher Bot keeps only the page\'s text, in the chat: nothing on the page runs, and its images, styles and links are never loaded. Turning Online off stops a download that is on the way.',
+      'Links in your Cipher bot\'s replies are shown as text you can click. They open in your web browser only after you confirm the address, only while Online is on, and only for links that came from your search results; nothing opens inside Cipher Bot.',
       'Dropping a saved web page (.html or .htm) onto a chat attaches its readable text only, using the same folder rules as Attach: its scripts never run, and its links and images are never loaded. This happens on this computer and does not need Online.',
     ],
   },
@@ -95,7 +109,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'Backup and restore',
     paragraphs: [
       'Back up (Settings → Backup) saves a copy of cipher.db to a file you choose on this computer. Restore (Settings → Restore) replaces the current database with a backup file you choose. Nothing is uploaded.',
-      'A backup is not encrypted and contains all your Cipher bots, chats, rooms, routines and settings. It does not include the lock: restoring never changes whether Cipher Bot is locked or what the passphrase is.',
+      'A backup is not encrypted and contains all your Cipher bots (with their memory notes), chats, rooms, routines, search history and settings. It does not include the lock: restoring never changes whether Cipher Bot is locked or what the passphrase is.',
       'Before restoring, Cipher Bot saves a copy of the current database next to it (cipher.db.before-restore-<date>-<time>), then restarts. Restore turns Online off.',
     ],
   },

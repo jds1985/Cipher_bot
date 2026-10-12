@@ -64,6 +64,11 @@
             <label>Job
               <textarea id="bot-job" rows="5" placeholder="What should this Cipher bot do? e.g. Help me plan my week and keep answers short."></textarea>
             </label>
+            <label id="bot-memory-wrap" class="memory-wrap" hidden>
+              <span class="row memory-title"><img src="assets/cipher-memory.svg" alt="" width="20" height="20" class="memory-icon" />Memory note</span>
+              <textarea id="bot-memory" rows="4" maxlength="2000" placeholder="Things this Cipher bot should remember in every chat, e.g. I live in Lyon and prefer metric units."></textarea>
+              <span class="muted memory-hint">Sent to this bot with every chat, on this computer. Leave empty for none.</span>
+            </label>
             <fieldset class="picker">
               <legend>Icon shape</legend>
               <div id="shape-picker" class="shape-grid" role="radiogroup" aria-label="Icon shape"></div>
@@ -154,6 +159,13 @@
               </label>
               <p class="online-state"><img id="online-on-icon" class="online-on-icon" src="assets/cipher-online-on.svg" alt="" width="20" height="20" hidden /><span id="online-state"></span></p>
               <p class="muted">Last search: <span id="last-search">never</span></p>
+              <div class="search-history-block">
+                <h4 class="row history-title"><img src="assets/cipher-search-history.svg" alt="" width="20" height="20" class="history-icon" />Search history</h4>
+                <p class="muted">Searches you confirmed, kept only in cipher.db on this computer.</p>
+                <ol id="search-history" class="search-history"></ol>
+                <p id="search-history-empty" class="muted">No searches yet.</p>
+                <button type="button" id="search-history-clear" class="secondary">Clear search history</button>
+              </div>
             </div>
             <div class="settings-block">
               <h3>Phone link</h3>
@@ -248,6 +260,11 @@
             </div>
           </header>
           <div id="messages"></div>
+          <div id="select-bar" class="select-bar" hidden>
+            <span id="select-count">0 selected</span>
+            <button type="button" id="select-cancel" class="secondary">Cancel</button>
+            <button type="button" id="select-delete" class="danger">Delete</button>
+          </div>
           <div id="attach-chip" class="attach-chip" hidden>
             <span id="attach-chip-name"></span>
             <button type="button" id="attach-clear" class="secondary small" aria-label="Remove attachment">×</button>

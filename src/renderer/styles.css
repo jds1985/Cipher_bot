@@ -377,3 +377,39 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .search-snippet { font-size: 13px; color: var(--text); opacity: .85; margin-top: 2px; }
 .online-state { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; }
 .online-on-icon { width: 20px; height: 20px; flex: none; }
+
+/* ---------- v1.19: markdown, code copy, opened page, memory note, search history, multi-select ---------- */
+.msg-text.md { white-space: normal; display: block; }
+.md .md-p { margin: 0 0 8px; white-space: pre-wrap; }
+.md .md-p:last-child { margin-bottom: 0; }
+.md .md-h { margin: 6px 0; font-weight: 700; }
+.md .md-h1 { font-size: 1.15em; }
+.md .md-list { margin: 4px 0 8px; padding-left: 22px; }
+.md .md-list li { margin: 2px 0; }
+.md code { font-family: ui-monospace, monospace; font-size: .92em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; }
+.md .md-code { position: relative; margin: 6px 0 8px; }
+.md .md-code pre { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 44px 10px 12px; overflow-x: auto; white-space: pre; }
+.md .md-code pre code { border: 0; padding: 0; background: none; }
+.md-copy { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; background: var(--panel2); border-radius: 8px; }
+.md-copy img { width: 24px; height: 24px; }
+.md-link { font-weight: 500; }
+.msg.page-card { align-self: stretch; max-width: 78%; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; white-space: normal; }
+.page-card summary { cursor: pointer; color: var(--muted); word-break: break-all; }
+.page-text { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 13px; margin: 8px 0 0; }
+.page-open { font-size: 12px; font-weight: 500; margin-top: 2px; }
+.memory-wrap textarea { width: 100%; }
+.memory-title, .history-title { display: flex; align-items: center; gap: 8px; }
+/* Liz's v1.19 artwork fills ~78% of its 256 box (hexagon 28..228), so a 26px box draws the icon at ~20px
+   (24px → ~19px for copy code). Sizes here override the HTML width/height attributes. */
+.memory-title .memory-icon, .history-title .history-icon { width: 26px; height: 26px; flex: none; }
+.memory-hint { font-size: 12px; }
+.search-history { margin: 6px 0 10px; padding-left: 20px; max-height: 180px; overflow: auto; }
+.search-history li { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
+.history-query { word-break: break-word; }
+.history-time { flex: none; font-size: 12px; }
+.select-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+.select-row > .msg { flex: 0 1 auto; }
+.select-row:has(.msg.user) { flex-direction: row-reverse; }
+.select-box { margin-top: 12px; flex: none; }
+.select-bar { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding: 8px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+.select-bar #select-count { margin-right: auto; color: var(--muted); }

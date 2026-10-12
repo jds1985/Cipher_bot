@@ -2,6 +2,7 @@ import type { Bot, ChatEvent, Message, ToolCall } from '../shared/types';
 import type { CipherDb } from './db';
 import { executeToolCall, READ_FILE_TOOL } from './readFileTool';
 import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
+import { CALCULATOR_TOOL, runCalculator } from './calculator';
 import { NOT_CONFIRMED_RESULT, OFF_RESULT, WEB_SEARCH_TOOL, formatResultsForModel, normalizeQuery, type SearchResult } from './webSearch';
 
 /** Maximum model→tool→model round trips per user message. */
@@ -38,15 +39,21 @@ export interface EngineDeps {
   forceToolsOff?: boolean;
   /** Routine turns: the user message is marked as sent by the bot's routine. */
   fromRoutine?: boolean;
-  /** v1.18: web search hooks (desktop 1:1 chats only). */
+  /** v1.18: web search hooks (1:1 chats on the desktop and, since v1.19, the phone; never routines). */
   search?: SearchHooks;
+}
+
+/** v1.19: the user's memory note for this bot, sent in the system prompt of every chat. */
+export function memoryBlock(note: string | undefined | null): string {
+  const t = (note ?? '').trim();
+  return t ? `Memory note from the user (things to remember in every chat):\n${t}` : '';
 }
 
 /** Convert stored messages into Ollama's chat format. */
 export function buildHistory(bot: Bot, messages: Message[], searchOn = false): OllamaMessage[] {
   const out: OllamaMessage[] = [];
   const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '',
-    searchOn ? SEARCH_HINT : ''].filter(Boolean).join('\n\n');
+    searchOn ? SEARCH_HINT : '', memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
   if (system) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'tool') {
@@ -80,9 +87,10 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
 
   // v1.18: web_search is offered only while Online is on, re-checked every round: turning Online off mid-reply
   // removes it from the rest of the reply.
-  const searchOn = (): boolean => !deps.forceToolsOff && !!deps.search && deps.search.isOnline();
+  const searchOn = (): boolean => !deps.fromRoutine && !!deps.search && deps.search.isOnline();
   const offeredTools = (): unknown[] | undefined => {
-    const t: unknown[] = [...(toolsOn ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : [])];
+    // The calculator is local (no network, no files): offered in every 1:1 chat turn except routines.
+    const t: unknown[] = [...(toolsOn ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : []), ...(deps.fromRoutine ? [] : [CALCULATOR_TOOL])];
     return t.length ? t : undefined;
   };
 
@@ -100,7 +108,9 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
         onToken: (t) => { partial += t; emit({ chatId, type: 'token', text: t }); },
       });
       partial = '';
-      const wantsTools = (toolsOn || searchOn()) && toolCalls.length > 0;
+      // Only calls to tools offered this round count; anything else is ignored (as before v1.19).
+      const offeredNames = new Set(((offeredTools() ?? []) as { function: { name: string } }[]).map((t) => t.function.name));
+      const wantsTools = toolCalls.some((c) => offeredNames.has(c?.function?.name ?? 'read_file'));
       if (wantsTools && round >= MAX_TOOL_ROUNDS) {
         const note = content || '(Stopped: your Cipher bot kept trying to read files. Try rephrasing your question.)';
         emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'assistant', content: note }) });
@@ -117,6 +127,13 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
           emit({ chatId, type: 'tool', name: 'web_search', path: s.query, ok: s.ok, detail: s.ok ? `${s.search?.results.length ?? 0} results` : s.content });
           const searchMsg = db.addMessage({ chatId, role: 'tool', content: s.content, toolName: 'web_search', search: s.search ?? null });
           emit({ chatId, type: 'message', message: searchMsg });
+          continue;
+        }
+        if (call?.function?.name === 'calculator') {
+          const c = runCalculator(call.function.arguments);
+          emit({ chatId, type: 'tool', name: 'calculator', path: '', ok: c.ok, detail: c.content });
+          const calcMsg = db.addMessage({ chatId, role: 'tool', content: c.content, toolName: 'calculator' });
+          emit({ chatId, type: 'message', message: calcMsg });
           continue;
         }
         if (!toolsOn) {
@@ -156,7 +173,7 @@ export async function runSearchCall(deps: EngineDeps, chatId: number, call: Tool
     return { ok: false, query: '', content: `Error: ${e instanceof Error ? e.message : 'bad query'}` };
   }
   const hooks = deps.search;
-  if (deps.forceToolsOff || !hooks) return { ok: false, query, content: 'Error: web search is not available here.' };
+  if (deps.fromRoutine || !hooks) return { ok: false, query, content: 'Error: web search is not available here.' };
   if (!hooks.isOnline()) return { ok: false, query, content: OFF_RESULT };
   const token = await hooks.confirm(chatId, query, signal);
   if (signal.aborted) throw new Error('Stopped.');

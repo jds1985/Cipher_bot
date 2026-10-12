@@ -39,7 +39,7 @@ const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/x-ndjson');
     const send = (o: unknown) => res.write(JSON.stringify(o) + '\n');
     const last = body.messages[body.messages.length - 1];
-    if (body.tools && last.role === 'user') {
+    if (body.tools?.some((t: any) => t.function?.name === 'read_file') && last.role === 'user') {
       // Ask for the file, split across a chunk boundary to test line buffering.
       const line = JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'read_file', arguments: { path: 'notes.txt' } } }] }, done: false }) + '\n';
       res.write(line.slice(0, 20));
@@ -80,7 +80,7 @@ test('streams a plain reply and stores it (tools off)', async () => {
   assert.ok(tokens.length > 1, 'streamed in several chunks');
   assert.equal(tokens.join(''), 'Hi there!');
   assert.equal(events.at(-1)!.type, 'done');
-  assert.equal(requests[0].tools, undefined, 'no tools sent when tools are off');
+  assert.deepEqual(requests[0].tools.map((t: any) => t.function.name), ['calculator'], 'no file tool when tools are off; only the local calculator (v1.19)');
   assert.deepEqual(requests[0].messages[0], { role: 'system', content: 'Be nice.' });
   assert.equal(requests[0].stream, true);
   assert.equal(requests[0].keep_alive, '30m', 'keeps the model loaded between messages');

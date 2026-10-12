@@ -44,7 +44,7 @@ test('1. package screen says Cipher Bot, has the icon, and no lone "Cipher"; set
 });
 
 test('2. version: from package.json via app.getVersion(), read once in main, never hardcoded in the UI', () => {
-  assert.equal(pkg.version, '1.18.0');
+  assert.equal(pkg.version, '1.19.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher', 'userData stays ~/.config/Cipher');
   assert.equal(pkg.build.productName, 'Cipher');
@@ -95,7 +95,7 @@ test('3. unread: stored locally (v7 migration, idempotent), set and cleared per 
   assert.equal(db.getRoom(room.id)!.unread, false);
   db.close();
   const check = new Database(file, { readonly: true });
-  assert.equal(check.pragma('user_version', { simple: true }), 8);
+  assert.equal(check.pragma('user_version', { simple: true }), 9);
   assert.equal(SCHEMA_VERSION >= 7, true);
   check.close();
 });
