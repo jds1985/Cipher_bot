@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
 import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
@@ -24,6 +25,17 @@ import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
 import { RoutineNotifier, routineOutcome } from './routineNotice';
 import { AppLock, LockStore, lockGuard, lockOnHide } from './lock';
 import { backupFileName, restoreDatabase, validateBackupFile } from './backup';
+import { attachImageFromPath, isImagePath, readImageInFolder, toDataUrl } from './imageAttach';
+import { buildDebugLog, recentLogLines, recordLogLine } from './debugLog';
+import { SCHEMA_VERSION } from './db';
+import { UPDATE_LAST_CHECK_KEY, checkForUpdate, downloadUpdate, isCheckDue, type UpdateInfo } from './updateCheck';
+import { readUiPrefs as readPrefsForLog } from './uiPrefs';
+
+// v1.20: keep the last log lines (redacted) for "Export debug log". Still printed as before.
+for (const level of ['error', 'warn'] as const) {
+  const orig = console[level].bind(console);
+  console[level] = (...args: unknown[]) => { recordLogLine(level, args); orig(...args); };
+}
 
 let db: CipherDb;
 let setup: SetupManager;
@@ -269,9 +281,28 @@ function chatExport(kind: unknown, id: number): { name: string; text: string } {
 const MAX_COPY_CHARS = 2_000_000;
 
 /** Start a 1:1 turn shared by desktop IPC and phone link. Web search only for the desktop (toolsOff is false). */
-function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal, toolsOff: boolean): Promise<void> {
+/** v1.20: resolve a send's quote (snapshot of a message in this chat) and image (checked again in the bot's folder). */
+async function sendExtras(chatId: number, raw: unknown): Promise<{ quote: string | null; image: string | null }> {
+  const x = (raw && typeof raw === 'object' ? raw : {}) as { quoteId?: unknown; image?: unknown };
+  let quote: string | null = null;
+  if (x.quoteId !== undefined && x.quoteId !== null) {
+    const m = db.getMessage(chatId, asId(x.quoteId));
+    if (!m) throw new Error('The quoted message is gone.');
+    quote = m.content;
+  }
+  let image: string | null = null;
+  if (typeof x.image === 'string' && x.image) {
+    const chat = db.getChat(chatId);
+    const bot = chat ? db.getBot(chat.botId) : null;
+    image = (await readImageInFolder(bot?.folderPath ?? null, x.image)).relPath;
+  }
+  return { quote, image };
+}
+
+function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal, toolsOff: boolean,
+  userExtras?: { quote: string | null; image: string | null }): Promise<void> {
   // v1.19: phone turns get web search too (the confirm card shows on the phone and the desktop). Routines never do.
-  return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks }, chatId, text, signal);
+  return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks, userExtras }, chatId, text, signal);
 }
 
 // ---------- v1.18: web search (only while Online is on, only after the user presses Search) ----------
@@ -320,6 +351,47 @@ function killSearch(): void {
   for (const id of [...pendingSearchAsks.keys()]) settleSearchAsk(id, null);
   searchConsent.revokeAll();
   pageConsent.revokeAll();
+  killUpdate(); // v1.20: Online off (or lock) stops an update check or download on the way
+}
+
+// ---------- v1.20: update check (only while Online is on; at most once a day; never installs) ----------
+let updateController: AbortController | null = null;
+let availableUpdate: UpdateInfo | null = null;
+let updateStatus: { checking: boolean; downloading: boolean; done: number; error: string | null; savedTo: string | null } =
+  { checking: false, downloading: false, done: 0, error: null, savedTo: null };
+let updateTimer: NodeJS.Timeout | null = null;
+const UPDATE_TIMER_MS = 60 * 60 * 1000;
+
+function updateState() {
+  return {
+    available: availableUpdate ? { version: availableUpdate.version, size: availableUpdate.size, verified: !!availableUpdate.sha256 } : null,
+    lastCheck: db.getSetting(UPDATE_LAST_CHECK_KEY), online: isOnline(), ...updateStatus,
+  };
+}
+function pushUpdateState(): void { sendToWindow('update:state', updateState()); }
+
+function killUpdate(): void {
+  if (updateController) updateController.abort();
+  updateController = null;
+}
+
+/** Timer tick: only when Online is on and the last check was 24 h ago or more. Online is checked again before sending. */
+async function maybeCheckForUpdate(): Promise<void> {
+  if (!isOnline() || updateController || !isCheckDue(db.getSetting(UPDATE_LAST_CHECK_KEY), Date.now())) return;
+  const controller = new AbortController();
+  updateController = controller;
+  updateStatus = { ...updateStatus, checking: true, error: null };
+  try {
+    if (!isOnline()) return;
+    db.setSetting(UPDATE_LAST_CHECK_KEY, new Date().toISOString());
+    availableUpdate = await checkForUpdate(app.getVersion(), { isOnline, signal: controller.signal });
+  } catch (err) {
+    updateStatus.error = controller.signal.aborted ? null : `Update check failed: ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    if (updateController === controller) updateController = null;
+    updateStatus.checking = false;
+    pushUpdateState();
+  }
 }
 
 const searchHooks: SearchHooks = {
@@ -414,6 +486,7 @@ function createRoutineNotifier(): RoutineNotifier {
     openBotId: () => openBotId,
     botName: (botId) => db.getBot(botId)?.name ?? null,
     openBotChat: (botId) => void openBotChatInWindow(botId),
+    isMuted: (botId) => db.isMuted('bot', botId), // v1.20
   });
 }
 
@@ -498,6 +571,7 @@ function registerIpc(): void {
   handle('online:set', (_e, on: unknown) => {
     const value = Boolean(on);
     db.setSetting(ONLINE_SETTING_KEY, onlineSettingValue(value));
+    if (value) setTimeout(() => void maybeCheckForUpdate(), 5_000); // v1.20: a due check runs soon after Online on
     if (!value) killSearch(); // v1.18: Online off stops any search at once, even mid-reply
     return isOnline();
   });
@@ -704,17 +778,110 @@ function registerIpc(): void {
     }
   });
 
-  handle('chat:send', (_e, chatIdRaw: unknown, text: unknown) => {
+  handle('chat:send', async (_e, chatIdRaw: unknown, text: unknown, extrasRaw: unknown) => {
     const chatId = asId(chatIdRaw);
     if (typeof text !== 'string' || !text.trim()) throw new Error('Message is empty.');
     if (activeTurns.has(chatId)) throw new Error('This chat is still replying.');
+    const extras = await sendExtras(chatId, extrasRaw);
+    if (activeTurns.has(chatId)) throw new Error('This chat is still replying.');
     const controller = new AbortController();
     activeTurns.set(chatId, controller);
-    void beginChatTurn(chatId, text, broadcastChat, controller.signal, false)
+    void beginChatTurn(chatId, text, broadcastChat, controller.signal, false, extras)
       .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => { activeTurns.delete(chatId); noteReplyFinished(botOfChat(chatId), controller.signal.aborted); });
   });
   handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
+
+  // ---- v1.20: quote, pin, mute, dropped images ----
+  handle('messages:pin', (_e, chatIdRaw: unknown, idRaw: unknown, on: unknown) => db.setPinned(asId(chatIdRaw), asId(idRaw), on === true));
+  handle('messages:pinned', (_e, chatIdRaw: unknown) => db.listPinned(asId(chatIdRaw)));
+  handle('mute:set', (_e, kind: unknown, idRaw: unknown, on: unknown) => {
+    if (kind !== 'bot' && kind !== 'room') throw new Error('Unknown kind.');
+    db.setMuted(kind, asId(idRaw), on === true);
+    return db.isMuted(kind, asId(idRaw));
+  });
+  handle('image:dropped', (_e, botIdRaw: unknown, filePath: unknown) => {
+    if (typeof filePath !== 'string' || !filePath || !isImagePath(filePath)) return { ok: false as const, error: 'Only PNG, JPEG, GIF and WebP images can be shown.' };
+    return attachImageFromPath(db.getBot(asId(botIdRaw)), filePath);
+  });
+  // The bubble's picture: re-read from the bot's folder under the same rules each time, returned as a data: URL.
+  handle('image:get', async (_e, chatIdRaw: unknown, idRaw: unknown) => {
+    const chatId = asId(chatIdRaw);
+    const m = db.getMessage(chatId, asId(idRaw));
+    const chat = db.getChat(chatId);
+    const bot = chat ? db.getBot(chat.botId) : null;
+    if (!m?.image || !bot) return null;
+    try {
+      const img = await readImageInFolder(bot.folderPath, m.image);
+      return toDataUrl(img.mime, img.bytes);
+    } catch {
+      return null;
+    }
+  });
+
+  // ---- v1.20: update check state and the confirmed download (desktop only; the phone has no route to these) ----
+  handle('update:get', () => updateState());
+  handle('update:download', async (e) => {
+    const info = availableUpdate;
+    if (!info) throw new Error('No update to download.');
+    if (!isOnline()) throw new Error('Turn Online on to download the update.');
+    if (updateController) throw new Error('An update check or download is already running.');
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      type: 'question' as const, buttons: ['Cancel', 'Download'], defaultId: 1, cancelId: 0, noLink: true,
+      title: 'Download update', message: `Download Cipher Bot ${info.version} from GitHub?`,
+      detail: `${info.name} (${(info.size / 1048576).toFixed(1)} MB) will be saved to your Downloads folder. Cipher Bot does not install it; open it yourself when you are ready.`,
+    };
+    const r = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+    if (r.response !== 1 || !isOnline()) return updateState();
+    const controller = new AbortController();
+    updateController = controller;
+    updateStatus = { ...updateStatus, downloading: true, done: 0, error: null, savedTo: null };
+    pushUpdateState();
+    let last = 0;
+    try {
+      updateStatus.savedTo = await downloadUpdate(info, app.getPath('downloads'), {
+        isOnline, signal: controller.signal,
+        onProgress: (done) => { updateStatus.done = done; if (Date.now() - last > 250) { last = Date.now(); pushUpdateState(); } },
+      });
+    } catch (err) {
+      updateStatus.error = controller.signal.aborted ? 'Online was turned off; the download was stopped.' : err instanceof Error ? err.message : String(err);
+    } finally {
+      if (updateController === controller) updateController = null;
+      updateStatus.downloading = false;
+      pushUpdateState();
+    }
+    return updateState();
+  });
+  handle('update:showFile', () => { if (updateStatus.savedTo) shell.showItemInFolder(updateStatus.savedTo); });
+
+  // ---- v1.20: export a debug log (local file via Save dialog; chat content only when the box is ticked) ----
+  handle('debug:export', async (e, includeChats: unknown) => {
+    const bots = db.listBots();
+    const rooms = db.listRooms();
+    const chats = includeChats === true
+      ? [...bots.flatMap((b) => db.listChats(b.id).map((c) => ({ title: `${b.name}: ${c.title}`, messages: db.listMessages(c.id).map((m) => ({ role: m.role, content: m.content, createdAt: m.createdAt })) }))),
+         ...rooms.map((r) => ({ title: `Room ${r.name}`, messages: db.listRoomMessages(r.id).map((m) => ({ role: m.role, content: m.content, createdAt: m.createdAt })) }))]
+      : undefined;
+    const text = buildDebugLog({
+      appVersion: app.getVersion(), electron: process.versions.electron ?? '', chrome: process.versions.chrome ?? '', node: process.versions.node,
+      platform: process.platform, arch: process.arch, osRelease: os.release(), schemaVersion: SCHEMA_VERSION, model: currentModel(),
+      online: isOnline(), locked: isLocked(), lockEnabled: appLock.state().enabled, phoneRunning: phone.status().running,
+      setupPhase: setup.state.phase,
+      counts: { bots: bots.length, rooms: rooms.length, routines: db.listRoutines().length, 'bots with a folder': bots.filter((b) => b.folderPath).length, 'muted bots': bots.filter((b) => b.muted).length },
+      prefs: readPrefsForLog((k) => db.getSetting(k)), lastUpdateCheck: db.getSetting(UPDATE_LAST_CHECK_KEY),
+    }, recentLogLines(), chats);
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = { title: 'Export debug log', defaultPath: path.join(app.getPath('documents'), `cipher-bot-debug-${new Date().toISOString().slice(0, 10)}.txt`), filters: [{ name: 'Text file', extensions: ['txt'] }] };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true as const };
+    try {
+      await fs.writeFile(r.filePath, text, 'utf8');
+      return { ok: true as const, path: r.filePath };
+    } catch (err) {
+      return { ok: false as const, error: `Could not save the file: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
 
   // ---- rooms (group chats). No tools in rooms; see roomEngine.ts. ----
   handle('rooms:list', () => db.listRooms());
@@ -808,6 +975,9 @@ if (!app.requestSingleInstanceLock()) {
       run: (botId, chatId, prompt) => runRoutineTurn(botId, chatId, prompt),
     });
     routines.start();
+    // v1.20: update check timer. Nothing goes out unless Online is on (checked when it fires and again before sending).
+    setTimeout(() => void maybeCheckForUpdate(), 30_000);
+    updateTimer = setInterval(() => void maybeCheckForUpdate(), UPDATE_TIMER_MS);
     createWindow();
     createTray();
     void setup.run(true); // first launch: download the model through the local engine if it's missing
@@ -823,6 +993,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', () => {
     routines?.stop();
+    if (updateTimer) clearInterval(updateTimer);
+    killUpdate();
     for (const c of activeTurns.values()) c.abort();
     for (const c of activeRooms.values()) c.abort();
     phone?.stop();

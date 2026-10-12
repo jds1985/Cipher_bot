@@ -430,7 +430,7 @@ export class PhoneServer {
     }
 
     // v1.19: the phone can never read or change Online (it is a desktop-only setting). Refused before anything else.
-    if (/^\/api\/(online|settings)(\/|$)/i.test(url.pathname)) return json(res, 403, { error: 'Online can only be changed on the desktop.' });
+    if (/^\/api\/(online|settings|update|debug)(\/|$)/i.test(url.pathname)) return json(res, 403, { error: 'Online can only be changed on the desktop.' });
 
     const token = this.requireSession(req, res, url);
     if (!token) return;

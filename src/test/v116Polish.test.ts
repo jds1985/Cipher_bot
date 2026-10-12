@@ -44,11 +44,12 @@ test('1. package screen says Cipher Bot, has the icon, and no lone "Cipher"; set
 });
 
 test('2. version: from package.json via app.getVersion(), read once in main, never hardcoded in the UI', () => {
-  assert.equal(pkg.version, '1.19.0');
+  assert.equal(pkg.version, '1.20.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher', 'userData stays ~/.config/Cipher');
   assert.equal(pkg.build.productName, 'Cipher');
-  assert.equal((main.match(/app\.getVersion\(\)/g) ?? []).length, 1, 'one source');
+  // v1.20: main also reads it for the update check and the debug log; the UI still gets it only via app:version.
+  assert.equal((main.match(/app\.getVersion\(\)/g) ?? []).length, 3, 'main only');
   assert.match(main, /handle\('app:version', \(\) => app\.getVersion\(\)\);/);
   assert.match(renderer, /state\.version = await api\.getVersion\(\);/);
   for (const t of [html, renderer, read('src/renderer/view.ts')]) assert.doesNotMatch(t, /\b(0\.1\.0|1\.16\.0|1\.17\.0)\b/);
@@ -95,7 +96,7 @@ test('3. unread: stored locally (v7 migration, idempotent), set and cleared per 
   assert.equal(db.getRoom(room.id)!.unread, false);
   db.close();
   const check = new Database(file, { readonly: true });
-  assert.equal(check.pragma('user_version', { simple: true }), 9);
+  assert.equal(check.pragma('user_version', { simple: true }), 10);
   assert.equal(SCHEMA_VERSION >= 7, true);
   check.close();
 });

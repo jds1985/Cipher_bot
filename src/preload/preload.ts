@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import type { ChatEvent, CipherApi, NewBotForm, NewRoomForm, PhoneLinkStatus, RoomEvent, SetupState } from '../shared/types';
+import type { ChatEvent, CipherApi, NewBotForm, NewRoomForm, PhoneLinkStatus, RoomEvent, SetupState, UpdateState } from '../shared/types';
 
 const api: CipherApi = {
   listBots: () => ipcRenderer.invoke('bots:list'),
@@ -24,7 +24,7 @@ const api: CipherApi = {
   setRoutine: (botId, routine) => ipcRenderer.invoke('routines:set', botId, routine),
   copyText: (text) => ipcRenderer.invoke('clipboard:writeText', text),
   exportChat: (kind, id) => ipcRenderer.invoke('chat:export', kind, id),
-  sendMessage: (chatId, text) => ipcRenderer.invoke('chat:send', chatId, text),
+  sendMessage: (chatId, text, extras) => ipcRenderer.invoke('chat:send', chatId, text, extras ?? {}),
   stop: (chatId) => ipcRenderer.invoke('chat:stop', chatId),
   onChatEvent: (cb) => {
     const listener = (_e: IpcRendererEvent, ev: ChatEvent) => cb(ev);
@@ -89,6 +89,20 @@ const api: CipherApi = {
   searchHistory: () => ipcRenderer.invoke('search:history'),
   clearSearchHistory: () => ipcRenderer.invoke('search:clearHistory'),
   setBotMemory: (botId, note) => ipcRenderer.invoke('bots:setMemory', botId, note),
+  pinMessage: (chatId, id, on) => ipcRenderer.invoke('messages:pin', chatId, id, on === true),
+  listPinned: (chatId) => ipcRenderer.invoke('messages:pinned', chatId),
+  setMuted: (kind, id, on) => ipcRenderer.invoke('mute:set', kind, id, on === true),
+  attachDroppedImage: (botId, filePath) => ipcRenderer.invoke('image:dropped', botId, filePath),
+  getImage: (chatId, messageId) => ipcRenderer.invoke('image:get', chatId, messageId),
+  getUpdate: () => ipcRenderer.invoke('update:get'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  showUpdateFile: () => ipcRenderer.invoke('update:showFile'),
+  onUpdate: (cb) => {
+    const listener = (_e: IpcRendererEvent, s: UpdateState) => cb(s);
+    ipcRenderer.on('update:state', listener);
+    return () => ipcRenderer.removeListener('update:state', listener);
+  },
+  exportDebugLog: (includeChats) => ipcRenderer.invoke('debug:export', includeChats === true),
   deleteMessages: (chatId, ids) => ipcRenderer.invoke('messages:delete', chatId, ids),
   getOnline: () => ipcRenderer.invoke('online:get'),
   setOnline: (on) => ipcRenderer.invoke('online:set', on),

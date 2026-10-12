@@ -18,12 +18,12 @@ const html = fs.readFileSync(path.join(rendererDir, 'index.html'), 'utf8');
 const js = fs.readFileSync(path.join(rendererDir, 'renderer.js'), 'utf8');
 
 test('plus menu in a room: only Export', () => {
-  assert.deepEqual(view.plusMenuItems({ kind: 'room' }).map((i) => [i.id, i.disabled]), [['export', false]]);
+  assert.deepEqual(view.plusMenuItems({ kind: 'room' }).map((i) => [i.id, i.disabled]), [['export', false], ['mute', false]]);
 });
 
 test('plus menu in a 1:1 chat: attach, export, clear, edit, folder, second folder, read files (on/off), routine', () => {
   const off = view.plusMenuItems({ kind: 'bot', toolsEnabled: false, folderPath: null, busy: false, routineTime: null });
-  assert.deepEqual(off.map((i) => i.id), ['attach', 'export', 'clear', 'select', 'edit', 'folder', 'second', 'tools', 'routine']);
+  assert.deepEqual(off.map((i) => i.id), ['attach', 'export', 'clear', 'select', 'edit', 'folder', 'second', 'tools', 'routine', 'mute']);
   const tools = (items: PlusItem[]) => items.find((i) => i.id === 'tools')!;
   assert.equal(tools(off).checked, false, 'Read files shows off');
   assert.equal(off.find((i) => i.id === 'folder')!.disabled, true, 'Choose folder needs Read files on (as before)');

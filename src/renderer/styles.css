@@ -413,3 +413,36 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .select-box { margin-top: 12px; flex: none; }
 .select-bar { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding: 8px 16px; border-top: 1px solid var(--line); background: var(--panel); }
 .select-bar #select-count { margin-right: auto; color: var(--muted); }
+
+/* ---------- v1.20: quote, pin, mute, images, starter jobs, shortcuts ---------- */
+.msg-acts { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; opacity: 0; transition: opacity 0.12s; }
+.msg:hover .msg-acts, .msg:focus-within .msg-acts, .msg-act.on { opacity: 1; }
+.msg-act { background: none; border: none; padding: 2px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; }
+.msg-act:hover, .msg-act:focus-visible { background: rgba(91, 140, 255, 0.15); }
+.msg-act img { width: 20px; height: 20px; display: block; }
+.msg-act.on { background: rgba(91, 140, 255, 0.2); }
+.msg-quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid #5b8cff; opacity: 0.85; font-size: 0.92em; white-space: pre-wrap; }
+.msg-image { display: block; max-width: min(360px, 100%); max-height: 320px; border-radius: 8px; margin: 2px 0 6px; object-fit: contain; }
+.image-missing { display: block; font-size: 0.9em; }
+.msg.pinned { box-shadow: inset 3px 0 0 #5b8cff; }
+.msg.flash { outline: 2px solid #5b8cff; }
+.pinned-strip { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px; border-bottom: 1px solid rgba(127, 127, 127, 0.25); max-height: 116px; overflow-y: auto; }
+.pinned-item { display: flex; align-items: center; gap: 6px; }
+.pinned-item img { width: 20px; height: 20px; flex: none; }
+.pinned-go { flex: 1; text-align: left; background: none; border: none; color: inherit; cursor: pointer; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; }
+.pinned-go:hover { text-decoration: underline; }
+.quote-chip, .image-chip { display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 4px 8px; border-left: 3px solid #5b8cff; border-radius: 6px; background: rgba(91, 140, 255, 0.08); }
+.quote-chip[hidden], .image-chip[hidden], .pinned-strip[hidden] { display: none; }
+.quote-chip span, .image-chip span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-icon { width: 20px; height: 20px; flex: none; }
+.image-chip-preview { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; flex: none; }
+.mute-mark { width: 20px; height: 20px; margin-left: auto; flex: none; opacity: 0.8; }
+.dock-collapsed .mute-mark { position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; margin: 0; }
+.starter-jobs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.starter-jobs[hidden] { display: none; }
+.starter-job { display: inline-flex; align-items: center; gap: 6px; }
+.starter-job img { width: 20px; height: 20px; }
+.starter-job.active { outline: 2px solid #5b8cff; }
+.shortcut-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.shortcut-list dt { font-family: ui-monospace, monospace; font-weight: 600; }
+.shortcut-list dd { margin: 0; }

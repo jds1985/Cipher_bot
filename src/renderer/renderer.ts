@@ -1,7 +1,7 @@
-import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult } from '../shared/types';
+import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
-import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, showsSplash, splashRemainingMs, SPLASH_MAX_MS, type PlusItem, type PlusItemId } from './view.js';
+import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -64,6 +64,12 @@ const el = {
   onlineState: $('online-state'), onlineOnIcon: $<HTMLImageElement>('online-on-icon'), lastSearch: $('last-search'),
   openAbout: $<HTMLButtonElement>('open-about'), aboutView: $('about-view'), aboutVersion: $('about-version'),
   aboutPolicy: $<HTMLButtonElement>('about-policy'), aboutClose: $<HTMLButtonElement>('about-close'),
+  // v1.20
+  starterJobs: $('starter-jobs'), pinnedStrip: $('pinned-strip'),
+  quoteChip: $('quote-chip'), quoteChipText: $('quote-chip-text'), quoteClear: $<HTMLButtonElement>('quote-clear'),
+  imageChip: $('image-chip'), imageChipPreview: $<HTMLImageElement>('image-chip-preview'), imageChipName: $('image-chip-name'), imageClear: $<HTMLButtonElement>('image-clear'),
+  updateLast: $('update-last'), updateStatus: $('update-status'), updateDownload: $<HTMLButtonElement>('update-download'), updateShow: $<HTMLButtonElement>('update-show'),
+  shortcutList: $('shortcut-list'), debugChats: $<HTMLInputElement>('debug-chats'), debugExport: $<HTMLButtonElement>('debug-export'), debugMsg: $('debug-msg'),
 };
 
 const CHAT_PLACEHOLDER = el.input.placeholder;
@@ -116,6 +122,12 @@ const state = {
   searchQuery: '',
   /** Desktop-only pending attach block for the next 1:1 send (rooms skipped). */
   pendingAttach: null as { relPath: string; block: string } | null,
+  /** v1.20: the message being quoted in the next send, and a dropped image (folder-relative path + data: preview). */
+  quote: null as { id: number; text: string } | null,
+  pendingImage: null as { relPath: string; dataUrl: string } | null,
+  /** v1.20: message id → data: URL from main (local bytes only). */
+  images: new Map<number, string | null>(),
+  update: null as UpdateState | null,
   /** App lock (v1.13). Starts locked until main says otherwise, so nothing loads before the check. */
   lock: { enabled: true, locked: true } as LockState,
 };
@@ -250,6 +262,14 @@ function railButton(cls: string, label: string, active: boolean, onClick: () => 
   return btn;
 }
 
+/** v1.20: Liz's mute icon on a muted bot or room in the dock. */
+function muteMark(): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = 'assets/cipher-mute.svg'; img.alt = 'Muted'; img.title = 'Muted: no tray notices';
+  img.width = 20; img.height = 20; img.className = 'mute-mark';
+  return img;
+}
+
 function nameMatches(hay: string, q: string): boolean {
   if (!q) return true;
   return hay.toLowerCase().includes(q);
@@ -263,6 +283,7 @@ function renderRail(): void {
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
     btn.append(botIcon(b, 42), node('span', 'rail-name', b.name));
+    if (b.muted) btn.append(muteMark());
     addUnreadDot(btn, b.unread && !(showingChat && b.id === state.botId));
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
@@ -272,6 +293,7 @@ function renderRail(): void {
     const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'room', r.id));
     btn.append(roomMark(r), node('span', 'rail-name', roomName(r)));
+    if (r.muted) btn.append(muteMark());
     addUnreadDot(btn, r.unread && !(showingChat && r.id === state.roomId));
     if (!nameMatches(roomName(r), q) && !nameMatches(r.name, q)) btn.classList.add('filtered-out');
     return btn;
@@ -333,6 +355,9 @@ async function selectBot(botId: number): Promise<void> {
   state.policyOpen = false;
   state.roomId = null;
   state.pendingAttach = null;
+  state.quote = null;
+  state.pendingImage = null;
+  state.images.clear();
   clearAttachError();
   state.aboutOpen = false;
   state.botId = botId;
@@ -358,6 +383,9 @@ async function selectRoom(roomId: number): Promise<void> {
   state.botId = null;
   state.chat = null;
   state.pendingAttach = null;
+  state.quote = null;
+  state.pendingImage = null;
+  state.images.clear();
   clearAttachError();
   state.aboutOpen = false;
   state.roomId = roomId;
@@ -605,6 +633,93 @@ function bubble(cls: string, text: string, fromRoutine = false, createdAt?: stri
   return msg;
 }
 
+// ---------- v1.20: quote, pin, image in a bot's chat ----------
+const QUOTE_PREVIEW = 160;
+const clip = (t: string, n: number): string => { const one = t.replace(/\s+/g, ' ').trim(); return one.length > n ? `${one.slice(0, n - 1)}…` : one; };
+
+function iconButton(icon: string, label: string, cls: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = `msg-act ${cls}`; btn.title = label; btn.setAttribute('aria-label', label);
+  const img = document.createElement('img');
+  img.src = icon; img.alt = ''; img.width = 20; img.height = 20;
+  btn.append(img);
+  btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return btn;
+}
+
+/** Quote block above the text, the picture (from its bytes, via main), and Quote / Pin buttons. */
+function decorateMessage(row: HTMLElement, m: Message, chatId: number): void {
+  row.dataset.mid = String(m.id);
+  if (m.pinned) row.classList.add('pinned');
+  if (m.quote) {
+    const q = node('blockquote', 'msg-quote', clip(m.quote, QUOTE_PREVIEW * 2));
+    row.prepend(q);
+  }
+  if (m.image) {
+    const img = document.createElement('img');
+    img.className = 'msg-image'; img.alt = m.image.split(/[\\/]/).pop() ?? 'Image';
+    const cached = state.images.get(m.id);
+    if (cached) img.src = cached;
+    else if (cached === null) { row.append(node('span', 'muted image-missing', `Image not available: ${img.alt}`)); }
+    if (cached !== null) {
+      row.insertBefore(img, row.querySelector('.msg-text'));
+      if (cached === undefined) void api.getImage(chatId, m.id).then((url) => {
+        // Only a data: URL with an image type is ever used as a source (never a remote address).
+        const ok = typeof url === 'string' && /^data:image\/(png|jpeg|gif|webp);base64,/.test(url);
+        state.images.set(m.id, ok ? url : null);
+        if (ok) img.src = url; else { img.remove(); row.append(node('span', 'muted image-missing', `Image not available: ${img.alt}`)); }
+      }).catch(() => { state.images.set(m.id, null); img.remove(); });
+    }
+  }
+  const acts = node('span', 'msg-acts');
+  acts.append(
+    iconButton('assets/cipher-quote.svg', 'Quote this message', 'quote-btn', () => { state.quote = { id: m.id, text: m.content }; renderQuoteUi(); el.input.focus(); }),
+    iconButton('assets/cipher-pin.svg', m.pinned ? 'Unpin' : 'Pin to the top', `pin-btn${m.pinned ? ' on' : ''}`, () => void togglePin(chatId, m.id, !m.pinned)),
+  );
+  row.append(acts);
+}
+
+async function togglePin(chatId: number, id: number, on: boolean): Promise<void> {
+  try {
+    const pinned = await api.pinMessage(chatId, id, on);
+    const ids = new Set(pinned.map((p) => p.id));
+    for (const m of state.messages) m.pinned = ids.has(m.id);
+    renderChat();
+  } catch (err) { state.error = plainError(err); renderChat(); }
+}
+
+function renderPinnedStrip(chatId: number): void {
+  const pinned = state.messages.filter((m) => m.pinned);
+  el.pinnedStrip.hidden = pinned.length === 0;
+  el.pinnedStrip.replaceChildren(...pinned.map((m) => {
+    const item = node('div', 'pinned-item');
+    const icon = document.createElement('img');
+    icon.src = 'assets/cipher-pin.svg'; icon.alt = ''; icon.width = 20; icon.height = 20;
+    const go = document.createElement('button');
+    go.type = 'button'; go.className = 'pinned-go'; go.textContent = clip(m.content || (m.image ? 'Image' : ''), 90); go.title = 'Show this message';
+    go.addEventListener('click', () => {
+      const row = el.messages.querySelector(`[data-mid="${m.id}"]`);
+      row?.scrollIntoView({ block: 'center' });
+      row?.classList.add('flash'); window.setTimeout(() => row?.classList.remove('flash'), 1200);
+    });
+    const un = document.createElement('button');
+    un.type = 'button'; un.className = 'secondary small'; un.textContent = '×'; un.title = 'Unpin'; un.setAttribute('aria-label', 'Unpin');
+    un.addEventListener('click', () => void togglePin(chatId, m.id, false));
+    item.append(icon, go, un);
+    return item;
+  }));
+}
+
+function renderQuoteUi(): void {
+  el.quoteChip.hidden = !state.quote || state.roomId !== null;
+  el.quoteChipText.textContent = state.quote ? clip(state.quote.text, QUOTE_PREVIEW) : '';
+  el.imageChip.hidden = !state.pendingImage || state.roomId !== null;
+  if (state.pendingImage) {
+    el.imageChipPreview.src = state.pendingImage.dataUrl;
+    el.imageChipName.textContent = state.pendingImage.relPath;
+  } else el.imageChipPreview.removeAttribute('src');
+}
+
 /** v1.17: the message's local time under its text, when "Show message times" is on. */
 function addTime(msg: HTMLElement, createdAt?: string): void {
   const t = state.prefs.showTimes && createdAt ? formatMessageTime(createdAt) : '';
@@ -653,6 +768,7 @@ function renderBotChat(): void {
       row = node('div', `msg note${bad ? ' bad' : ''}`, bad ? `Couldn't read the file: ${m.content.slice(7)}` : `Read ${m.content.length} characters from the file`);
     }
     if (row) {
+      if ((m.role === 'user' || m.role === 'assistant') && row.classList.contains('msg') && !row.classList.contains('note')) decorateMessage(row, m, chat.id);
       if (!match) row.classList.add('search-hidden');
       if (state.selecting) row = selectable(row, m.id);
       items.push(row);
@@ -666,6 +782,8 @@ function renderBotChat(): void {
   if (!items.length) items.push(node('div', 'msg note', `Say hello to ${bot.name}.`));
   el.messages.replaceChildren(...items);
   el.messages.scrollTop = el.messages.scrollHeight;
+  renderPinnedStrip(chat.id);
+  renderQuoteUi();
   setComposer(busy, CHAT_PLACEHOLDER);
   renderAttachUi(true);
 }
@@ -686,6 +804,9 @@ function roomReply(botId: number | null, text: string, live = false, createdAt?:
 function renderRoom(): void {
   const room = currentRoom();
   if (!room) return;
+  el.pinnedStrip.hidden = true; // pins and quotes are for a bot's chat
+  state.quote = null;
+  renderQuoteUi();
   const members = roomMembers(room);
   // Header: the room name only.
   el.chatIcon.hidden = true;
@@ -751,7 +872,10 @@ async function send(): Promise<void> {
   const chat = state.chat;
   if (!chat || state.busy.has(chat.id)) return;
   const attachBlock = state.pendingAttach?.block ?? null;
-  const outgoing = attachBlock ? (text ? `${text}\n\n${attachBlock}` : attachBlock) : text;
+  const image = state.pendingImage;
+  const quote = state.quote;
+  let outgoing = attachBlock ? (text ? `${text}\n\n${attachBlock}` : attachBlock) : text;
+  if (!outgoing.trim() && image) outgoing = 'Here is an image.';
   if (!outgoing.trim()) return;
   state.error = null;
   state.live = '';
@@ -760,9 +884,11 @@ async function send(): Promise<void> {
   el.input.value = '';
   const clearedAttach = state.pendingAttach;
   state.pendingAttach = null;
+  state.quote = null;
+  state.pendingImage = null;
   renderChat();
   try {
-    await api.sendMessage(chat.id, outgoing);
+    await api.sendMessage(chat.id, outgoing, { ...(quote ? { quoteId: quote.id } : {}), ...(image ? { image: image.relPath } : {}) });
     playSendSound();
   } catch (e) {
     state.busy.delete(chat.id);
@@ -770,6 +896,8 @@ async function send(): Promise<void> {
     state.error = plainError(e);
     el.input.value = text;
     state.pendingAttach = clearedAttach;
+    state.quote = quote;
+    state.pendingImage = image;
     renderChat();
   }
 }
@@ -914,6 +1042,7 @@ function setBotFormMode(editName: string | null): void {
   el.botSubmit.textContent = editName === null ? 'Create Cipher bot' : 'Save';
   el.botFormArt.hidden = editName !== null;
   el.botMemoryWrap.hidden = editName === null; // v1.19: memory note is edited in the bot's settings
+  el.starterJobs.hidden = editName !== null; // v1.20: starter jobs only when creating
 }
 
 function openBotForm(): void {
@@ -1478,13 +1607,14 @@ async function onItemContextMenu(e: MouseEvent, kind: 'bot' | 'room', id: number
 
 // ---------- plus menu (inside the composer): the chat's actions ----------
 function currentPlusItems(): PlusItem[] {
-  if (state.roomId !== null) return plusMenuItems({ kind: 'room' });
+  if (state.roomId !== null) return plusMenuItems({ kind: 'room', muted: currentRoom()?.muted === true });
   const bot = currentBot();
   if (!bot) return [];
   return plusMenuItems({
     kind: 'bot', toolsEnabled: bot.toolsEnabled, folderPath: bot.folderPath, secondFolderPath: bot.secondFolderPath,
     busy: state.chat ? state.busy.has(state.chat.id) : false,
     routineTime: state.routine && state.routine.botId === bot.id && state.routine.enabled ? state.routine.time : null,
+    muted: bot.muted,
   });
 }
 
@@ -1538,7 +1668,19 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'second': return toggleSecondFolder();
     case 'tools': { const bot = currentBot(); if (bot) await setTools(!bot.toolsEnabled); return; }
     case 'routine': return openRoutine();
+    case 'mute': return toggleMute();
   }
+}
+
+/** v1.20: mute the open bot or room (no tray notice while muted). */
+async function toggleMute(): Promise<void> {
+  if (state.roomId !== null) {
+    const r = currentRoom();
+    if (r) { r.muted = await api.setMuted('room', r.id, !r.muted); renderRail(); }
+    return;
+  }
+  const b = currentBot();
+  if (b) { b.muted = await api.setMuted('bot', b.id, !b.muted); renderRail(); }
 }
 
 /** Read files on/off (was the header checkbox). */
@@ -1663,6 +1805,14 @@ async function onChatDrop(files: FileList | null): Promise<void> {
   if (files.length > 1) { showAttachError('Drop one file at a time.'); return; }
   const filePath = api.pathForFile(files[0]);
   if (!filePath) { showAttachError('Only files from this computer can be attached.'); return; }
+  if (/\.(png|jpe?g|gif|webp)$/i.test(filePath)) {
+    // v1.20: an image: same folder rules as Attach, checked and read in main, shown from its bytes (data: URL).
+    const img = await api.attachDroppedImage(bot.id, filePath);
+    if (!img.ok) { showAttachError(img.error); return; }
+    state.pendingImage = { relPath: img.relPath, dataUrl: img.dataUrl };
+    renderQuoteUi();
+    return;
+  }
   const result = await api.attachDroppedFile(bot.id, filePath);
   if (!result.ok) { showAttachError(result.error); return; }
   state.pendingAttach = { relPath: result.relPath, block: result.block };
@@ -1686,6 +1836,7 @@ el.plusMenu.addEventListener('focusout', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !el.plusMenu.hidden) { e.preventDefault(); closePlusMenu(true); }
+  else if (e.key === 'Escape' && state.quote && document.activeElement === el.input) { e.preventDefault(); state.quote = null; renderQuoteUi(); }
 });
 document.addEventListener('mousedown', (e) => {
   const t = e.target as Node;
@@ -1799,3 +1950,58 @@ async function init(): Promise<void> {
 }
 
 void init();
+
+// ---------- v1.20 wiring ----------
+el.quoteClear.addEventListener('click', () => { state.quote = null; renderQuoteUi(); });
+el.imageClear.addEventListener('click', () => { state.pendingImage = null; renderQuoteUi(); });
+
+function buildStarterJobs(): void {
+  el.starterJobs.replaceChildren(...STARTER_JOBS.map((j) => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'starter-job secondary'; btn.dataset.job = j.id;
+    const img = document.createElement('img');
+    img.src = j.icon; img.alt = ''; img.width = 20; img.height = 20;
+    btn.append(img, node('span', '', j.label));
+    btn.addEventListener('click', () => {
+      // Local presets only: fill the form; nothing is sent anywhere.
+      el.botName.value = j.name;
+      el.botJob.value = j.job;
+      for (const b of el.starterJobs.querySelectorAll('button')) b.classList.toggle('active', b === btn);
+      el.botName.focus();
+    });
+    return btn;
+  }));
+}
+buildStarterJobs();
+
+el.shortcutList.replaceChildren(...SHORTCUTS.flatMap((k) => [node('dt', '', k.keys), node('dd', '', k.action)]));
+
+function renderUpdate(u: UpdateState | null): void {
+  state.update = u;
+  if (!u) return;
+  el.updateLast.textContent = u.lastCheck ? new Date(u.lastCheck).toLocaleString() : 'never';
+  let status = '';
+  if (!u.online) status = 'Online is off, so Cipher Bot does not check for updates.';
+  else if (u.checking) status = 'Checking GitHub for a newer version…';
+  else if (u.downloading) status = `Downloading… ${u.available ? Math.round((u.done / u.available.size) * 100) : 0}%`;
+  else if (u.savedTo) status = `Saved to ${u.savedTo.split(/[\\/]/).pop()} in your Downloads folder. Cipher Bot does not install it.`;
+  else if (u.error) status = u.error;
+  else if (u.available) status = `Cipher Bot ${u.available.version} is available (${(u.available.size / 1048576).toFixed(1)} MB${u.available.verified ? ', checksum listed by GitHub' : ''}).`;
+  else if (u.lastCheck) status = 'Cipher Bot is up to date.';
+  el.updateStatus.textContent = status;
+  el.updateDownload.hidden = !(u.available && u.online && !u.downloading && !u.savedTo);
+  el.updateShow.hidden = !u.savedTo;
+}
+api.onUpdate(renderUpdate);
+el.updateDownload.addEventListener('click', () => void api.downloadUpdate().then(renderUpdate).catch((err) => { el.updateStatus.textContent = plainError(err); }));
+el.updateShow.addEventListener('click', () => void api.showUpdateFile());
+el.openSettings.addEventListener('click', () => void api.getUpdate().then(renderUpdate).catch(() => undefined));
+
+el.debugExport.addEventListener('click', async () => {
+  el.debugMsg.hidden = true;
+  try {
+    const r = await api.exportDebugLog(el.debugChats.checked);
+    if (r.ok) { el.debugMsg.textContent = `Saved ${r.path.split(/[\\/]/).pop()}.`; el.debugMsg.hidden = false; }
+    else if (r.error) { el.debugMsg.textContent = r.error; el.debugMsg.hidden = false; }
+  } catch (err) { el.debugMsg.textContent = plainError(err); el.debugMsg.hidden = false; }
+});

@@ -14,12 +14,13 @@ export const POLICY_TITLE = 'Policy';
 
 export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
-    heading: 'Your chats and files stay on this computer, with three exceptions',
+    heading: 'Your chats and files stay on this computer, with four exceptions',
     paragraphs: [
-      'Cipher Bot keeps your chats and files on this computer, with three exceptions. ' +
+      'Cipher Bot keeps your chats and files on this computer, with four exceptions. ' +
         '1) Phone link: if you turn it on, your chats travel between this computer and your phone over your local network as plain HTTP, which is not encrypted. ' +
         '2) Model download: on first launch (or whenever the model is missing), Ollama downloads the model from its online registry. Cipher Bot only asks Ollama for the model by name; your chats are not part of that request. ' +
-        '3) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo; and only after you choose Open as text on a search result and confirm its address, that one page is downloaded from its site. Nothing else from your chats or files is sent.',
+        '3) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo; and only after you choose Open as text on a search result and confirm its address, that one page is downloaded from its site. ' +
+        '4) Update check: only when Online is on, about once a day, Cipher Bot asks GitHub (api.github.com) for the latest Cipher Bot release; and only after you choose Download and confirm, that release\'s file is downloaded from GitHub. Nothing else from your chats or files is sent.',
       'Your Cipher bots, chats, rooms, routines and settings (except the app lock; see Lock) are saved in one database file, cipher.db, in Cipher Bot\'s user data folder on this computer ' +
         '(usually ~/.config/Cipher on Linux, %APPDATA%\\Cipher on Windows, ~/Library/Application Support/Cipher on macOS). ' +
         'The file is not encrypted: anyone who can open your user account\'s files can read it.',
@@ -34,6 +35,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Second folder: from the plus menu ("Attach second folder…") you can give a Cipher bot one more folder on this computer, separate from its read folder. ' +
         'The folder is on this computer and Cipher Bot never uploads or syncs it; only its location is saved, in cipher.db. That bot can read text files in it only when Read files is on, with the same limits as the read folder, and what it reads is handled like any file it reads (see above). ' +
         'It is not a cloud drive, and there is no email and no login. "Remove second folder" removes it from the bot; your files are not touched.',
+      'Images: you can drop a PNG, JPEG, GIF or WebP image (up to 5 MB) from a Cipher bot\'s read folder into its chat, under the same folder rules as Attach. Only its location in that folder is saved with your message; the picture is read from this computer each time it is shown, and never loaded from the internet. The model on this computer gets the file name, not the picture.',
       'Rooms, Phone link and routines never read files.',
     ],
   },
@@ -57,9 +59,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Online switch',
     paragraphs: [
-      'Online is off unless you turn it on. When it is on, the only new things are web search and opening a search result as text (see Web search). When it is off, neither is offered, and turning it off stops any search or page download that is on the way and closes any search question on screen, on the desktop and the phone. Only the desktop can turn Online on or off.',
+      'Online is off unless you turn it on. When it is on, the only new things are web search, opening a search result as text (see Web search) and the update check (see Updates). When it is off, none of these happens, and turning it off stops any search, page download, update check or update download that is on the way and closes any search question on screen, on the desktop and the phone. Only the desktop can turn Online on or off.',
       'Online off does not mean Cipher Bot never touches the network. The model download and the "Get the engine" button (which opens ollama.com/download in your web browser) happen regardless of the switch, and Phone link uses your local network when you turn it on.',
-      'Apart from those and web search, Cipher Bot\'s own code connects only to Ollama on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
+      'Apart from those, web search and the update check, Cipher Bot\'s own code connects only to Ollama on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
     ],
   },
   {
@@ -88,11 +90,25 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     ],
   },
   {
+    heading: 'Updates',
+    paragraphs: [
+      'Only while Online is on, Cipher Bot checks for a newer release at most once a day: it sends one request to GitHub (api.github.com) for the latest release of jds1985/Cipher_bot. GitHub sees your computer\'s IP address, like any visit; nothing from your chats or files is in the request. The time of the last check is saved in cipher.db. With Online off, nothing is sent, not even at startup.',
+      'If a newer version exists, Settings shows it. Nothing is downloaded until you choose Download and confirm. Then only that release\'s .deb file is downloaded, from github.com and GitHub\'s own release download server (any other address is refused), its size and, when GitHub lists one, its checksum are checked, and it is saved to your Downloads folder. Cipher Bot never installs it; you open it yourself. Turning Online off stops a check or download that is on the way. The phone can\'t start a check or a download.',
+    ],
+  },
+  {
+    heading: 'Quotes, pins, mute and the debug log',
+    paragraphs: [
+      'Quoting a message saves a copy of the quoted text (up to 500 characters) with your reply, and pinning marks a message; both are kept in cipher.db on this computer. Mute only stops tray notifications for that bot or room.',
+      'Export debug log (Settings) saves a text file you choose on this computer: versions, switches, counts and recent error lines, with folder paths and addresses\' queries removed. It never includes your passphrase hash or lock.json, pairing codes, memory notes, search words or folder paths. Chats are included only if you tick "Include chat content". Nothing is sent anywhere.',
+    ],
+  },
+  {
     heading: 'Routines',
     paragraphs: [
       'A routine sends a saved message to one Cipher bot every day at the time you pick. It runs only on this computer, and only while Cipher Bot is open or in the tray, not after you quit Cipher Bot. If Cipher Bot isn\'t running at that time, or that bot\'s chat is busy replying for the whole minute, that day\'s run is skipped.',
       'Routines don\'t use the internet: the message goes to the model on this computer, like any chat. Routines run with file reading off.',
-      'When a routine finishes or fails, Cipher Bot shows a desktop notification (if your system supports them) with the bot\'s name and "finished" or "failed" only; the routine\'s message and the reply are not in it. It goes through your computer\'s own notification system, not the internet, and may stay in that system\'s notification history. There is no notification if that bot\'s chat is already open in front of you, or if you stop the routine.',
+      'When a routine finishes or fails, Cipher Bot shows a desktop notification (if your system supports them) with the bot\'s name and "finished" or "failed" only; the routine\'s message and the reply are not in it. It goes through your computer\'s own notification system, not the internet, and may stay in that system\'s notification history. There is no notification if that bot\'s chat is already open in front of you, if you stop the routine, or if you muted that bot (plus menu → Mute notices). Rooms have no notifications.',
     ],
   },
   {
@@ -116,7 +132,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Accounts and tracking',
     paragraphs: [
-      'Cipher Bot has no account or sign-in. It has no telemetry, analytics, crash reporting or auto-updater, and it does not turn on Electron\'s crash reporter.',
+      'Cipher Bot has no account or sign-in. It has no telemetry, analytics, crash reporting or auto-updater (the update check below only tells you about a new release and never installs anything), and it does not turn on Electron\'s crash reporter.',
     ],
   },
 ];
