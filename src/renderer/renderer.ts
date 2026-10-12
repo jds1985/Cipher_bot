@@ -1,5 +1,6 @@
 import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
+import { renderMarkdown } from './markdown.js';
 import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, showsSplash, splashRemainingMs, SPLASH_MAX_MS, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
@@ -54,6 +55,9 @@ const el = {
   lockOffForm: $<HTMLFormElement>('lock-off-form'), lockOffCurrent: $<HTMLInputElement>('lock-off-current'),
   backupBtn: $<HTMLButtonElement>('backup-btn'), backupMsg: $('backup-msg'), backupError: $('backup-error'),
   restoreBtn: $<HTMLButtonElement>('restore-btn'), restoreError: $('restore-error'),
+  botMemoryWrap: $('bot-memory-wrap'), botMemory: $<HTMLTextAreaElement>('bot-memory'),
+  searchHistory: $('search-history'), searchHistoryEmpty: $('search-history-empty'), searchHistoryClear: $<HTMLButtonElement>('search-history-clear'),
+  selectBar: $('select-bar'), selectCount: $('select-count'), selectCancel: $<HTMLButtonElement>('select-cancel'), selectDelete: $<HTMLButtonElement>('select-delete'),
   soundSwitch: $<HTMLInputElement>('sound-switch'), settingsVersion: $('settings-version'),
   timesSwitch: $<HTMLInputElement>('times-switch'), dockToggle: $<HTMLButtonElement>('dock-toggle'),
   whatsNew: $('whats-new'), dropHint: $('drop-hint'),
@@ -96,6 +100,9 @@ const state = {
   prefs: { showTimes: true, dockCollapsed: false },
   /** v1.18: confirm cards main is waiting on (id → chat and exact query). */
   searchAsks: new Map<string, { chatId: number; query: string }>(),
+  /** v1.19: multi-select: on/off and the chosen message ids. */
+  selecting: false,
+  selected: new Set<number>(),
   /** v1.18: ISO time of the last search sent, or null. */
   lastSearch: null as string | null,
   /** The open bot's daily routine, or null if it has none. */
@@ -363,11 +370,80 @@ async function selectRoom(roomId: number): Promise<void> {
 }
 
 // ---------- chat view (a bot's chat or a room) ----------
+/** A read_file call (the only tool shown as "Reading file"); search and calculator have their own rows. */
+const isFileCall = (c: { function?: { name?: string } }): boolean => !c.function?.name || c.function.name === 'read_file';
+
 function toolCallLabel(m: Message): string {
-  return (m.toolCalls ?? []).filter((c) => c.function?.name !== 'web_search').map((c) => {
+  return (m.toolCalls ?? []).filter(isFileCall).map((c) => {
     const p = (c.function?.arguments as { path?: unknown })?.path;
     return typeof p === 'string' ? p : '';
   }).join(', ');
+}
+
+// ---------- opened pages, multi-select (v1.19) ----------
+/** Must match PAGE_BLOCK_START in main/pageFetch.ts. */
+const PAGE_BLOCK_START = '--- Opened page: ';
+
+/** A page opened as text: its address and title, with the text folded away. */
+function pageRow(m: Message): HTMLElement {
+  const first = m.content.split('\n', 1)[0];
+  const url = first.slice(PAGE_BLOCK_START.length).replace(/ ---$/, '');
+  const card = node('div', 'msg page-card');
+  const head = node('div', 'search-head');
+  const icon = document.createElement('img');
+  icon.src = 'assets/cipher-search-result.svg'; icon.alt = ''; icon.width = 20; icon.height = 20; icon.className = 'search-icon';
+  head.append(icon, node('span', undefined, 'Opened page as text'));
+  const details = document.createElement('details');
+  const sum = document.createElement('summary');
+  sum.textContent = url;
+  const body = node('pre', 'page-text', m.content.split('\n').slice(1, -1).join('\n'));
+  details.append(sum, body);
+  card.append(head, details);
+  addTime(card, m.createdAt);
+  return card;
+}
+
+function selectable(row: HTMLElement, id: number): HTMLElement {
+  const wrap = node('label', 'select-row');
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.className = 'select-box';
+  box.checked = state.selected.has(id);
+  box.setAttribute('aria-label', 'Select message');
+  box.addEventListener('change', () => { if (box.checked) state.selected.add(id); else state.selected.delete(id); renderSelectBar(); });
+  wrap.append(box, row);
+  return wrap;
+}
+
+function renderSelectBar(): void {
+  el.selectBar.hidden = !state.selecting;
+  el.selectCount.textContent = `${state.selected.size} selected`;
+  el.selectDelete.disabled = state.selected.size === 0;
+}
+
+function startSelecting(): void {
+  state.selecting = true;
+  state.selected.clear();
+  renderChat();
+}
+
+function stopSelecting(): void {
+  state.selecting = false;
+  state.selected.clear();
+  renderChat();
+}
+
+async function deleteSelected(): Promise<void> {
+  const chat = state.chat;
+  if (!chat || !state.selected.size) return;
+  try {
+    const r = await api.deleteMessages(chat.id, [...state.selected]);
+    if (r.canceled) return;
+    state.messages = state.messages.filter((m) => !state.selected.has(m.id));
+    stopSelecting();
+  } catch (err) {
+    showAttachError(plainError(err));
+  }
 }
 
 // ---------- web search (v1.18) ----------
@@ -416,12 +492,32 @@ function searchResultRow(m: Message): HTMLElement {
     const link = document.createElement('button');
     link.type = 'button'; link.className = 'link-btn'; link.textContent = r.title; link.title = r.url;
     link.addEventListener('click', () => void api.openLink(r.url).catch((err) => showAttachError(plainError(err))));
-    li.append(link, node('div', 'search-url', r.url), node('div', 'search-snippet', r.snippet));
+    // v1.19: open the page as text in this chat (main asks first, showing the URL).
+    const asText = document.createElement('button');
+    asText.type = 'button'; asText.className = 'link-btn page-open'; asText.textContent = 'Open as text';
+    asText.addEventListener('click', () => {
+      if (!state.chat) return;
+      asText.disabled = true;
+      void api.openPage(state.chat.id, r.url).catch((err) => showAttachError(plainError(err))).finally(() => { asText.disabled = false; });
+    });
+    li.append(link, node('div', 'search-url', r.url), node('div', 'search-snippet', r.snippet), asText);
     list.append(li);
   }
   card.append(list);
   addTime(card, m.createdAt);
   return card;
+}
+
+/** v1.19: Settings → Search history (local, newest first). */
+function renderSearchHistory(list: { id: number; query: string; searchedAt: string }[]): void {
+  el.searchHistory.replaceChildren(...list.slice(0, 50).map((h) => {
+    const li = node('li');
+    li.append(node('span', 'history-query', h.query),
+      node('span', 'muted history-time', new Date(h.searchedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })));
+    return li;
+  }));
+  el.searchHistoryEmpty.hidden = list.length > 0;
+  el.searchHistoryClear.disabled = list.length === 0;
 }
 
 function onSearchAsk(a: { id: string; chatId: number; query: string }): void {
@@ -481,9 +577,23 @@ function copyButton(text: string): HTMLButtonElement {
 }
 
 /** A user or bot message bubble: the text plus a small copy button (and a "Routine" tag for routine messages). */
+const MD_OPTS = {
+  // Links in chat text use the same main-side check as result links, plus a confirm showing the URL.
+  onLink: (url: string) => void api.openLink(url, true).catch((err) => showAttachError(plainError(err))),
+  onCopy: (text: string) => void api.copyText(text).catch(() => undefined),
+};
+
 function bubble(cls: string, text: string, fromRoutine = false, createdAt?: string): HTMLElement {
   const msg = node('div', `msg ${cls}`);
   if (fromRoutine) msg.append(node('span', 'routine-tag', 'Routine'));
+  if (cls === 'assistant') {
+    // v1.19: markdown, built as DOM nodes (text only, raw HTML stays text, no images).
+    const md = node('div', 'msg-text md');
+    md.append(renderMarkdown(text, MD_OPTS));
+    msg.append(md, copyButton(text));
+    addTime(msg, createdAt);
+    return msg;
+  }
   msg.append(node('span', 'msg-text', text), copyButton(text));
   addTime(msg, createdAt);
   return msg;
@@ -520,26 +630,30 @@ function renderBotChat(): void {
   for (const m of state.messages) {
     const match = !q || m.content.toLowerCase().includes(q);
     let row: HTMLElement | null = null;
-    if (m.role === 'user') row = bubble('user', m.content, m.routine, m.createdAt);
+    if (m.role === 'user') row = m.content.startsWith(PAGE_BLOCK_START) ? pageRow(m) : bubble('user', m.content, m.routine, m.createdAt);
     else if (m.role === 'assistant') {
       if (m.content) row = bubble('assistant', m.content, false, m.createdAt);
-      if (m.toolCalls?.some((c) => c.function?.name !== 'web_search')) {
+      if (m.toolCalls?.some(isFileCall)) {
         const note = node('div', 'msg note', `Reading file: ${toolCallLabel(m)}`);
         if (!match) note.classList.add('search-hidden');
         items.push(note);
       }
     } else if (m.toolName === 'web_search') {
       row = searchResultRow(m);
+    } else if (m.toolName === 'calculator') {
+      row = node('div', `msg note${m.content.startsWith('Error:') ? ' bad' : ''}`, `Calculator: ${m.content}`);
     } else {
       const bad = m.content.startsWith('Error:');
       row = node('div', `msg note${bad ? ' bad' : ''}`, bad ? `Couldn't read the file: ${m.content.slice(7)}` : `Read ${m.content.length} characters from the file`);
     }
     if (row) {
       if (!match) row.classList.add('search-hidden');
+      if (state.selecting) row = selectable(row, m.id);
       items.push(row);
     }
   }
   const busy = state.busy.has(chat.id);
+  renderSelectBar();
   for (const [id, a] of state.searchAsks) if (a.chatId === chat.id) items.push(searchAskCard(id, a.query));
   if (busy) items.push(node('div', 'msg assistant live', state.live));
   if (state.error) items.push(node('div', 'msg error', state.error));
@@ -793,6 +907,7 @@ function setBotFormMode(editName: string | null): void {
   el.botFormTitle.textContent = editName === null ? 'Create a Cipher bot' : `Edit ${editName}`;
   el.botSubmit.textContent = editName === null ? 'Create Cipher bot' : 'Save';
   el.botFormArt.hidden = editName !== null;
+  el.botMemoryWrap.hidden = editName === null; // v1.19: memory note is edited in the bot's settings
 }
 
 function openBotForm(): void {
@@ -816,6 +931,7 @@ function openEditBot(): void {
   el.form.reset();
   el.botName.value = bot.name;
   el.botJob.value = bot.systemPrompt;
+  el.botMemory.value = bot.memoryNote;
   // A bad stored shape/color shows (and saves) as the default, same as everywhere else.
   const shape = shapeOf(bot.shape);
   const color = colorOf(bot.color);
@@ -841,7 +957,8 @@ async function submitBotForm(e: Event): Promise<void> {
   const form = { name: el.botName.value, job: el.botJob.value, shape: shapeOf(pickedShape()), color: colorOf(pickedColor()) };
   if (state.editBotId !== null) {
     try {
-      const updated = await api.updateBot(state.editBotId, form);
+      let updated = await api.updateBot(state.editBotId, form);
+      if (el.botMemory.value.trim() !== updated.memoryNote) updated = await api.setBotMemory(updated.id, el.botMemory.value);
       state.editBotId = null;
       applyView();
       await replaceBot(updated); // the left column and the chat header update right away
@@ -922,6 +1039,7 @@ function closeForms(): void {
 function openSettings(): void {
   state.aboutOpen = false;
   void api.lastSearch().then((t) => { state.lastSearch = t; if (state.settingsOpen) renderSettings(); }).catch(() => undefined);
+  void api.searchHistory().then(renderSearchHistory).catch(() => undefined);
   void api.getLockState().then((ls) => { state.lock = ls; if (state.settingsOpen) renderLockSettings(); });
   for (const p of [el.lockMsg, el.lockError, el.backupMsg, el.backupError, el.restoreError]) p.hidden = true;
   state.settingsOpen = true;
@@ -1409,6 +1527,7 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'attach': return attachFile();
     case 'export': return exportOpenChat();
     case 'clear': return requestClearChat();
+    case 'select': return startSelecting();
     case 'edit': return openEditBot();
     case 'folder': return chooseFolder();
     case 'second': return toggleSecondFolder();
@@ -1573,6 +1692,9 @@ el.onlineSwitch.addEventListener('change', async () => {
   renderSettings();
 });
 api.onSearchAsk(onSearchAsk);
+el.searchHistoryClear.addEventListener('click', () => void api.clearSearchHistory().then(renderSearchHistory).catch(() => undefined));
+el.selectCancel.addEventListener('click', stopSelecting);
+el.selectDelete.addEventListener('click', () => void deleteSelected());
 api.onSearchClosed(onSearchClosed);
 el.lockForm.addEventListener('submit', (e) => void submitUnlock(e));
 el.lockSetForm.addEventListener('submit', (e) => void submitLockSet(e));

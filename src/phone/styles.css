@@ -33,3 +33,8 @@ button.ghost { width: auto; background: transparent; color: var(--text); padding
 .composer textarea { flex: 1; border: 0; background: transparent; resize: none; padding: 8px 0; max-height: 120px; }
 .composer .circle { flex: none; width: 40px; height: 40px; border-radius: 50%; padding: 0; display: grid; place-items: center; font-size: 18px; }
 .composer .circle.stop { background: #6b2a2a; }
+
+/* v1.19: web search confirm card */
+.msg.search-ask { align-self: stretch; border: 1px solid #5b8cff; border-radius: 14px; padding: 10px 12px; }
+.search-query { font-family: ui-monospace, monospace; border: 1px solid #2c303a; border-radius: 8px; padding: 6px 8px; margin: 6px 0; word-break: break-word; }
+.msg.search-ask .row { display: flex; gap: 8px; justify-content: flex-end; }

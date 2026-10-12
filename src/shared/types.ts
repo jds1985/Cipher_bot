@@ -8,6 +8,8 @@ export interface Bot {
   folderPath: string | null;
   /** v1.15: an optional second local folder, separate from folderPath. Read the same way, only with Read files on. */
   secondFolderPath: string | null;
+  /** v1.19: the user's memory note for this bot, added to its system prompt every chat ('' = none). */
+  memoryNote: string;
   /** v1.16: a reply arrived while this bot's chat wasn't open (local only; cleared on open). */
   unread: boolean;
   createdAt: string;
@@ -264,8 +266,17 @@ export interface CipherApi {
   answerSearch(id: string, ok: boolean): Promise<void>;
   /** v1.18: ISO time of the last search sent, or null (never). The query is not stored. */
   lastSearch(): Promise<string | null>;
-  /** v1.18: open a source link from a stored search result in the system browser (http/https, Online on). */
-  openLink(url: string): Promise<void>;
+  /** v1.18: open a source link from a stored search result in the system browser (http/https, Online on). v1.19: confirm=true asks first. */
+  openLink(url: string, confirm?: boolean): Promise<void>;
+  /** v1.19: open a saved search result's page as text in this chat (main asks first, showing the URL). */
+  openPage(chatId: number, url: string): Promise<{ ok: true; message: Message } | { ok: false; canceled: true }>;
+  /** v1.19: local search history, newest first. */
+  searchHistory(): Promise<{ id: number; query: string; searchedAt: string }[]>;
+  clearSearchHistory(): Promise<{ id: number; query: string; searchedAt: string }[]>;
+  /** v1.19: a bot's memory note ('' clears it). */
+  setBotMemory(botId: number, note: string): Promise<Bot>;
+  /** v1.19: delete chosen messages of one chat (main asks once). */
+  deleteMessages(chatId: number, ids: number[]): Promise<{ deleted: number; canceled?: boolean }>;
   /** Online switch: default off; persists. v1.18: when on, web search works (after the user presses Search). */
   getOnline(): Promise<boolean>;
   setOnline(on: boolean): Promise<boolean>;

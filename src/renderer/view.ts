@@ -71,7 +71,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'edit' | 'folder' | 'second' | 'tools' | 'routine';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -97,6 +97,7 @@ export function plusMenuItems(input:
     { id: 'attach', label: 'Attach file…', disabled: input.busy },
     { id: 'export', label: 'Export chat…', disabled: false },
     { id: 'clear', label: 'Clear chat…', disabled: false },
+    { id: 'select', label: 'Select messages…', disabled: input.busy },
     { id: 'edit', label: 'Edit bot…', disabled: false },
     { id: 'folder', label: 'Choose folder…', disabled: !input.toolsEnabled, hint: input.toolsEnabled ? (input.folderPath ?? 'No folder chosen') : 'Turn on Read files first' },
     {

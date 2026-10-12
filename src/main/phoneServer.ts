@@ -58,6 +58,10 @@ export interface PhoneServerDeps {
   onStatus?: (s: PhoneLinkStatus) => void;
   /** True while Cipher is locked on the desktop: the API then refuses everything, pairing included. */
   isLocked?: () => boolean;
+  /** v1.19: answer a web search confirm card main put up (main checks the id, Online and lock). */
+  answerSearch?: (id: string, ok: boolean) => void;
+  /** v1.19: confirm cards waiting for this chat (shown when the phone opens it). */
+  pendingSearches?: (chatId: number) => { id: string; query: string }[];
 }
 
 /** HTTP status and message the phone API returns for every request while Cipher is locked on the desktop. */
@@ -360,6 +364,23 @@ export class PhoneServer {
     }
   }
 
+  /** v1.19: show a search confirm card on phones viewing that chat. */
+  pushSearchAsk(a: { id: string; chatId: number; query: string }): void {
+    this.pushSearch(a.chatId, { type: 'search:ask', id: a.id, query: a.query });
+  }
+
+  /** v1.19: remove a confirm card (answered, timed out, Online off or lock). Sent even while locked: it carries no data. */
+  pushSearchClosed(id: string, chatId: number): void {
+    const line = `data: ${JSON.stringify({ channel: 'search', type: 'search:closed', id })}\n\n`;
+    for (const c of this.sse) if (c.chatId === chatId) { try { c.res.write(line); } catch { /* ignore */ } }
+  }
+
+  private pushSearch(chatId: number, payload: Record<string, unknown>): void {
+    if (this.locked()) return;
+    const line = `data: ${JSON.stringify({ channel: 'search', ...payload })}\n\n`;
+    for (const c of this.sse) if (c.chatId === chatId) { try { c.res.write(line); } catch { /* ignore */ } }
+  }
+
   private broadcastRoom(ev: RoomEvent): void {
     if (this.locked()) return;
     const line = `data: ${JSON.stringify({ channel: 'room', ...ev })}\n\n`;
@@ -408,6 +429,9 @@ export class PhoneServer {
       });
     }
 
+    // v1.19: the phone can never read or change Online (it is a desktop-only setting). Refused before anything else.
+    if (/^\/api\/(online|settings)(\/|$)/i.test(url.pathname)) return json(res, 403, { error: 'Online can only be changed on the desktop.' });
+
     const token = this.requireSession(req, res, url);
     if (!token) return;
 
@@ -437,7 +461,7 @@ export class PhoneServer {
       const chat = db.getBotChat(botId);
       const messages = db.listMessages(chat.id).filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ id: m.id, role: m.role, content: m.content, createdAt: m.createdAt }));
-      return json(res, 200, { chatId: chat.id, botId, messages });
+      return json(res, 200, { chatId: chat.id, botId, messages, searchAsks: this.deps.pendingSearches?.(chat.id) ?? [] });
     }
 
     const botSend = /^\/api\/bots\/(\d+)\/send$/.exec(url.pathname);
@@ -451,10 +475,21 @@ export class PhoneServer {
       if (this.chatAbort.has(chat.id)) return json(res, 409, { error: 'This chat is still replying.' });
       const controller = new AbortController();
       this.chatAbort.set(chat.id, controller);
-      // Fire and forget; stream via SSE. Tools are never offered on the phone path (deps.sendChat).
+      // Fire and forget; stream via SSE. File reading is never offered on the phone path (deps.sendChat); web search
+      // asks first, with a confirm card on the phone and the desktop.
       void this.deps.sendChat(chat.id, text, (e) => this.broadcastChat(e), controller.signal)
         .finally(() => this.chatAbort.delete(chat.id));
       return json(res, 202, { chatId: chat.id, accepted: true });
+    }
+
+    // v1.19: answer a search confirm card (paired session; refused while locked above).
+    if (method === 'POST' && url.pathname === '/api/search/answer') {
+      const raw = await readBody(req);
+      let body: { id?: unknown; ok?: unknown } = {};
+      try { body = JSON.parse(raw || '{}') as typeof body; } catch { /* empty */ }
+      if (typeof body.id !== 'string') return json(res, 400, { error: 'Missing card id.' });
+      this.deps.answerSearch?.(body.id, body.ok === true);
+      return json(res, 200, { answered: true });
     }
 
     const botStop = /^\/api\/bots\/(\d+)\/stop$/.exec(url.pathname);

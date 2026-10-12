@@ -125,7 +125,8 @@ test('2. one-time token: issued for a chat and exact query, single use, expires;
 });
 
 test('2. main issues tokens only from its own pending ask, only on Search, only while Online and unlocked; gated while locked', () => {
-  const answer = /handle\('search:answer'[\s\S]*?\n {2}\}\);/.exec(main)![0];
+  assert.match(main, /handle\('search:answer', \(_e, id: unknown, ok: unknown\) => answerSearchAsk\(id, ok\)\);/);
+  const answer = /function answerSearchAsk[\s\S]*?\n\}/.exec(main)![0];
   assert.match(answer, /pendingSearchAsks\.get\(id\)/);
   assert.match(answer, /ok === true && isOnline\(\) && !isLocked\(\) \? searchConsent\.issue\(ask\.chatId, ask\.query\) : null/);
   assert.doesNotMatch(answer, /query\s*:\s*unknown|_e, id: unknown, ok: unknown, /, 'the renderer cannot supply the query');
@@ -133,11 +134,11 @@ test('2. main issues tokens only from its own pending ask, only on Search, only 
   assert.match(main, /consumeConsent: \(q\) => searchConsent\.consume\(token, chatId, q\)/);
   assert.match(main, /run: async[\s\S]*?if \(isLocked\(\)\) throw/);
   assert.match(main, /confirm: [\s\S]*?if \(!isOnline\(\) \|\| isLocked\(\) \|\| signal\.aborted\) \{ resolve\(null\); return; \}/);
-  // Phone link and routines never get search hooks; rooms have no tools at all.
-  assert.match(main, /search: toolsOff \? undefined : searchHooks/);
+  // v1.19: phone turns get search (confirm card on the phone too); routines never; rooms have no tools at all.
+  assert.match(main, /forceToolsOff: toolsOff, search: searchHooks \}/);
   assert.match(main, /runChatTurn\(\{ db, model: currentModel\(\), emit, forceToolsOff: true, fromRoutine: true \}/);
   assert.doesNotMatch(read('src/main/roomEngine.ts'), /web_search|search/i);
-  assert.doesNotMatch(read('src/main/phoneServer.ts'), /web_search|searchHooks|search:answer/);
+  assert.doesNotMatch(read('src/main/phoneServer.ts'), /web_search|searchHooks|webSearch\(/);
 });
 
 function hooks(over: Partial<SearchHooks> & { log?: string[] } = {}): SearchHooks {
@@ -149,7 +150,7 @@ function hooks(over: Partial<SearchHooks> & { log?: string[] } = {}): SearchHook
   };
 }
 const call = (query: unknown) => ({ function: { name: 'web_search', arguments: { query } } });
-const deps = (search?: SearchHooks, forceToolsOff = false) => ({ db: {} as never, model: 'm', emit: () => undefined, forceToolsOff, search }) as EngineDeps;
+const deps = (search?: SearchHooks, fromRoutine = false) => ({ db: {} as never, model: 'm', emit: () => undefined, fromRoutine, search }) as EngineDeps;
 
 test('2. engine: asks first; Cancel / no answer → "User did not confirm the search" and nothing runs; no hooks → refused', async () => {
   const sig = new AbortController().signal;
@@ -203,7 +204,7 @@ test('3. kill switch: Online off aborts an in-flight search, drops its answer, a
   assert.match(renderer, /api\.onSearchClosed\(onSearchClosed\)/);
   // The tool itself leaves the reply when Online goes off (re-checked every round).
   const engine = read('src/main/chatEngine.ts');
-  assert.match(engine, /const searchOn = \(\): boolean => !deps\.forceToolsOff && !!deps\.search && deps\.search\.isOnline\(\);/);
+  assert.match(engine, /const searchOn = \(\): boolean => !deps\.fromRoutine && !!deps\.search && deps\.search\.isOnline\(\);/);
   assert.match(engine, /tools: offeredTools\(\),/);
   // Online-off result mid-search.
   let on3 = true;
@@ -248,7 +249,7 @@ test('4. a dropped .html page is attached as text through attachFromPath: script
 test('results persist in the chat (schema v8, idempotent migration); only stored result links count as openable', () => {
   const file = path.join(base, 'c.db');
   let db = new CipherDb(file);
-  assert.equal(SCHEMA_VERSION, 8);
+  assert.equal(SCHEMA_VERSION >= 8, true);
   const bot = db.createBot({ name: 'Ada', systemPrompt: '', toolsEnabled: false, folderPath: null });
   const chat = db.createChat(bot.id);
   const search = { query: 'cats', results: [{ title: 'Cats "x"', url: 'https://cats.test/a?b=1', snippet: 's' }] };
@@ -270,15 +271,15 @@ test('results persist in the chat (schema v8, idempotent migration); only stored
   assert.equal(db.listMessages(chat.id).length, 2);
   db.close();
   const check = new Database(file);
-  assert.equal(check.pragma('user_version', { simple: true }), 8);
+  assert.equal(check.pragma('user_version', { simple: true }), 9);
   check.close();
 });
 
-test('5. Settings: Online state and last search time; only the time is stored, never the query', () => {
-  assert.match(main, /onSend: \(\) => db\.setSetting\(LAST_SEARCH_KEY, new Date\(\)\.toISOString\(\)\)/);
+test('5. Settings: Online state and last search time; the settings key holds only the time (history is its own table, v1.19)', () => {
+  assert.match(main, /onSend: \(\) => \{ const at = new Date\(\)\.toISOString\(\); db\.setSetting\(LAST_SEARCH_KEY, at\); db\.addSearchHistory\(query, at\); \}/);
   const settingWrites = main.match(/setSetting\(LAST_SEARCH_KEY[^\n]*/g)!;
   assert.equal(settingWrites.length, 1);
-  assert.doesNotMatch(settingWrites[0], /query/);
+  assert.doesNotMatch(settingWrites[0].replace(/db\.addSearchHistory\(query, at\)/, ''), /query/);
   assert.match(html, /<span id="online-state"><\/span>/);
   assert.match(html, /Last search: <span id="last-search">never<\/span>/);
   assert.match(html, /src="assets\/cipher-online-on\.svg"/);
@@ -291,14 +292,15 @@ test('5. Settings: Online state and last search time; only the time is stored, n
   }
 });
 
-test('5. Policy: query and IP address go to DuckDuckGo, only after Search; only the time is kept; who never searches', () => {
+test('5. Policy: query and IP address go to DuckDuckGo, only after Search; history is local and clearable; who never searches', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const policy = require('../renderer/policy.js') as { POLICY_SECTIONS: readonly { heading: string; paragraphs: string[] }[] };
   const s = policy.POLICY_SECTIONS.find((x) => x.heading === 'Web search')!.paragraphs.join('\n');
   assert.match(s, /Nothing is sent unless you press Search/);
   assert.match(s, /the search words and your computer's IP address go to DuckDuckGo \(html\.duckduckgo\.com\)/);
-  assert.match(s, /keeps only that time there, never the search words/);
-  assert.match(s, /Routines, rooms, Phone link and a locked Cipher Bot never search/);
+  assert.match(s, /kept only in cipher\.db on this computer\. Clear search history deletes them for good/);
+  assert.match(s, /Routines, rooms and a locked Cipher Bot never search/);
+  assert.match(s, /The phone can never turn Online on or off/);
   assert.match(s, /scripts never run, and its links and images are never loaded/);
   assert.match(s, /only when you click it, and only while Online is on/);
 });

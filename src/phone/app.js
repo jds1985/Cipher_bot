@@ -114,6 +114,43 @@
     return div;
   }
 
+  // v1.19: the same web search confirm card as the desktop. Nothing is sent unless Search is pressed.
+  function showSearchAsk(id, query) {
+    if (document.getElementById('ask-' + id)) return;
+    const card = document.createElement('div');
+    card.className = 'msg search-ask';
+    card.id = 'ask-' + id;
+    const h = document.createElement('strong');
+    h.textContent = 'Search the web for:';
+    const q = document.createElement('div');
+    q.className = 'search-query';
+    q.textContent = query;
+    const note = document.createElement('p');
+    note.className = 'muted';
+    note.textContent = 'Only these words are sent, to DuckDuckGo (which also sees the desktop\'s IP address). Nothing is sent unless you press Search.';
+    const row = document.createElement('div');
+    row.className = 'row';
+    const answer = (ok) => {
+      for (const b of row.querySelectorAll('button')) b.disabled = true;
+      api('/api/search/answer', { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ok }) }).catch(() => {});
+    };
+    const cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'ghost'; cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => answer(false));
+    const go = document.createElement('button');
+    go.type = 'button'; go.textContent = 'Search';
+    go.addEventListener('click', () => answer(true));
+    row.append(cancel, go);
+    card.append(h, q, note, row);
+    $('messages').append(card);
+    $('messages').scrollTop = $('messages').scrollHeight;
+  }
+
+  function closeSearchAsk(id) {
+    const c = document.getElementById('ask-' + id);
+    if (c) c.remove();
+  }
+
   async function openBot(botId, name) {
     closeEvents();
     state.mode = 'bot';
@@ -125,6 +162,7 @@
     const data = await api('/api/bots/' + botId + '/chat', { headers: headers() });
     state.chatId = data.chatId;
     for (const m of data.messages) appendMsg(m.role, m.content);
+    for (const a of data.searchAsks || []) showSearchAsk(a.id, a.query);
     state.es = new EventSource('/api/bots/' + botId + '/events?token=' + encodeURIComponent(state.token));
     // The stream ends when the desktop locks: check the status, which shows the locked message if so.
     state.es.onerror = () => { api('/api/status', { headers: headers() }).catch(() => {}); };
@@ -132,6 +170,11 @@
     let live = null;
     state.es.onmessage = (ev) => {
       const d = JSON.parse(ev.data);
+      if (d.channel === 'search') {
+        if (d.type === 'search:ask') showSearchAsk(d.id, d.query);
+        else if (d.type === 'search:closed') closeSearchAsk(d.id);
+        return;
+      }
       if (d.type === 'token') {
         if (!live) live = appendMsg('assistant', '');
         live.textContent += d.text;

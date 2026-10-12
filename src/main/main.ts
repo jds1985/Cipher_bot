@@ -15,6 +15,7 @@ import { SetupManager } from './setup';
 import { ONLINE_SETTING_KEY, assertLinkOpenAllowed, assertOutboundAllowed, onlineSettingValue, parseOnlineSetting } from './networkGuard';
 import { webSearch, type SearchResult } from './webSearch';
 import { SearchConsent } from './searchConsent';
+import { fetchPageText, formatPageBlock } from './pageFetch';
 import type { SearchHooks } from './chatEngine';
 import { PhoneServer, PHONE_LINK_PORT } from './phoneServer';
 import { attachFromPath } from './attachFile';
@@ -269,7 +270,8 @@ const MAX_COPY_CHARS = 2_000_000;
 
 /** Start a 1:1 turn shared by desktop IPC and phone link. Web search only for the desktop (toolsOff is false). */
 function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal, toolsOff: boolean): Promise<void> {
-  return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff, search: toolsOff ? undefined : searchHooks }, chatId, text, signal);
+  // v1.19: phone turns get web search too (the confirm card shows on the phone and the desktop). Routines never do.
+  return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks }, chatId, text, signal);
 }
 
 // ---------- v1.18: web search (only while Online is on, only after the user presses Search) ----------
@@ -278,6 +280,8 @@ const LAST_SEARCH_KEY = 'last_search_at';
 /** A confirm card nobody answers counts as Cancel after this long. */
 const CONFIRM_TIMEOUT_MS = 120_000;
 const searchConsent = new SearchConsent();
+/** v1.19: one-time tokens for opening a search result page as text, bound to the chat and the exact URL. */
+const pageConsent = new SearchConsent();
 /** Confirm cards on screen: id → the chat and exact query main asked about. */
 const pendingSearchAsks = new Map<string, { chatId: number; query: string; resolve: (token: string | null) => void }>();
 /** Searches on the way; Online off or lock aborts them all. */
@@ -295,6 +299,18 @@ function settleSearchAsk(id: string, token: string | null): void {
   pendingSearchAsks.delete(id);
   ask.resolve(token);
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('search:closed', { id });
+  phone?.pushSearchClosed(id, ask.chatId);
+}
+
+/**
+ * The user's answer on a confirm card main put up (desktop IPC or a paired, unlocked phone session). Only main's own
+ * pending ask can get a token, for its chat and exact query, and only while Online is on and Cipher Bot is unlocked.
+ */
+function answerSearchAsk(id: unknown, ok: unknown): void {
+  if (typeof id !== 'string') return;
+  const ask = pendingSearchAsks.get(id);
+  if (!ask) return;
+  settleSearchAsk(id, ok === true && isOnline() && !isLocked() ? searchConsent.issue(ask.chatId, ask.query) : null);
 }
 
 /** Online off or lock: abort every search on the way, close every confirm card, forget unused tokens. */
@@ -303,6 +319,7 @@ function killSearch(): void {
   activeSearches.clear();
   for (const id of [...pendingSearchAsks.keys()]) settleSearchAsk(id, null);
   searchConsent.revokeAll();
+  pageConsent.revokeAll();
 }
 
 const searchHooks: SearchHooks = {
@@ -315,6 +332,7 @@ const searchHooks: SearchHooks = {
     signal.addEventListener('abort', onAbort, { once: true });
     pendingSearchAsks.set(id, { chatId, query, resolve: (t) => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); resolve(t); } });
     sendToWindow('search:ask', { id, chatId, query });
+    phone?.pushSearchAsk({ id, chatId, query });
   }),
   run: async (chatId, query, token, signal): Promise<SearchResult[]> => {
     if (isLocked()) throw new Error('Cipher Bot is locked.');
@@ -326,7 +344,7 @@ const searchHooks: SearchHooks = {
       return await webSearch(query, {
         isOnline: () => isOnline() && !isLocked(),
         consumeConsent: (q) => searchConsent.consume(token, chatId, q),
-        onSend: () => db.setSetting(LAST_SEARCH_KEY, new Date().toISOString()),
+        onSend: () => { const at = new Date().toISOString(); db.setSetting(LAST_SEARCH_KEY, at); db.addSearchHistory(query, at); },
         signal: controller.signal,
       });
     } finally {
@@ -479,19 +497,75 @@ function registerIpc(): void {
     return isOnline();
   });
   // v1.18: the user's answer on the confirm card. Only main's own pending ask (its chat and exact query) can get a token.
-  handle('search:answer', (_e, id: unknown, ok: unknown) => {
-    if (typeof id !== 'string') return;
-    const ask = pendingSearchAsks.get(id);
-    if (!ask) return;
-    settleSearchAsk(id, ok === true && isOnline() && !isLocked() ? searchConsent.issue(ask.chatId, ask.query) : null);
+  handle('search:answer', (_e, id: unknown, ok: unknown) => answerSearchAsk(id, ok));
+  // v1.19: local search history (cipher.db), with Clear (rows really deleted).
+  handle('search:history', () => db.listSearchHistory());
+  handle('search:clearHistory', () => { db.clearSearchHistory(); return db.listSearchHistory(); });
+  // v1.19: open a saved search result's page as text in the chat. Asks first (URL shown); one-time token for that
+  // exact URL; Online re-checked at send time and on every hop; public addresses only; text only; size-capped.
+  handle('page:open', async (e, chatIdRaw: unknown, url: unknown) => {
+    const chatId = asId(chatIdRaw);
+    if (typeof url !== 'string') throw new Error('Invalid link.');
+    assertLinkOpenAllowed(isOnline(), url);
+    if (!db.isStoredResultUrl(url)) throw new Error('Only links from search results can be opened.');
+    const target = new URL(url).toString();
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      type: 'question' as const, buttons: ['Cancel', 'Open as text'], defaultId: 1, cancelId: 0, noLink: true,
+      title: 'Open page as text', message: 'Open this page as text in the chat?',
+      detail: `${target}\n\nCipher Bot will download this one page from the site (the site sees your IP address) and keep only its text. Nothing on the page runs or loads.`,
+    };
+    const r = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+    if (r.response !== 1) return { ok: false as const, canceled: true as const };
+    if (!isOnline() || isLocked()) throw new Error('Online is off, so pages cannot be opened.');
+    const token = pageConsent.issue(chatId, target);
+    const controller = new AbortController();
+    activeSearches.add(controller);
+    try {
+      const page = await fetchPageText(target, {
+        isOnline: () => isOnline() && !isLocked(),
+        consumeConsent: (u) => pageConsent.consume(token, chatId, u),
+        signal: controller.signal,
+      });
+      const message = db.addMessage({ chatId, role: 'user', content: formatPageBlock(page) });
+      broadcastChat({ chatId, type: 'message', message });
+      return { ok: true as const, message };
+    } finally {
+      activeSearches.delete(controller);
+    }
+  });
+  // v1.19: a bot's memory note (local; in its system prompt every chat). '' clears it.
+  handle('bots:setMemory', (_e, botId: unknown, note: unknown) => db.setBotMemory(asId(botId), note));
+  // v1.19: delete chosen messages of one chat, after one confirm.
+  handle('messages:delete', async (e, chatIdRaw: unknown, ids: unknown) => {
+    const chatId = asId(chatIdRaw);
+    if (!Array.isArray(ids) || !ids.length) return { deleted: 0 };
+    if (activeTurns.has(chatId)) throw new Error('Wait for the reply to finish first.');
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = {
+      type: 'warning' as const, buttons: ['Cancel', 'Delete'], defaultId: 0, cancelId: 0, noLink: true,
+      title: 'Delete messages', message: `Delete ${ids.length} message${ids.length === 1 ? '' : 's'}?`, detail: 'This cannot be undone.',
+    };
+    const r = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+    if (r.response !== 1) return { deleted: 0, canceled: true };
+    return { deleted: db.deleteMessages(chatId, ids) };
   });
   handle('search:pending', () => [...pendingSearchAsks].map(([id, a]) => ({ id, chatId: a.chatId, query: a.query })));
   handle('search:last', () => db.getSetting(LAST_SEARCH_KEY));
   // v1.18: a source link from a stored search result opens in the system browser, on click only (http/https, Online on).
-  handle('link:open', async (_e, url: unknown) => {
+  // v1.19: links in chat text (markdown) use the same check, plus a confirm showing the URL.
+  handle('link:open', async (e, url: unknown, confirm: unknown) => {
     if (typeof url !== 'string') throw new Error('Invalid link.');
     assertLinkOpenAllowed(isOnline(), url);
     if (!db.isStoredResultUrl(url)) throw new Error('Only links from search results can be opened.');
+    if (confirm === true) {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      const opts = { type: 'question' as const, buttons: ['Cancel', 'Open in browser'], defaultId: 1, cancelId: 0, noLink: true,
+        title: 'Open link', message: 'Open this link in your web browser?', detail: url };
+      const r = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+      if (r.response !== 1) return;
+      if (!isOnline()) throw new Error('Online is off. Turn it on in Settings to open this link.');
+    }
     await shell.openExternal(url);
   });
 
@@ -683,6 +757,9 @@ if (!app.requestSingleInstanceLock()) {
       model: currentModel(),
       isLocked,
       onStatus: () => broadcastPhone(),
+      // v1.19: a paired, unlocked phone session may answer a confirm card main put up (same rules as the desktop).
+      answerSearch: (id, ok) => answerSearchAsk(id, ok),
+      pendingSearches: (chatId) => [...pendingSearchAsks].filter(([, a]) => a.chatId === chatId).map(([id, a]) => ({ id, query: a.query })),
       sendChat: (chatId, text, emit, signal) => {
         // Share abort map with desktop Stop where possible.
         if (activeTurns.has(chatId)) return Promise.reject(new Error('This chat is still replying.'));

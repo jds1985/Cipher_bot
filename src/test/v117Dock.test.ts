@@ -147,7 +147,7 @@ test('4. window bounds: saving is debounced', async () => {
   assert.equal(n, 2);
 });
 
-test('5. About: "New in this version" from one constant, five lines or fewer; version 1.18.0', () => {
+test('5. About: "New in this version" from one constant, five lines or fewer; version 1.19.0', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { WHATS_NEW } = require('../renderer/whatsNew.js') as { WHATS_NEW: readonly string[] };
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5, `${WHATS_NEW.length} lines`);
@@ -155,7 +155,7 @@ test('5. About: "New in this version" from one constant, five lines or fewer; ve
   assert.match(html, /<h3 class="whats-new-title">New in this version<\/h3>\s*<ul id="whats-new" class="whats-new"><\/ul>/);
   assert.match(renderer, /el\.whatsNew\.replaceChildren\(\.\.\.WHATS_NEW\.slice\(0, 5\)/);
   const pkg = JSON.parse(read('package.json')) as { name: string; productName: string; version: string };
-  assert.equal(pkg.version, '1.18.0');
+  assert.equal(pkg.version, '1.19.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher', 'userData stays ~/.config/Cipher');
 });

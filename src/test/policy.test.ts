@@ -60,8 +60,9 @@ test('phone link: a window to this desktop, off until turned on, pairing code, p
 test('Online: off unless turned on, enables only web search, and does not claim the app never touches the network', () => {
   const p = section(/^Online/);
   assert.match(p, /off unless you turn it on/);
-  assert.match(p, /the one new thing is web search/);
-  assert.match(p, /turning it off stops any search that is on the way and closes any search question/);
+  assert.match(p, /the only new things are web search and opening a search result as text/);
+  assert.match(p, /turning it off stops any search or page download that is on the way and closes any search question/);
+  assert.match(p, /Only the desktop can turn Online on or off/);
   assert.match(p, /does not mean Cipher Bot never touches the network/);
   assert.match(p, /model download and the "Get the engine" button/);
   assert.match(p, /regardless of the switch/);
@@ -125,7 +126,7 @@ test('backup and restore: local files you choose, not encrypted, contain everyth
   const p = section(/^Backup and restore$/);
   assert.match(p, /a file you choose on this computer/);
   assert.match(p, /Nothing is uploaded/);
-  assert.match(p, /A backup is not encrypted and contains all your Cipher bots, chats, rooms, routines and settings/);
+  assert.match(p, /A backup is not encrypted and contains all your Cipher bots \(with their memory notes\), chats, rooms, routines, search history and settings/);
   assert.match(p, /It does not include the lock: restoring never changes whether Cipher Bot is locked or what the passphrase is/);
   assert.match(p, /cipher\.db\.before-restore-<date>-<time>/);
   assert.match(p, /Restore turns Online off/);
