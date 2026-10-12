@@ -438,7 +438,8 @@ export class PhoneServer {
     const { db } = this.deps;
 
     if (method === 'GET' && url.pathname === '/api/bots') {
-      const bots = db.listBots().filter((b) => !b.archived).map((b) => ({ id: b.id, name: b.name, shape: b.shape, color: b.color }));
+      // v1.22: archived bots are listed as hidden (not openable here); only the desktop can restore them.
+      const bots = db.listBots().map((b) => ({ id: b.id, name: b.name, shape: b.shape, color: b.color, hidden: b.archived }));
       return json(res, 200, { bots });
     }
 
@@ -455,6 +456,10 @@ export class PhoneServer {
       return json(res, 200, { rooms });
     }
 
+    // v1.22: archiving and restoring are desktop-only; the phone is always refused (403).
+    if (/^\/api\/(bots|rooms)\/\d+\/(archive|unarchive|restore)$/i.test(url.pathname)) {
+      return json(res, 403, { error: 'Archive and restore are only available on the desktop.' });
+    }
     // v1.21: archived bots and rooms are not on the phone (hidden from the lists, every route refused).
     const one = /^\/api\/(bots|rooms)\/(\d+)\//.exec(url.pathname);
     if (one && (one[1] === 'bots' ? db.getBot(Number(one[2]))?.archived : db.getRoom(Number(one[2]))?.archived)) {

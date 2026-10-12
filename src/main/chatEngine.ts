@@ -3,6 +3,8 @@ import type { CipherDb } from './db';
 import { executeToolCall, READ_FILE_TOOL } from './readFileTool';
 import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
 import { CALCULATOR_TOOL, runCalculator } from './calculator';
+import { WRITE_FILE_TOOL } from './fileWrite';
+import { CHECKLIST_TOOL } from './checklist';
 import { NOT_CONFIRMED_RESULT, OFF_RESULT, WEB_SEARCH_TOOL, formatResultsForModel, normalizeQuery, type SearchResult } from './webSearch';
 
 /** Maximum model→tool→model round trips per user message. */
@@ -29,6 +31,20 @@ export interface SearchHooks {
   run: (chatId: number, query: string, token: string, signal: AbortSignal) => Promise<SearchResult[]>;
 }
 
+/**
+ * v1.22: write_file and checklist_add. Main provides these ONLY for desktop 1:1 turns (never for the phone, rooms or
+ * routines). Each one shows main's native confirm dialog and acts only through a one-time token; the engine never
+ * writes or adds anything itself. Both return the text the bot sees.
+ */
+export interface ActionHooks {
+  writeFile: (chatId: number, bot: Bot, path: unknown, content: unknown) => Promise<{ ok: boolean; path: string; content: string }>;
+  addChecklist: (chatId: number, bot: Bot, text: unknown) => Promise<{ ok: boolean; content: string; text: string }>;
+}
+
+const WRITE_HINT = 'You can also use write_file to save a text file into the shared folder. The user is asked first and may cancel; ' +
+  'if they cancel, do not try again unless they ask. Never say a file was written unless the result says so.';
+const CHECKLIST_HINT = "You can use checklist_add to add an item to the user's checklist. The user must approve each item.";
+
 export interface EngineDeps {
   db: CipherDb;
   model: string;
@@ -43,6 +59,8 @@ export interface EngineDeps {
   search?: SearchHooks;
   /** v1.20: the quoted message's text (snapshot) and a dropped image's folder-relative path for this user message. */
   userExtras?: { quote?: string | null; image?: string | null };
+  /** v1.22: desktop-only write_file / checklist_add hooks (absent for phone, routines, rooms and tests by default). */
+  actions?: ActionHooks;
 }
 
 /** v1.20: how a quote and an image are shown to the (text-only) model. */
@@ -73,10 +91,10 @@ export function memoryBlock(note: string | undefined | null): string {
 }
 
 /** Convert stored messages into Ollama's chat format. */
-export function buildHistory(bot: Bot, messages: Message[], searchOn = false): OllamaMessage[] {
+export function buildHistory(bot: Bot, messages: Message[], searchOn = false, actions: { write?: boolean; checklist?: boolean } = {}): OllamaMessage[] {
   const out: OllamaMessage[] = [];
   const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '',
-    searchOn ? SEARCH_HINT : '', REPLY_LENGTH_HINT[bot.replyLength ?? 'normal'], memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
+    searchOn ? SEARCH_HINT : '', actions.write ? WRITE_HINT : '', actions.checklist ? CHECKLIST_HINT : '', REPLY_LENGTH_HINT[bot.replyLength ?? 'normal'], memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
   if (system) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'tool') {
@@ -105,6 +123,9 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   const text = userText.trim();
   if (!text) throw new Error('Message is empty.');
   const toolsOn = bot.toolsEnabled && !deps.forceToolsOff;
+  // v1.22: never for routines or forced-off turns (the phone), only when main passed the hooks (desktop).
+  const actionsOn = !!deps.actions && !deps.fromRoutine && !deps.forceToolsOff;
+  const writeOn = actionsOn && toolsOn && !!bot.folderPath;
 
   emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text, routine: deps.fromRoutine === true,
     quote: deps.userExtras?.quote ?? null, image: deps.userExtras?.image ?? null }) });
@@ -114,7 +135,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   const searchOn = (): boolean => !deps.fromRoutine && !!deps.search && deps.search.isOnline();
   const offeredTools = (): unknown[] | undefined => {
     // The calculator is local (no network, no files): offered in every 1:1 chat turn except routines.
-    const t: unknown[] = [...(toolsOn ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : []), ...(deps.fromRoutine ? [] : [CALCULATOR_TOOL])];
+    const t: unknown[] = [...(toolsOn ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : []), ...(deps.fromRoutine ? [] : [CALCULATOR_TOOL]),
+      ...(writeOn ? [WRITE_FILE_TOOL] : []), ...(actionsOn ? [CHECKLIST_TOOL] : [])];
     return t.length ? t : undefined;
   };
 
@@ -127,7 +149,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
         options: replyOptions(bot.replyLength),
         host: deps.host ?? OLLAMA_HOST,
         fetchImpl: deps.fetchImpl,
-        messages: buildHistory({ ...bot, toolsEnabled: toolsOn }, db.listMessages(chatId), searchOn()),
+        messages: buildHistory({ ...bot, toolsEnabled: toolsOn }, db.listMessages(chatId), searchOn(), { write: writeOn, checklist: actionsOn }),
         tools: offeredTools(),
         signal,
         onToken: (t) => { partial += t; emit({ chatId, type: 'token', text: t }); },
@@ -159,6 +181,23 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
           emit({ chatId, type: 'tool', name: 'calculator', path: '', ok: c.ok, detail: c.content });
           const calcMsg = db.addMessage({ chatId, role: 'tool', content: c.content, toolName: 'calculator' });
           emit({ chatId, type: 'message', message: calcMsg });
+          continue;
+        }
+        if (call?.function?.name === 'write_file' || call?.function?.name === 'checklist_add') {
+          const name = call.function.name;
+          const args = parseArgs(call.function.arguments);
+          let r: { ok: boolean; path?: string; content: string; text?: string };
+          if (name === 'write_file') {
+            r = writeOn && deps.actions ? await deps.actions.writeFile(chatId, bot, args.path, args.content)
+              : { ok: false, path: '', content: 'Error: writing files is not available here.' };
+          } else {
+            r = actionsOn && deps.actions ? await deps.actions.addChecklist(chatId, bot, args.text)
+              : { ok: false, content: 'Error: the checklist is not available here.' };
+          }
+          if (signal.aborted) throw new Error('Stopped.');
+          emit({ chatId, type: 'tool', name, path: r.path ?? r.text ?? '', ok: r.ok, detail: r.content });
+          const actMsg = db.addMessage({ chatId, role: 'tool', content: r.content, toolName: name });
+          emit({ chatId, type: 'message', message: actMsg });
           continue;
         }
         if (!toolsOn) {
@@ -213,4 +252,10 @@ export async function runSearchCall(deps: EngineDeps, chatId: number, call: Tool
     if (!hooks.isOnline()) return { ok: false, query, content: OFF_RESULT };
     return { ok: false, query, content: `Error: the web search failed (${e instanceof Error ? e.message : 'unknown error'}). Answer without web results.` };
   }
+}
+
+function parseArgs(raw: unknown): Record<string, unknown> {
+  let a: unknown = raw ?? {};
+  if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = {}; } }
+  return a && typeof a === 'object' ? (a as Record<string, unknown>) : {};
 }

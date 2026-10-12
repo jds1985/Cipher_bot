@@ -4,13 +4,15 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
 import { CipherDb, isUrlBlocked } from './db';
-import { runChatTurn } from './chatEngine';
+import { runChatTurn, type ActionHooks } from './chatEngine';
+import { WriteConsent, confirmAndWrite } from './fileWrite';
+import { confirmChecklistAdd } from './checklist';
 import { runRoomTurn } from './roomEngine';
 import { SEND_SOUND_SETTING_KEY, parseSendSound, shouldMarkUnread } from './unread';
 import { DEFAULT_SIZE, MIN_SIZE, SAVE_DEBOUNCE_MS, debounce, loadWindowState, saveWindowState } from './windowBounds';
-import { UI_PREFS, isUiPrefName, readUiPrefs } from './uiPrefs';
+import { ACCENT_KEY, UI_PREFS, isUiPrefName, parseAccent, readUiPrefs } from './uiPrefs';
 import { formToProfile, toNewBot } from './createBot';
-import { chatMarkdown } from './chatMarkdown';
+import { chatMarkdown, roomMarkdown } from './chatMarkdown';
 import { botChatExportLines, exportFileName, formatChatExport, roomExportLines } from './exportChat';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
@@ -131,6 +133,8 @@ async function lockApp(win: BrowserWindow): Promise<void> {
   openBotId = null;
   openRoomId = null;
   phone?.closeStreams();
+  writeConsent.revokeAll(); // v1.22: unused write / checklist tokens die on lock
+  checklistConsent.revokeAll();
   if (!win.webContents.isDestroyed()) {
     await win.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lock: String(++lockLoads) }, hash: 'nosplash' })
       .catch(() => undefined);
@@ -323,8 +327,35 @@ async function sendExtras(chatId: number, raw: unknown): Promise<{ quote: string
 function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal, toolsOff: boolean,
   userExtras?: { quote: string | null; image: string | null }): Promise<void> {
   // v1.19: phone turns get web search too (the confirm card shows on the phone and the desktop). Routines never do.
-  return runChatTurn({ db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks, userExtras }, chatId, text, signal);
+  // v1.22: write_file / checklist_add only on the desktop (toolsOff is true for the phone): the confirm is a native
+  // dialog on this computer, so the phone can never approve a write or a checklist item.
+  const base = { db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks, userExtras };
+  return runChatTurn({ ...base, actions: toolsOff ? undefined : actionHooks }, chatId, text, signal);
 }
+
+// ---------- v1.22: file writes and checklist adds (native confirm in main, one-time tokens) ----------
+const writeConsent = new WriteConsent();
+const checklistConsent = new SearchConsent();
+
+/** Main's native confirm (never the renderer). Cancel is the default and the Escape answer. */
+async function nativeAsk(title: string, t: { message: string; detail: string; buttons: string[] }): Promise<number> {
+  if (isLocked()) return 0;
+  const parent = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  const opts = { type: 'question' as const, buttons: t.buttons, defaultId: 0, cancelId: 0, noLink: true, title, message: t.message, detail: t.detail };
+  const r = parent ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts);
+  return r.response;
+}
+
+const actionHooks: ActionHooks = {
+  writeFile: (chatId, bot, p, content) => confirmAndWrite(
+    { consent: writeConsent, isLocked, ask: (t) => nativeAsk('Write a file', t) }, chatId, bot.name, bot.folderPath, p, content),
+  addChecklist: async (chatId, bot, text) => {
+    const r = await confirmChecklistAdd({ consent: checklistConsent, isLocked, ask: (t) => nativeAsk('Checklist', t),
+      add: (botId, item) => { db.addChecklistItem(botId, item); } }, chatId, bot.id, bot.name, text);
+    if (r.ok && !isLocked()) sendToWindow('checklist:changed', bot.id);
+    return r;
+  },
+};
 
 // ---------- v1.18: web search (only while Online is on, only after the user presses Search) ----------
 /** Settings key for the time of the last search sent (never the query). */
@@ -765,6 +796,21 @@ function registerIpc(): void {
     if (typeof filePath !== 'string' || !filePath) return { ok: false as const, error: 'Only files from this computer can be attached.' };
     return attachFromPath(bot, filePath);
   });
+  // v1.22: one tap saves a message's text into its bot's memory note (refused clearly when the note is full).
+  handle('memory:remember', (_e, chatIdRaw: unknown, idRaw: unknown) => {
+    const chatId = asId(chatIdRaw);
+    const chat = db.getChat(chatId);
+    const m = chat ? db.getMessage(chatId, asId(idRaw)) : null;
+    if (!chat || !m) throw new Error('That message is gone.');
+    return db.appendBotMemory(chat.botId, m.content);
+  });
+  // v1.22: the checklist (user actions; a bot can only add through actionHooks.addChecklist and its native confirm).
+  handle('checklist:list', (_e, botId: unknown) => db.listChecklist(asId(botId)));
+  handle('checklist:add', (_e, botId: unknown, text: unknown) => db.addChecklistItem(asId(botId), text));
+  handle('checklist:done', (_e, botId: unknown, itemId: unknown, done: unknown) => db.setChecklistDone(asId(botId), asId(itemId), done === true));
+  handle('checklist:delete', (_e, botId: unknown, itemId: unknown) => db.deleteChecklistItem(asId(botId), asId(itemId)));
+  handle('accent:get', () => parseAccent(db.getSetting(ACCENT_KEY)));
+  handle('accent:set', (_e, a: unknown) => { const v = parseAccent(a); db.setSetting(ACCENT_KEY, v); return v; });
   handle('prefs:get', () => readUiPrefs((k) => db.getSetting(k)));
   handle('prefs:set', (_e, name: unknown, value: unknown) => {
     if (!isUiPrefName(name)) throw new Error('Unknown setting.');
@@ -839,10 +885,22 @@ function registerIpc(): void {
   handle('window:setAlwaysOnTop', (_e, on: unknown) => setAlwaysOnTop(on === true));
   handle('tips:get', () => db.getSetting(TIPS_SEEN_KEY) !== '1');
   handle('tips:done', () => { db.setSetting(TIPS_SEEN_KEY, '1'); });
-  handle('chat:markdown', (_e, botIdRaw: unknown) => {
-    const bot = db.getBot(asId(botIdRaw));
-    if (!bot) throw new Error('Cipher bot not found.');
-    const text = chatMarkdown(bot.name, db.listMessages(db.getBotChat(bot.id).id));
+  // v1.21: a bot's chat as Markdown; v1.22: rooms too (kind 'room'). Clipboard only.
+  handle('chat:markdown', (_e, a: unknown, b: unknown) => {
+    const kind = a === 'room' || a === 'bot' ? a : 'bot';
+    const id = asId(a === 'room' || a === 'bot' ? b : a);
+    let text: string;
+    if (kind === 'room') {
+      const room = db.getRoom(id);
+      if (!room) throw new Error('Room not found.');
+      const nameOf = (botId: number | null) => (botId === null ? null : db.getBot(botId)?.name ?? null);
+      const name = room.name.trim() || room.memberIds.map((x) => nameOf(x)).filter((n): n is string => !!n).join(', ') || 'Room';
+      text = roomMarkdown(name, db.listRoomMessages(id), nameOf);
+    } else {
+      const bot = db.getBot(id);
+      if (!bot) throw new Error('Cipher bot not found.');
+      text = chatMarkdown(bot.name, db.listMessages(db.getBotChat(bot.id).id));
+    }
     if (text.length > MAX_COPY_CHARS) throw new Error('This chat is too long to copy.');
     clipboard.writeText(text);
     return { chars: text.length };

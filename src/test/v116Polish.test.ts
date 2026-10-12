@@ -44,7 +44,7 @@ test('1. package screen says Cipher Bot, has the icon, and no lone "Cipher"; set
 });
 
 test('2. version: from package.json via app.getVersion(), read once in main, never hardcoded in the UI', () => {
-  assert.equal(pkg.version, '1.21.0');
+  assert.equal(pkg.version, '1.22.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher', 'userData stays ~/.config/Cipher');
   assert.equal(pkg.build.productName, 'Cipher');
@@ -96,13 +96,13 @@ test('3. unread: stored locally (v7 migration, idempotent), set and cleared per 
   assert.equal(db.getRoom(room.id)!.unread, false);
   db.close();
   const check = new Database(file, { readonly: true });
-  assert.equal(check.pragma('user_version', { simple: true }), 11); // current schema (v11 since v1.21)
+  assert.equal(check.pragma('user_version', { simple: true }), 12); // current schema (v12 since v1.22)
   assert.equal(SCHEMA_VERSION >= 7, true);
   check.close();
 });
 
 test('3. unread: #5b8cff dot in the sidebar, cleared on open; hidden on the lock screen and never sent to the phone', () => {
-  assert.match(css, /\.unread-dot \{[^}]*background: #5b8cff;/);
+  assert.match(css, /\.unread-dot \{[^}]*background: (#5b8cff|var\(--accent\));/);
   assert.match(renderer, /addUnreadDot\(btn, b\.unread && !\(showingChat && b\.id === state\.botId\)\);/);
   assert.match(renderer, /addUnreadDot\(btn, r\.unread && !\(showingChat && r\.id === state\.roomId\)\);/);
   assert.match(renderer, /clearUnread\('bot', botId\);/);
@@ -113,7 +113,7 @@ test('3. unread: #5b8cff dot in the sidebar, cleared on open; hidden on the lock
   assert.match(main, /if \(isLocked\(\)\) return; \/\/ nothing about it goes to the window while locked/);
   // Phone: bots and rooms are sent with explicit fields only, never `unread`.
   const phone = read('src/main/phoneServer.ts');
-  assert.match(phone, /db\.listBots\(\)\.filter\(\(b\) => !b\.archived\)\.map\(\(b\) => \(\{ id: b\.id, name: b\.name, shape: b\.shape, color: b\.color \}\)\)/);
+  assert.match(phone, /db\.listBots\(\)\.map\(\(b\) => \(\{ id: b\.id, name: b\.name, shape: b\.shape, color: b\.color, hidden: b\.archived \}\)\)/);
   for (const f of ['src/main/phoneServer.ts', 'src/phone/app.js', 'src/phone/index.html']) assert.doesNotMatch(read(f), /unread/i, f);
 });
 

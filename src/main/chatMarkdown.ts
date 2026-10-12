@@ -1,6 +1,6 @@
 // v1.21: the open chat as Markdown for the clipboard. Your messages and the bot's replies only (tool notes, search
 // result cards and page blocks are summarized in one line each). Nothing leaves the computer; it goes to the clipboard.
-import type { Message } from '../shared/types';
+import type { Message, RoomMessage } from '../shared/types';
 
 export function chatMarkdown(botName: string, messages: readonly Message[]): string {
   const out: string[] = [`# Chat with ${botName}`, ''];
@@ -18,6 +18,16 @@ export function chatMarkdown(botName: string, messages: readonly Message[]): str
     } else if (m.toolName === 'calculator') {
       out.push(`*Calculator: ${m.content}*`, '');
     }
+  }
+  return `${out.join('\n').trimEnd()}\n`;
+}
+
+/** v1.22: a room as Markdown, the same way as a bot's chat (who said what, in order). */
+export function roomMarkdown(roomName: string, messages: readonly RoomMessage[], nameOf: (botId: number | null) => string | null): string {
+  const out: string[] = [`# Room: ${roomName}`, ''];
+  for (const m of messages) {
+    if (!m.content.trim()) continue;
+    out.push(m.role === 'user' ? '**You:**' : `**${nameOf(m.botId) ?? 'Cipher bot'}:**`, m.content, '');
   }
   return `${out.join('\n').trimEnd()}\n`;
 }

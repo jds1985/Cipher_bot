@@ -92,6 +92,10 @@ export interface NewBot {
 }
 
 /** A group chat: two or more Cipher bots and the user. */
+export interface UiPrefsState { showTimes: boolean; dockCollapsed: boolean; reduceMotion: boolean }
+export type AccentName = 'blue' | 'teal' | 'violet' | 'amber' | 'rose';
+export interface ChecklistItem { id: number; botId: number; text: string; done: boolean; createdAt: string }
+
 export interface Room {
   id: number;
   /** Optional name; empty means "show the members' names". */
@@ -225,8 +229,19 @@ export interface CipherApi {
   /** v1.17: attach a dropped file, through the same checks as pickAttachFile. */
   attachDroppedFile(botId: number, filePath: string): Promise<AttachPickResult>;
   /** v1.17: display preferences (message times, dock collapsed), stored locally. */
-  getUiPrefs(): Promise<{ showTimes: boolean; dockCollapsed: boolean }>;
-  setUiPref(name: 'showTimes' | 'dockCollapsed', value: boolean): Promise<{ showTimes: boolean; dockCollapsed: boolean }>;
+  getUiPrefs(): Promise<UiPrefsState>;
+  setUiPref(name: 'showTimes' | 'dockCollapsed' | 'reduceMotion', value: boolean): Promise<UiPrefsState>;
+  /** v1.22: accent color (blue, teal, violet, amber, rose). */
+  getAccent(): Promise<AccentName>;
+  setAccent(accent: AccentName): Promise<AccentName>;
+  /** v1.22: save a message's text into its bot's memory note (one tap; refused clearly when the 2000-char note is full). */
+  rememberMessage(chatId: number, messageId: number): Promise<Bot>;
+  /** v1.22: a bot's checklist (cipher.db). The user adds, checks and deletes; a bot only adds after a native confirm. */
+  checklist(botId: number): Promise<ChecklistItem[]>;
+  checklistAdd(botId: number, text: string): Promise<ChecklistItem[]>;
+  checklistSetDone(botId: number, itemId: number, done: boolean): Promise<ChecklistItem[]>;
+  checklistDelete(botId: number, itemId: number): Promise<ChecklistItem[]>;
+  onChecklist(cb: (botId: number) => void): () => void;
   /** The bot's one chat (its most recent one), created on first open. */
   openBotChat(botId: number): Promise<Chat>;
   listMessages(chatId: number): Promise<Message[]>;
@@ -310,6 +325,8 @@ export interface CipherApi {
   tipsDone(): Promise<void>;
   /** v1.21: copy the bot's chat as Markdown to the clipboard. */
   copyChatMarkdown(botId: number): Promise<{ chars: number }>;
+  /** v1.22: the same for a room (or a bot, with kind 'bot'). */
+  copyMarkdown(kind: 'bot' | 'room', id: number): Promise<{ chars: number }>;
   /** v1.20: pin/unpin a message; returns the chat's pinned messages. */
   pinMessage(chatId: number, id: number, on: boolean): Promise<Message[]>;
   listPinned(chatId: number): Promise<Message[]>;

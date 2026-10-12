@@ -236,6 +236,22 @@
               </label>
             </div>
             <div class="settings-block">
+              <h3>Accent color</h3>
+              <div id="accent-list" class="accent-list" role="radiogroup" aria-label="Accent color">
+                <button type="button" class="accent-swatch" data-accent="blue" role="radio" aria-label="Blue (default)" title="Blue (default)"><img src="assets/swatch-cipher-blue.svg" alt="" width="32" height="32" /></button>
+                <button type="button" class="accent-swatch" data-accent="teal" role="radio" aria-label="Teal" title="Teal"><img src="assets/swatch-teal.svg" alt="" width="32" height="32" /></button>
+                <button type="button" class="accent-swatch" data-accent="violet" role="radio" aria-label="Violet" title="Violet"><img src="assets/swatch-violet.svg" alt="" width="32" height="32" /></button>
+                <button type="button" class="accent-swatch" data-accent="amber" role="radio" aria-label="Amber" title="Amber"><img src="assets/swatch-amber.svg" alt="" width="32" height="32" /></button>
+                <button type="button" class="accent-swatch" data-accent="rose" role="radio" aria-label="Rose" title="Rose"><img src="assets/swatch-rose.svg" alt="" width="32" height="32" /></button>
+              </div>
+            </div>
+            <div class="settings-block">
+              <label class="row switch-row">
+                <input type="checkbox" id="motion-switch" />
+                <span><strong>Reduce motion</strong><span class="muted switch-hint"> Off by default. Stops icon animation and the splash fade. Your system's reduce-motion setting is always followed.</span></span>
+              </label>
+            </div>
+            <div class="settings-block">
               <h3>Keyboard shortcuts</h3>
               <dl id="shortcut-list" class="shortcut-list"></dl>
             </div>
@@ -306,6 +322,13 @@
               <strong id="chat-bot-name"></strong>
             </div>
           </header>
+          <div id="find-bar" class="find-bar row" role="search" hidden>
+            <input id="find-input" type="search" placeholder="Find in this chat" aria-label="Find in this chat" maxlength="200" />
+            <span id="find-count" class="muted find-count" aria-live="polite"></span>
+            <button type="button" id="find-prev" class="secondary small" aria-label="Previous match">↑</button>
+            <button type="button" id="find-next" class="secondary small" aria-label="Next match">↓</button>
+            <button type="button" id="find-close" class="secondary small" aria-label="Close find">✕</button>
+          </div>
           <div id="pinned-strip" class="pinned-strip" hidden></div>
           <div id="messages"></div>
           <div id="select-bar" class="select-bar" hidden>
@@ -345,6 +368,20 @@
       </main>
     </div>
     <div id="bottombar" aria-hidden="true"></div>
+    <div id="checklist-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="checklist-title" hidden>
+      <div class="checklist-card">
+        <h3 id="checklist-title" class="row checklist-title"><img src="assets/cipher-checklist.svg" alt="" width="20" height="20" /><span id="checklist-name">Checklist</span></h3>
+        <p class="muted small-note">Kept in cipher.db on this computer. Your Cipher bot can only add an item after you approve it.</p>
+        <ul id="checklist-list" class="checklist-list"></ul>
+        <p id="checklist-empty" class="muted">Nothing on the list yet.</p>
+        <form id="checklist-form" class="row">
+          <input id="checklist-input" type="text" maxlength="300" placeholder="Add an item" aria-label="New checklist item" />
+          <button type="submit">Add</button>
+        </form>
+        <p id="checklist-error" class="error" hidden></p>
+        <div class="row end"><button type="button" id="checklist-close" class="secondary">Close</button></div>
+      </div>
+    </div>
     <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="Image" hidden>
       <img id="image-viewer-img" class="image-viewer-img" alt="" />
       <p id="image-viewer-name" class="image-viewer-name"></p>

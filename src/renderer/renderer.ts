@@ -1,7 +1,7 @@
-import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
+import type { Bot, Chat, ChecklistItem, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
-import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, type PlusItem, type PlusItemId } from './view.js';
+import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -73,6 +73,12 @@ const el = {
   siteForm: $<HTMLFormElement>('site-form'), siteInput: $<HTMLInputElement>('site-input'), siteError: $('site-error'), siteList: $('site-list'), siteEmpty: $('site-empty'),
   archivedList: $('archived-list'), archivedEmpty: $('archived-empty'),
   imageViewer: $('image-viewer'), imageViewerImg: $<HTMLImageElement>('image-viewer-img'), imageViewerName: $('image-viewer-name'), imageViewerClose: $<HTMLButtonElement>('image-viewer-close'),
+  findBar: $('find-bar'), findInput: $<HTMLInputElement>('find-input'), findCount: $('find-count'), findPrev: $<HTMLButtonElement>('find-prev'),
+  findNext: $<HTMLButtonElement>('find-next'), findClose: $<HTMLButtonElement>('find-close'),
+  accentList: $('accent-list'), motionSwitch: $<HTMLInputElement>('motion-switch'),
+  checklistModal: $('checklist-modal'), checklistName: $('checklist-name'), checklistList: $('checklist-list'), checklistEmpty: $('checklist-empty'),
+  checklistForm: $<HTMLFormElement>('checklist-form'), checklistInput: $<HTMLInputElement>('checklist-input'), checklistError: $('checklist-error'),
+  checklistClose: $<HTMLButtonElement>('checklist-close'),
   tips: $('tips'), tipIcon: $<HTMLImageElement>('tip-icon'), tipTitle: $('tip-title'), tipBody: $('tip-body'), tipStep: $('tip-step'), tipSkip: $<HTMLButtonElement>('tip-skip'), tipNext: $<HTMLButtonElement>('tip-next'),
   shortcutList: $('shortcut-list'), debugChats: $<HTMLInputElement>('debug-chats'), debugExport: $<HTMLButtonElement>('debug-export'), debugMsg: $('debug-msg'),
 };
@@ -108,7 +114,7 @@ const state = {
   /** v1.16: optional send sound (off by default). */
   sendSound: false,
   /** v1.17: display preferences (stored in main): message times (on by default), dock collapsed (off by default). */
-  prefs: { showTimes: true, dockCollapsed: false },
+  prefs: { showTimes: true, dockCollapsed: false, reduceMotion: false },
   /** v1.18: confirm cards main is waiting on (id → chat and exact query). */
   searchAsks: new Map<string, { chatId: number; query: string }>(),
   /** v1.19: multi-select: on/off and the chosen message ids. */
@@ -320,8 +326,9 @@ function renderDock(): void {
   el.dockToggle.title = label;
 }
 
-async function setUiPref(name: 'showTimes' | 'dockCollapsed', value: boolean): Promise<void> {
+async function setUiPref(name: 'showTimes' | 'dockCollapsed' | 'reduceMotion', value: boolean): Promise<void> {
   state.prefs = await api.setUiPref(name, value);
+  applyMotion();
   renderRail();
   if (name === 'showTimes' && !el.chatView.hidden) renderChat();
   el.timesSwitch.checked = state.prefs.showTimes;
@@ -686,6 +693,7 @@ function decorateMessage(row: HTMLElement, m: Message, chatId: number): void {
   acts.append(
     iconButton('assets/cipher-quote.svg', 'Quote this message', 'quote-btn', () => { state.quote = { id: m.id, text: m.content }; renderQuoteUi(); el.input.focus(); }),
     iconButton('assets/cipher-pin.svg', m.pinned ? 'Unpin' : 'Pin to the top', `pin-btn${m.pinned ? ' on' : ''}`, () => void togglePin(chatId, m.id, !m.pinned)),
+    iconButton('assets/cipher-memory.svg', 'Save to memory note', 'remember-btn', () => void rememberMessage(chatId, m.id)),
   );
   row.append(acts);
 }
@@ -740,6 +748,7 @@ function addTime(msg: HTMLElement, createdAt?: string): void {
 function renderChat(): void {
   if (state.roomId !== null) renderRoom();
   else renderBotChat();
+  if (!el.findBar.hidden) applyFind(false);
 }
 
 function setComposer(busy: boolean, placeholder: string): void {
@@ -774,6 +783,10 @@ function renderBotChat(): void {
       row = searchResultRow(m);
     } else if (m.toolName === 'calculator') {
       row = node('div', `msg note${m.content.startsWith('Error:') ? ' bad' : ''}`, `Calculator: ${m.content}`);
+    } else if (m.toolName === 'write_file' || m.toolName === 'checklist_add') {
+      // v1.22: the outcome main reported (written, cancelled or refused), as plain text.
+      const ok = /^(Wrote|Added)/.test(m.content);
+      row = node('div', `msg note${ok ? '' : ' bad'}`, `${m.toolName === 'write_file' ? 'Write file' : 'Checklist'}: ${m.content}`);
     } else {
       const bad = m.content.startsWith('Error:');
       row = node('div', `msg note${bad ? ' bad' : ''}`, bad ? `Couldn't read the file: ${m.content.slice(7)}` : `Read ${m.content.length} characters from the file`);
@@ -1686,6 +1699,7 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'routine': return openRoutine();
     case 'mute': return toggleMute();
     case 'markdown': return copyMarkdown();
+    case 'checklist': return openChecklist();
     case 'archive': return state.roomId !== null ? archiveItem('room', state.roomId) : state.botId !== null ? archiveItem('bot', state.botId) : undefined;
   }
 }
@@ -1722,10 +1736,10 @@ function renderArchived(): void {
 }
 
 async function copyMarkdown(): Promise<void> {
-  const bot = currentBot();
-  if (!bot) return;
+  const target = state.roomId !== null ? { kind: 'room' as const, id: state.roomId } : state.botId !== null ? { kind: 'bot' as const, id: state.botId } : null;
+  if (!target) return;
   try {
-    const r = await api.copyChatMarkdown(bot.id);
+    const r = await api.copyMarkdown(target.kind, target.id);
     showAttachError(`Copied the chat as Markdown (${r.chars} characters).`);
     el.attachError.classList.add('ok');
     window.setTimeout(() => { el.attachError.classList.remove('ok'); clearAttachError(); }, 2500);
@@ -2038,6 +2052,8 @@ async function loadAppData(): Promise<void> {
     state.version = await api.getVersion();
     state.sendSound = await api.getSendSound();
     state.prefs = await api.getUiPrefs();
+    applyMotion();
+    void api.getAccent().then(applyAccent).catch(() => undefined);
     for (const a of await api.pendingSearches()) state.searchAsks.set(a.id, { chatId: a.chatId, query: a.query });
     state.phone = await api.getPhoneLink();
     await loadBots();
@@ -2139,3 +2155,169 @@ el.alwaysOnTop.addEventListener('click', () => void api.setAlwaysOnTop(!el.alway
 api.onAlwaysOnTop(renderAlwaysOnTop);
 el.tipNext.addEventListener('click', () => { if (tipIndex >= TIPS.length - 1) finishTips(); else showTip(tipIndex + 1); });
 el.tipSkip.addEventListener('click', finishTips);
+
+// ---------- v1.22: save to memory, accent, reduce motion, find in chat, checklist ----------
+function showNotice(text: string): void {
+  showAttachError(text);
+  el.attachError.classList.add('ok');
+  window.setTimeout(() => { el.attachError.classList.remove('ok'); clearAttachError(); }, 3000);
+}
+
+async function rememberMessage(chatId: number, messageId: number): Promise<void> {
+  try {
+    const bot = await api.rememberMessage(chatId, messageId);
+    state.bots = state.bots.map((b) => (b.id === bot.id ? bot : b));
+    showNotice(`Saved to ${bot.name}'s memory note (${bot.memoryNote.length} of 2000 characters).`);
+  } catch (err) {
+    const msg = plainError(err);
+    showAttachError(msg);
+    window.setTimeout(() => { if (el.attachError.textContent === msg) clearAttachError(); }, 6000);
+  }
+}
+
+const ACCENT_NAMES = ['blue', 'teal', 'violet', 'amber', 'rose'] as const;
+function applyAccent(a: string): void {
+  const name = (ACCENT_NAMES as readonly string[]).includes(a) ? a : 'blue';
+  document.documentElement.dataset.accent = name;
+  for (const b of el.accentList.querySelectorAll<HTMLButtonElement>('.accent-swatch')) {
+    const on = b.dataset.accent === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  }
+}
+el.accentList.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.accent-swatch');
+  if (b?.dataset.accent) void api.setAccent(b.dataset.accent as never).then(applyAccent).catch(() => undefined);
+});
+
+function applyMotion(): void {
+  document.documentElement.classList.toggle('reduce-motion', state.prefs.reduceMotion === true);
+  el.motionSwitch.checked = state.prefs.reduceMotion === true;
+}
+el.motionSwitch.addEventListener('change', () => void setUiPref('reduceMotion', el.motionSwitch.checked));
+
+/** Find in chat: highlights are <mark> elements built with createElement/textContent only (no HTML parsing). */
+let findIndex = 0;
+function clearFindMarks(): void {
+  const parents = new Set<Node>();
+  for (const m of el.messages.querySelectorAll('mark.find-hit')) {
+    const parent = m.parentNode;
+    if (!parent) continue;
+    parent.replaceChild(document.createTextNode(m.textContent ?? ''), m);
+    parents.add(parent);
+  }
+  for (const p of parents) p.normalize();
+}
+function applyFind(scroll: boolean): void {
+  clearFindMarks();
+  const q = el.findInput.value;
+  const hits: HTMLElement[] = [];
+  if (q.trim()) {
+    for (const box of el.messages.querySelectorAll('.msg-text')) {
+      const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+      for (const t of nodes) {
+        const text = t.data;
+        const ranges = findRanges(text, q);
+        if (!ranges.length) continue;
+        const frag = document.createDocumentFragment();
+        let at = 0;
+        for (const [a, b] of ranges) {
+          if (a > at) frag.append(document.createTextNode(text.slice(at, a)));
+          const mark = document.createElement('mark');
+          mark.className = 'find-hit';
+          mark.textContent = text.slice(a, b);
+          frag.append(mark);
+          hits.push(mark);
+          at = b;
+        }
+        if (at < text.length) frag.append(document.createTextNode(text.slice(at)));
+        t.replaceWith(frag);
+      }
+    }
+  }
+  if (findIndex >= hits.length) findIndex = 0;
+  hits.forEach((h, i) => h.classList.toggle('current', i === findIndex));
+  el.findCount.textContent = q.trim() ? (hits.length ? `${findIndex + 1} of ${hits.length}` : 'No matches') : '';
+  if (scroll && hits[findIndex]) hits[findIndex].scrollIntoView({ block: 'center' });
+}
+function openFind(): void {
+  if (el.chatView.hidden) return;
+  el.findBar.hidden = false;
+  el.findInput.focus();
+  el.findInput.select();
+  applyFind(true);
+}
+function closeFind(): void {
+  el.findBar.hidden = true;
+  el.findInput.value = '';
+  findIndex = 0;
+  clearFindMarks();
+  el.findCount.textContent = '';
+}
+function stepFind(d: number): void {
+  const n = el.messages.querySelectorAll('mark.find-hit').length;
+  if (!n) return;
+  findIndex = (findIndex + d + n) % n;
+  applyFind(true);
+}
+el.findInput.addEventListener('input', () => { findIndex = 0; applyFind(true); });
+el.findInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); el.input.focus(); }
+});
+el.findPrev.addEventListener('click', () => stepFind(-1));
+el.findNext.addEventListener('click', () => stepFind(1));
+el.findClose.addEventListener('click', closeFind);
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f' && !el.chatView.hidden) { e.preventDefault(); openFind(); }
+});
+
+/** Checklist for the open bot (user add/check/delete; the bot only adds after main's native confirm). */
+let checklistBot: number | null = null;
+function renderChecklist(items: ChecklistItem[]): void {
+  el.checklistEmpty.hidden = items.length > 0;
+  el.checklistList.replaceChildren(...items.map((it) => {
+    const li = node('li', `row checklist-item${it.done ? ' done' : ''}`);
+    const label = document.createElement('label');
+    label.className = 'row checklist-label';
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.checked = it.done;
+    box.addEventListener('change', () => void checklistCall(() => api.checklistSetDone(it.botId, it.id, box.checked)));
+    label.append(box, node('span', 'checklist-text', it.text));
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'secondary small'; del.textContent = 'Delete';
+    del.setAttribute('aria-label', `Delete ${it.text}`);
+    del.addEventListener('click', () => void checklistCall(() => api.checklistDelete(it.botId, it.id)));
+    li.append(label, del);
+    return li;
+  }));
+}
+async function checklistCall(fn: () => Promise<ChecklistItem[]>): Promise<void> {
+  el.checklistError.hidden = true;
+  try { renderChecklist(await fn()); } catch (err) { el.checklistError.textContent = plainError(err); el.checklistError.hidden = false; }
+}
+async function openChecklist(): Promise<void> {
+  const bot = currentBot();
+  if (!bot || state.roomId !== null) return;
+  checklistBot = bot.id;
+  el.checklistName.textContent = `${bot.name}'s checklist`;
+  el.checklistModal.hidden = false;
+  await checklistCall(() => api.checklist(bot.id));
+  el.checklistInput.focus();
+}
+function closeChecklist(): void { el.checklistModal.hidden = true; checklistBot = null; }
+el.checklistForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = checklistBot;
+  if (id === null || !el.checklistInput.value.trim()) return;
+  void checklistCall(() => api.checklistAdd(id, el.checklistInput.value)).then(() => { el.checklistInput.value = ''; });
+});
+el.checklistClose.addEventListener('click', closeChecklist);
+el.checklistModal.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeChecklist(); } });
+api.onChecklist((botId) => {
+  if (checklistBot === botId) void checklistCall(() => api.checklist(botId));
+  const bot = state.bots.find((b) => b.id === botId);
+  if (bot) showNotice(`Added an item to ${bot.name}'s checklist.`);
+});
