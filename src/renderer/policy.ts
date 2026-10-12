@@ -30,18 +30,21 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Files',
     paragraphs: [
-      'Cipher Bot reads files only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder. With Read files on, that bot can read text files and PDFs in those folders when it needs to. With Attach, the file you pick from that folder is added to your message.',
+      'Cipher Bot reads files only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder. With Read files on (the Files switch, plus menu → Tools), that bot can read text files, PDFs and .docx files in those folders when it needs to. With Attach, the file you pick from that folder is added to your message.',
       'File contents go to the model on this computer and are saved in that chat\'s history in the database. An attached file\'s text is part of your message, so if Phone link is on, it shows on the phone too.',
       'Second folder: from the plus menu ("Attach second folder…") you can give a Cipher bot one more folder on this computer, separate from its read folder. ' +
         'The folder is on this computer and Cipher Bot never uploads or syncs it; only its location is saved, in cipher.db. That bot can read text files in it only when Read files is on, with the same limits as the read folder, and what it reads is handled like any file it reads (see above). ' +
         'It is not a cloud drive, and there is no email and no login. "Remove second folder" removes it from the bot; your files are not touched.',
       'Images: you can drop a PNG, JPEG, GIF or WebP image (up to 5 MB) from a Cipher bot\'s read folder into its chat, under the same folder rules as Attach. Only its location in that folder is saved with your message; the picture is read from this computer each time it is shown, and never loaded from the internet. The model on this computer gets the file name, not the picture.',
       'PDFs (v1.21): Cipher Bot reads only a PDF\'s text, on this computer, with PDF.js (Mozilla\'s open-source PDF reader, bundled with the app). Nothing is downloaded to read it: no fonts, no character maps and no helper code from the internet, and the PDF\'s own scripts never run. Up to 10 MB, the first 50 pages and 200,000 characters; the text is handled like any file the bot reads.',
-      'Rooms, Phone link and routines never read files.',
-      'Writing files (v1.22): with Read files on, a Cipher bot can ask to write one text file (such as .txt, .md, .csv or .json, up to 200 KB) into its read folder. ' +
-        'It never writes without asking: Cipher Bot itself (not the chat window) shows a question with the full path on this computer and says whether an existing file would be replaced. Cancel is the default. ' +
+      'Word files (v1.23): Cipher Bot reads only a .docx file\'s text, on this computer, with its own small reader (no extra library, nothing downloaded, nothing in the file is run, and no links or outside references in it are followed). Up to 10 MB, at most 2,000 parts inside the file and 20 MB once unpacked, and 200,000 characters. Plain .txt files are read as text, as before.',
+      'Pasted images (v1.23): a screenshot you paste into a Cipher bot\'s chat is checked the same way as a dropped image (PNG, JPEG, GIF or WebP, up to 5 MB) and kept inside cipher.db with that message, not saved into any folder. It is shown from those stored bytes and never loaded from the internet. A paste you remove before sending is deleted. The model gets only a note that an image was attached.',
+      'Tool switches (v1.23): each Cipher bot has switches for Files, Search, Calculator, Checklist and Write file (plus menu → Tools). New and existing bots have all of them off except Files. They are saved in cipher.db and only you can change them, in this window; the phone and a bot\'s replies cannot. Cipher Bot checks them every time it would offer a tool and again right before running one, and refuses any tool that is switched off.',
+      'Rooms, Phone link and routines never read files. Reminders read files only if that bot\'s Files switch is on.',
+      'Writing files (v1.22): with the Write file and Files switches on (v1.23), a Cipher bot can ask to write one text file (such as .txt, .md, .csv or .json, up to 200 KB) into its read folder. ' +
+        'It never writes without asking: Cipher Bot itself (not the chat window) shows a question with the full path on this computer and says whether an existing file would be replaced; for an existing file it is a separate question that warns it will be overwritten. Cancel is the default. ' +
         'An existing file is only replaced if you press Replace; you can save under a new name instead. Only after you answer does Cipher Bot write that exact text to that exact path, once, within a minute; then it is written to a temporary file in the same folder and moved into place. ' +
-        'It refuses paths outside the folder (also through symbolic links), absolute paths and "..", does not create folders, and never writes while Cipher Bot is locked. Rooms, routines and the phone can never write files, and the phone cannot answer the question.',
+        'It refuses paths outside the folder (also through symbolic links), absolute paths and "..", does not create folders, and never writes while Cipher Bot is locked. Rooms, routines, reminders and the phone can never write files, and the phone cannot answer the question.',
       'Cipher Bot also writes files you ask for with a Save dialog (Export chat, Backup, Export debug log, Update download), to the place you choose.',
     ],
   },
@@ -79,13 +82,13 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Calculator',
     paragraphs: [
-      'Cipher bots have a calculator tool for arithmetic. It runs on this computer with its own small parser: it never runs code and has no network access.',
+      'Cipher bots have a calculator tool for arithmetic, when its switch is on for that bot. It runs on this computer with its own small parser: it never runs code and has no network access.',
     ],
   },
   {
     heading: 'Web search',
     paragraphs: [
-      'When Online is on, a Cipher bot may ask to search the web. It shows you the exact search words first, with Search and Cancel. Nothing is sent unless you press Search; Cancel (or no answer) means no search, and the bot answers without one.',
+      'When Online is on and that bot\'s Search switch is on, a Cipher bot may ask to search the web. It shows you the exact search words first, with Search and Cancel. Nothing is sent unless you press Search; Cancel (or no answer) means no search, and the bot answers without one.',
       'When you press Search, the search words and your computer\'s IP address go to DuckDuckGo (html.duckduckgo.com), which runs the search. That is the only address Cipher Bot\'s own code contacts for search; no account, no API key, no cookies. DuckDuckGo\'s own privacy policy applies to what it receives.',
       'The results (titles, links and short snippets) are saved in that chat on this computer. A result link opens in your web browser only when you click it, and only while Online is on.',
       'Blocked sites (Settings): search results from the sites you list are dropped before they are saved or shown, and Open as text and link opening refuse them, including after a redirect. The list is kept only in cipher.db on this computer. With Online off nothing is searched at all.',
@@ -120,8 +123,23 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Checklist, accent color, reduce motion and find',
     paragraphs: [
-      'Each Cipher bot has a checklist (plus menu → Checklist), kept in cipher.db on this computer. You add, check and delete items. A bot can only add an item, and only after you press Add in a question Cipher Bot itself shows; nothing in a reply can approve it. Rooms, routines and the phone cannot add items. Deleting a bot deletes its checklist.',
+      'Each Cipher bot has a checklist (plus menu → Checklist), kept in cipher.db on this computer. You add, check and delete items. A bot can only add an item when its Checklist switch is on, and only after you press Add in a question Cipher Bot itself shows; nothing in a reply can approve it. Rooms, routines and the phone cannot add items. Deleting a bot deletes its checklist.',
       'Accent color and Reduce motion are saved in cipher.db. Find in chat searches only the open chat in this window. None of these uses the network.',
+    ],
+  },
+  {
+    heading: 'Undo, focus mode and disk use',
+    paragraphs: [
+      'Undo (v1.23): after you delete messages, clear a chat, or delete a Cipher bot or a room, it is hidden for 10 seconds so you can press Undo. After that, or as soon as you delete something else, lock Cipher Bot or quit, it is deleted from cipher.db for good. Anything still waiting when Cipher Bot closed unexpectedly is deleted for good the next time it starts.',
+      'Focus mode hides the dock, the search bar and the window frames; Esc leaves it. Settings → Storage adds up the size of cipher.db and of the files in the folders you attached to your bots, on this computer. Backups are saved wherever you choose and Cipher Bot keeps no list of them, so their size is shown as unknown (only the before-restore copies next to cipher.db are counted). None of these uses the network.',
+    ],
+  },
+  {
+    heading: 'Reminders',
+    paragraphs: [
+      'A reminder (plus menu → Reminders) sends a message you write to one Cipher bot once, at the date and time you pick. Like routines, it runs only on this computer while Cipher Bot is open or in the tray, uses no network of its own, and is kept in cipher.db.',
+      'If Cipher Bot isn\'t running at that time (or that chat stays busy for two minutes), the reminder is skipped and marked Missed; it is never run later. A reminder for an archived bot is skipped too.',
+      'Reminders run like routines: no web search, no write file and no checklist. That bot\'s Files and Calculator switches still apply. The finished/failed notification works like a routine\'s and is not shown if that bot is muted; while Cipher Bot is locked nothing from it shows in the window.',
     ],
   },
   {

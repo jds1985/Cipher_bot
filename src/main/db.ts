@@ -7,8 +7,9 @@ import { normalizeSite } from './blockedSites';
 export { isUrlBlocked, normalizeSite } from './blockedSites';
 
 import { CHECKLIST_MAX_ITEMS, normalizeItem } from './checklist';
-import type { ChecklistItem } from '../shared/types';
-export const SCHEMA_VERSION = 12;
+import type { ChecklistItem, Reminder, ToolSwitches } from '../shared/types';
+import { REMINDERS_MAX, validateReminder } from './reminders';
+export const SCHEMA_VERSION = 13;
 /** v1.21: reply lengths a bot can have. */
 export const REPLY_LENGTHS = ['short', 'normal', 'long'] as const;
 export type ReplyLength = (typeof REPLY_LENGTHS)[number];
@@ -29,17 +30,20 @@ interface BotRow {
   muted?: number;
   archived?: number;
   reply_length?: string | null;
+  tool_search?: number; tool_calc?: number; tool_checklist?: number; tool_write?: number;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
-interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null }
+interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null; reminder?: number }
 interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
 interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number; muted?: number; archived?: number }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', muted: r.muted === 1, archived: r.archived === 1, replyLength: parseReplyLength(r.reply_length), createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', muted: r.muted === 1, archived: r.archived === 1, replyLength: parseReplyLength(r.reply_length),
+  tools: { files: r.tools_enabled === 1, search: r.tool_search === 1, calculator: r.tool_calc === 1, checklist: r.tool_checklist === 1, write: r.tool_write === 1 },
+  createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 export const parseReplyLength = (v: unknown): ReplyLength => (REPLY_LENGTHS as readonly unknown[]).includes(v) ? (v as ReplyLength) : 'normal';
 
@@ -50,7 +54,7 @@ const toMessage = (r: MessageRow): Message => ({
   id: r.id, chatId: r.chat_id, role: r.role, content: r.content,
   toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls) as ToolCall[]) : null,
   toolName: r.tool_name, createdAt: r.created_at, routine: r.routine === 1, search: parseSearch(r.search_results ?? null),
-  quote: r.quote_text ?? null, pinned: r.pinned === 1, image: r.image_path ?? null,
+  quote: r.quote_text ?? null, pinned: r.pinned === 1, image: r.image_path ?? null, reminder: r.reminder === 1,
 });
 /** v1.18: a stored web-search result set ({ query, results }), or null when absent or unreadable. */
 function parseSearch(raw: string | null): Message['search'] {
@@ -65,6 +69,11 @@ function parseSearch(raw: string | null): Message['search'] {
     return null;
   }
 }
+interface ReminderRow { id: number; bot_id: number; at: string; prompt: string; status: string; note: string | null; created_at: string }
+const toReminder = (r: ReminderRow): Reminder => ({
+  id: r.id, botId: r.bot_id, at: r.at, prompt: r.prompt, note: r.note, createdAt: r.created_at,
+  status: (['pending', 'done', 'failed', 'missed', 'skipped'] as const).find((x) => x === r.status) ?? 'skipped',
+});
 const toRoutine = (r: RoutineRow): Routine => ({
   botId: r.bot_id, prompt: r.prompt, time: r.time, enabled: r.enabled === 1, lastRunDate: r.last_run_date,
 });
@@ -92,6 +101,8 @@ export interface NewMessage {
   search?: Message['search'];
   /** v1.20: the quoted text this user message replies to (snapshot, capped). */
   quote?: string | null;
+  /** v1.23: sent by a one-time reminder. */
+  reminder?: boolean;
   /** v1.20: a dropped image, as a path relative to the bot's read folder. */
   image?: string | null;
 }
@@ -216,6 +227,20 @@ export class CipherDb {
     this.addColumnIfMissing('rooms', 'archived', 'archived INTEGER NOT NULL DEFAULT 0');
     this.addColumnIfMissing('bots', 'reply_length', "reply_length TEXT NOT NULL DEFAULT 'normal'");
     this.db.exec('CREATE TABLE IF NOT EXISTS blocked_sites (site TEXT PRIMARY KEY, added_at TEXT NOT NULL)');
+    // v13 (idempotent): per-bot tool switches (every existing bot: all off except files, which keeps its value),
+    // soft delete for undo, reminders, pasted images, reminder messages.
+    this.addColumnIfMissing('bots', 'tool_search', 'tool_search INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('bots', 'tool_calc', 'tool_calc INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('bots', 'tool_checklist', 'tool_checklist INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('bots', 'tool_write', 'tool_write INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('bots', 'deleted_batch', 'deleted_batch TEXT');
+    this.addColumnIfMissing('rooms', 'deleted_batch', 'deleted_batch TEXT');
+    this.addColumnIfMissing('messages', 'deleted_batch', 'deleted_batch TEXT');
+    this.addColumnIfMissing('messages', 'reminder', 'reminder INTEGER NOT NULL DEFAULT 0');
+    this.db.exec('CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE, ' +
+      "at TEXT NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', note TEXT, created_at TEXT NOT NULL)");
+    this.db.exec('CREATE TABLE IF NOT EXISTS pasted_images (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE, ' +
+      'message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE, mime TEXT NOT NULL, bytes BLOB NOT NULL, created_at TEXT NOT NULL)');
     // v12 (idempotent): checklist items per bot.
     this.db.exec('CREATE TABLE IF NOT EXISTS checklist_items (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE, ' +
       'text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)');
@@ -279,13 +304,13 @@ export class CipherDb {
   // ---- settings ----
   /** v1.18: true if this exact link is one of the stored web search results (only those can be opened). */
   isStoredResultUrl(url: string): boolean {
-    const rows = this.db.prepare("SELECT search_results FROM messages WHERE search_results IS NOT NULL AND instr(search_results, ?) > 0").all(JSON.stringify(url).slice(1, -1)) as { search_results: string }[];
+    const rows = this.db.prepare("SELECT search_results FROM messages WHERE search_results IS NOT NULL AND deleted_batch IS NULL AND instr(search_results, ?) > 0").all(JSON.stringify(url).slice(1, -1)) as { search_results: string }[];
     return rows.some((r) => parseSearch(r.search_results)?.results.some((x) => x.url === url) ?? false);
   }
 
   /** v1.20: one message of a chat (null if it is not in that chat). */
   getMessage(chatId: number, id: number): Message | null {
-    const r = this.db.prepare('SELECT * FROM messages WHERE id = ? AND chat_id = ?').get(id, chatId) as MessageRow | undefined;
+    const r = this.db.prepare('SELECT * FROM messages WHERE id = ? AND chat_id = ? AND deleted_batch IS NULL').get(id, chatId) as MessageRow | undefined;
     return r ? toMessage(r) : null;
   }
 
@@ -297,7 +322,7 @@ export class CipherDb {
   }
 
   listPinned(chatId: number): Message[] {
-    return (this.db.prepare('SELECT * FROM messages WHERE chat_id = ? AND pinned = 1 ORDER BY id').all(chatId) as MessageRow[]).map(toMessage);
+    return (this.db.prepare('SELECT * FROM messages WHERE chat_id = ? AND pinned = 1 AND deleted_batch IS NULL ORDER BY id').all(chatId) as MessageRow[]).map(toMessage);
   }
 
   /** v1.20: mute a bot or a room (no tray notice while muted). Unknown ids are ignored. */
@@ -340,6 +365,145 @@ export class CipherDb {
         : `The memory note is almost full: ${free} of ${MEMORY_NOTE_MAX} characters left, and this message has ${add.length}. Edit the note to make room.`);
     }
     return this.setBotMemory(id, next);
+  }
+
+  // ---- v1.23: tool switches ----
+  /** Set some of a bot's tool switches (main only, from the desktop's bot settings). files = the Read files switch. */
+  setToolSwitches(id: number, update: Partial<ToolSwitches>): Bot {
+    if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    const cols: Record<keyof ToolSwitches, string> = { files: 'tools_enabled', search: 'tool_search', calculator: 'tool_calc', checklist: 'tool_checklist', write: 'tool_write' };
+    this.db.transaction(() => {
+      for (const [k, v] of Object.entries(update) as [keyof ToolSwitches, boolean][]) {
+        this.db.prepare(`UPDATE bots SET ${cols[k]} = ? WHERE id = ?`).run(v ? 1 : 0, id);
+      }
+    })();
+    return this.getBot(id)!;
+  }
+
+  // ---- v1.23: soft delete (undo for 10 s), then purge for real ----
+  /** Hide messages of one chat under `batch`. Returns how many. */
+  softDeleteMessages(chatId: number, ids: unknown, batch: string): number {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 5000) return 0;
+    const clean = ids.filter((x): x is number => Number.isInteger(x) && x > 0);
+    const q = this.db.prepare('UPDATE messages SET deleted_batch = ? WHERE id = ? AND chat_id = ? AND deleted_batch IS NULL');
+    let n = 0;
+    this.db.transaction(() => { for (const id of clean) n += q.run(batch, id, chatId).changes; })();
+    return n;
+  }
+
+  /** Clear chat, soft: every visible message of the bot's chat goes under `batch`. */
+  softClearBotChat(botId: number, batch: string): number {
+    const chat = this.getBotChat(botId);
+    return this.db.prepare('UPDATE messages SET deleted_batch = ? WHERE chat_id = ? AND deleted_batch IS NULL').run(batch, chat.id).changes;
+  }
+
+  /** Delete a bot, soft. Rooms left with fewer than 2 live members are hidden in the same batch. */
+  softDeleteBot(id: number, batch: string): { deletedRoomIds: number[] } {
+    if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    return this.db.transaction(() => {
+      const touched = (this.db.prepare('SELECT room_id FROM room_members WHERE bot_id = ?').all(id) as { room_id: number }[]).map((r) => r.room_id);
+      this.db.prepare('UPDATE bots SET deleted_batch = ? WHERE id = ?').run(batch, id);
+      const deletedRoomIds: number[] = [];
+      for (const roomId of touched) {
+        if (!this.getRoom(roomId)) continue;
+        if (this.roomMemberIds(roomId).length < 2) {
+          this.db.prepare('UPDATE rooms SET deleted_batch = ? WHERE id = ?').run(batch, roomId);
+          deletedRoomIds.push(roomId);
+        }
+      }
+      return { deletedRoomIds };
+    })();
+  }
+
+  softDeleteRoom(id: number, batch: string): void {
+    if (!this.getRoom(id)) throw new Error('Room not found.');
+    this.db.prepare('UPDATE rooms SET deleted_batch = ? WHERE id = ?').run(batch, id);
+  }
+
+  /** Undo: everything hidden under `batch` comes back. Returns how many rows. */
+  undoBatch(batch: string): number {
+    let n = 0;
+    this.db.transaction(() => {
+      for (const t of ['bots', 'rooms', 'messages']) n += this.db.prepare(`UPDATE ${t} SET deleted_batch = NULL WHERE deleted_batch = ?`).run(batch).changes;
+    })();
+    return n;
+  }
+
+  /** Purge for real: rows hidden under `batch` (or every hidden row when batch is null) are deleted and the WAL flushed. */
+  purgeDeleted(batch: string | null): number {
+    const where = batch === null ? 'deleted_batch IS NOT NULL' : 'deleted_batch = ?';
+    const args = batch === null ? [] : [batch];
+    let n = 0;
+    this.db.transaction(() => {
+      // Chats whose messages were cleared get their title reset, as Clear chat always did.
+      const cleared = (this.db.prepare(`SELECT DISTINCT chat_id FROM messages WHERE ${where}`).all(...args) as { chat_id: number }[]).map((r) => r.chat_id);
+      n += this.db.prepare(`DELETE FROM messages WHERE ${where}`).run(...args).changes;
+      for (const chatId of cleared) {
+        const left = (this.db.prepare('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?').get(chatId) as { n: number }).n;
+        if (!left) this.db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(DEFAULT_CHAT_TITLE, chatId);
+      }
+      const bots = (this.db.prepare(`SELECT id FROM bots WHERE ${where}`).all(...args) as { id: number }[]).map((r) => r.id);
+      for (const id of bots) {
+        this.db.prepare('DELETE FROM checklist_items WHERE bot_id = ?').run(id);
+        n += this.db.prepare('DELETE FROM bots WHERE id = ?').run(id).changes; // chats, messages, routines, reminders, members cascade
+      }
+      n += this.db.prepare(`DELETE FROM rooms WHERE ${where}`).run(...args).changes;
+      // A room that lost a member to a purged bot and has fewer than 2 left is deleted, as before.
+      this.db.prepare('DELETE FROM rooms WHERE id IN (SELECT r.id FROM rooms r WHERE (SELECT COUNT(*) FROM room_members m WHERE m.room_id = r.id) < 2)').run();
+    })();
+    if (n) this.flushDeleted();
+    return n;
+  }
+
+  // ---- v1.23: reminders ----
+  listReminders(botId?: number): Reminder[] {
+    const rows = (botId === undefined
+      ? this.db.prepare('SELECT * FROM reminders ORDER BY at, id').all()
+      : this.db.prepare('SELECT * FROM reminders WHERE bot_id = ? ORDER BY at, id').all(botId)) as ReminderRow[];
+    return rows.map(toReminder);
+  }
+
+  addReminder(botId: number, at: unknown, prompt: unknown): Reminder {
+    if (!this.getBot(botId)) throw new Error('Cipher bot not found.');
+    const { at: when, prompt: text } = validateReminder(at, prompt);
+    const n = (this.db.prepare("SELECT COUNT(*) AS n FROM reminders WHERE bot_id = ? AND status = 'pending'").get(botId) as { n: number }).n;
+    if (n >= REMINDERS_MAX) throw new Error(`A Cipher bot can have up to ${REMINDERS_MAX} pending reminders.`);
+    const id = Number(this.db.prepare("INSERT INTO reminders (bot_id, at, prompt, status, created_at) VALUES (?, ?, ?, 'pending', ?)")
+      .run(botId, when, text, new Date().toISOString()).lastInsertRowid);
+    return toReminder(this.db.prepare('SELECT * FROM reminders WHERE id = ?').get(id) as ReminderRow);
+  }
+
+  setReminderStatus(id: number, status: Reminder['status'], note: string | null = null): void {
+    this.db.prepare('UPDATE reminders SET status = ?, note = ? WHERE id = ?').run(status, note, id);
+  }
+
+  deleteReminder(botId: number, id: number): Reminder[] {
+    this.db.prepare('DELETE FROM reminders WHERE id = ? AND bot_id = ?').run(id, botId);
+    this.flushDeleted();
+    return this.listReminders(botId);
+  }
+
+  // ---- v1.23: pasted images (bytes kept in cipher.db, never in the bot's folder) ----
+  addPastedImage(chatId: number, mime: string, bytes: Buffer): number {
+    if (!this.getChat(chatId)) throw new Error('Chat not found.');
+    return Number(this.db.prepare('INSERT INTO pasted_images (chat_id, mime, bytes, created_at) VALUES (?, ?, ?, ?)')
+      .run(chatId, mime, bytes, new Date().toISOString()).lastInsertRowid);
+  }
+
+  /** A pasted image of this chat (unsent, or attached to a visible message). */
+  getPastedImage(chatId: number, id: number): { mime: string; bytes: Buffer; messageId: number | null } | null {
+    const r = this.db.prepare('SELECT mime, bytes, message_id FROM pasted_images WHERE id = ? AND chat_id = ?').get(id, chatId) as
+      { mime: string; bytes: Buffer; message_id: number | null } | undefined;
+    return r ? { mime: r.mime, bytes: r.bytes, messageId: r.message_id } : null;
+  }
+
+  /** Pasted images never sent (chip cleared, app closed): deleted. Called at startup and when a paste is discarded. */
+  purgeUnsentPastedImages(chatId?: number): number {
+    const n = chatId === undefined
+      ? this.db.prepare('DELETE FROM pasted_images WHERE message_id IS NULL').run().changes
+      : this.db.prepare('DELETE FROM pasted_images WHERE message_id IS NULL AND chat_id = ?').run(chatId).changes;
+    if (n) this.flushDeleted();
+    return n;
   }
 
   /** v1.22: a bot's checklist (oldest first). */
@@ -423,11 +587,11 @@ export class CipherDb {
 
   // ---- bots ----
   listBots(): Bot[] {
-    return (this.db.prepare('SELECT * FROM bots ORDER BY id').all() as BotRow[]).map(toBot);
+    return (this.db.prepare('SELECT * FROM bots WHERE deleted_batch IS NULL ORDER BY id').all() as BotRow[]).map(toBot);
   }
 
   getBot(id: number): Bot | null {
-    const r = this.db.prepare('SELECT * FROM bots WHERE id = ?').get(id) as BotRow | undefined;
+    const r = this.db.prepare('SELECT * FROM bots WHERE id = ? AND deleted_batch IS NULL').get(id) as BotRow | undefined;
     return r ? toBot(r) : null;
   }
 
@@ -553,16 +717,22 @@ export class CipherDb {
 
   // ---- messages ----
   listMessages(chatId: number): Message[] {
-    return (this.db.prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY id').all(chatId) as MessageRow[]).map(toMessage);
+    return (this.db.prepare('SELECT * FROM messages WHERE chat_id = ? AND deleted_batch IS NULL ORDER BY id').all(chatId) as MessageRow[]).map(toMessage);
   }
 
   addMessage(m: NewMessage): Message {
     const tx = this.db.transaction((): number => {
       const info = this.db
-        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine, search_results, quote_text, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine, search_results, quote_text, image_path, reminder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(m.chatId, m.role, m.content, m.toolCalls && m.toolCalls.length ? JSON.stringify(m.toolCalls) : null, m.toolName ?? null,
           m.routine && m.role === 'user' ? 1 : 0, m.search && m.role === 'tool' ? JSON.stringify(m.search) : null,
-          m.quote && m.role === 'user' ? m.quote.slice(0, QUOTE_MAX) : null, m.image && m.role === 'user' ? m.image : null);
+          m.quote && m.role === 'user' ? m.quote.slice(0, QUOTE_MAX) : null, m.image && m.role === 'user' ? m.image : null,
+          m.reminder && m.role === 'user' ? 1 : 0);
+      // v1.23: a pasted image (bytes in pasted_images) belongs to this message from now on.
+      if (m.image?.startsWith('pasted:') && m.role === 'user') {
+        this.db.prepare('UPDATE pasted_images SET message_id = ? WHERE id = ? AND chat_id = ? AND message_id IS NULL')
+          .run(Number(info.lastInsertRowid), Number(m.image.slice(7)), m.chatId);
+      }
       this.db.prepare("UPDATE chats SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(m.chatId);
       // Title a fresh chat after the first user message.
       if (m.role === 'user') {
@@ -578,7 +748,7 @@ export class CipherDb {
   // ---- routines (v1.9) ----
   /** v1.21: routines of bots that are not archived (an archived bot's routine is paused, not deleted). */
   listActiveRoutines(): Routine[] {
-    return (this.db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id = r.bot_id WHERE b.archived = 0 ORDER BY r.bot_id').all() as RoutineRow[]).map(toRoutine);
+    return (this.db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id = r.bot_id WHERE b.archived = 0 AND b.deleted_batch IS NULL ORDER BY r.bot_id').all() as RoutineRow[]).map(toRoutine);
   }
 
   /** v1.21: archive or restore a bot or room. Nothing is deleted. */
@@ -643,7 +813,7 @@ export class CipherDb {
 
   // ---- rooms ----
   private roomMemberIds(roomId: number): number[] {
-    return (this.db.prepare('SELECT bot_id FROM room_members WHERE room_id = ? ORDER BY position, bot_id').all(roomId) as { bot_id: number }[])
+    return (this.db.prepare('SELECT m.bot_id FROM room_members m JOIN bots b ON b.id = m.bot_id WHERE m.room_id = ? AND b.deleted_batch IS NULL ORDER BY m.position, m.bot_id').all(roomId) as { bot_id: number }[])
       .map((r) => r.bot_id);
   }
 
@@ -652,11 +822,11 @@ export class CipherDb {
   }
 
   listRooms(): Room[] {
-    return (this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as RoomRow[]).map((r) => this.toRoom(r));
+    return (this.db.prepare('SELECT * FROM rooms WHERE deleted_batch IS NULL ORDER BY id').all() as RoomRow[]).map((r) => this.toRoom(r));
   }
 
   getRoom(id: number): Room | null {
-    const r = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(id) as RoomRow | undefined;
+    const r = this.db.prepare('SELECT * FROM rooms WHERE id = ? AND deleted_batch IS NULL').get(id) as RoomRow | undefined;
     return r ? this.toRoom(r) : null;
   }
 

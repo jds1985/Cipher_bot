@@ -525,3 +525,37 @@ mark.find-hit.current { background: var(--accent); color: #fff; }
   -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
 .pinned-item img { -webkit-mask-image: url("assets/cipher-pin.svg"); mask-image: url("assets/cipher-pin.svg"); }
 .mute-mark { -webkit-mask-image: url("assets/cipher-mute.svg"); mask-image: url("assets/cipher-mute.svg"); }
+
+/* ---------- v1.23 ---------- */
+/* Liz's v1.23 icons use currentColor; shown as CSS masks so they follow the accent (no inline SVG, CSP-safe). */
+.ico { display: inline-block; width: 20px; height: 20px; flex: none; background-color: var(--accent);
+  -webkit-mask: var(--ico) no-repeat center / contain; mask: var(--ico) no-repeat center / contain; }
+.ico-focus { --ico: url("assets/cipher-focus-mode.svg"); }
+.ico-reminder { --ico: url("assets/cipher-reminder.svg"); }
+.ico-files { --ico: url("assets/cipher-tool-files.svg"); }
+.ico-search { --ico: url("assets/cipher-tool-search.svg"); }
+.ico-calculator { --ico: url("assets/cipher-tool-calculator.svg"); }
+.ico-checklist { --ico: url("assets/cipher-tool-checklist.svg"); }
+.ico-write { --ico: url("assets/cipher-tool-write-file.svg"); }
+.header-btn { margin-left: auto; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 6px; cursor: pointer; display: inline-flex; }
+.header-btn:hover, .header-btn:focus-visible { border-color: rgba(var(--accent-rgb), 0.5); }
+.header-btn[aria-pressed="true"] { background: rgba(var(--accent-rgb), 0.18); }
+.tools-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.tool-row { align-items: center; gap: 10px; }
+.tool-row small { display: block; }
+.reminder-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.reminder-form textarea { resize: vertical; }
+.reminder-missed .checklist-text, .reminder-skipped .checklist-text, .reminder-failed .checklist-text { opacity: 0.65; }
+.undo-toast { position: fixed; left: 50%; bottom: calc(var(--bottombar-h, 0px) + 96px); transform: translateX(-50%); z-index: 60;
+  background: #1b2233; border: 1px solid rgba(var(--accent-rgb), 0.6); border-radius: 999px; padding: 6px 8px 6px 14px; gap: 10px; align-items: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+.disk-list dd.muted { grid-column: 1 / -1; font-size: 0.85em; }
+/* Focus mode: the dock, the search bar and Liz's frames are hidden; only the chat stays. Esc exits. */
+:root.focus-mode { --bottombar-h: 0px; }
+:root.focus-mode #sidebar, :root.focus-mode #search-bar, :root.focus-mode #bottombar { display: none !important; }
+:root.focus-mode #titlebar { background: var(--bg); }
+:root.focus-mode #titlebar .titlebar-title { visibility: hidden; }
+/* v1.23: the last visible chip (attach, quote or image/paste) sits above the floating composer instead of under it. */
+.image-chip:not([hidden]),
+.quote-chip:not([hidden]):has(+ .image-chip[hidden]),
+.attach-chip:not([hidden]):has(+ .quote-chip[hidden] + .image-chip[hidden]) { margin-bottom: 78px; position: relative; z-index: 6; }

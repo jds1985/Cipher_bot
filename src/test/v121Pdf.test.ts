@@ -56,10 +56,10 @@ function makePdf(pages: string[], js = false): Buffer {
 
 test('version 1.22.0+, schema 12+, WHATS_NEW five lines or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.22.0');
+  assert.equal(pkg.version, '1.23.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 12);
+  assert.equal(SCHEMA_VERSION, 13);
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5);
   assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.doesNotMatch(WHATS_NEW.join(' ') + policy + html, /grok/i);
@@ -186,7 +186,7 @@ test('migration v10 → v11: archived, reply_length and blocked_sites added, dat
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 12);
+  assert.equal(chk.pragma('user_version', { simple: true }), 13);
   chk.close();
 });
 

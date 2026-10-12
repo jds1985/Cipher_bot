@@ -80,7 +80,7 @@ test('streams a plain reply and stores it (tools off)', async () => {
   assert.ok(tokens.length > 1, 'streamed in several chunks');
   assert.equal(tokens.join(''), 'Hi there!');
   assert.equal(events.at(-1)!.type, 'done');
-  assert.deepEqual(requests[0].tools.map((t: any) => t.function.name), ['calculator'], 'no file tool when tools are off; only the local calculator (v1.19)');
+  assert.equal(requests[0].tools, undefined, 'no tools at all: files off, and the v1.23 switches for the rest are off by default');
   assert.deepEqual(requests[0].messages[0], { role: 'system', content: 'Be nice.' });
   assert.equal(requests[0].stream, true);
   assert.equal(requests[0].keep_alive, '30m', 'keeps the model loaded between messages');

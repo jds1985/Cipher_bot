@@ -11,7 +11,7 @@ export const READ_FILE_TOOL = {
   function: {
     name: 'read_file',
     description:
-      'Read a UTF-8 text file from the folder the user shared with you. ' +
+      'Read a UTF-8 text file (or the text of a PDF or .docx) from the folder the user shared with you. ' +
       'Pass a path relative to that folder, for example "notes.txt" or "docs/plan.md".',
     parameters: {
       type: 'object',
@@ -78,6 +78,11 @@ export async function readFileInFolder(root: string | null, requested: unknown):
   if (typeof requested === 'string' && /\.pdf$/i.test(requested)) {
     const { readPdfInFolder } = await import('./pdfText');
     return readPdfInFolder(root, requested);
+  }
+  // v1.23: a .docx is read as its text (docxText.ts), with the same folder rules and its own caps.
+  if (typeof requested === 'string' && /\.docx$/i.test(requested)) {
+    const { readDocxInFolder } = await import('./docxText');
+    return readDocxInFolder(root, requested);
   }
   const real = await resolveInsideFolder(root, requested);
   const rootReal = await fs.realpath(root!);

@@ -20,6 +20,19 @@ const api: CipherApi = {
   openBotChat: (botId) => ipcRenderer.invoke('chats:openForBot', botId),
   listMessages: (chatId) => ipcRenderer.invoke('messages:list', chatId),
   clearBotChat: (botId) => ipcRenderer.invoke('chats:clearForBot', botId),
+  setToolSwitches: (botId, update) => ipcRenderer.invoke('bots:setToolSwitches', botId, update),
+  undoDelete: (undoId) => ipcRenderer.invoke('undo:delete', undoId),
+  pasteImage: (chatId, bytes) => ipcRenderer.invoke('image:pasted', chatId, bytes),
+  discardPastedImage: (chatId) => ipcRenderer.invoke('image:discardPasted', chatId),
+  reminders: (botId) => ipcRenderer.invoke('reminders:list', botId),
+  addReminder: (botId, at, prompt) => ipcRenderer.invoke('reminders:add', botId, at, prompt),
+  deleteReminder: (botId, id) => ipcRenderer.invoke('reminders:delete', botId, id),
+  onReminders: (cb) => {
+    const fn = (_e: IpcRendererEvent, botId: number) => cb(botId);
+    ipcRenderer.on('reminders:changed', fn);
+    return () => ipcRenderer.removeListener('reminders:changed', fn);
+  },
+  diskUsage: () => ipcRenderer.invoke('disk:usage'),
   getRoutine: (botId) => ipcRenderer.invoke('routines:get', botId),
   setRoutine: (botId, routine) => ipcRenderer.invoke('routines:set', botId, routine),
   copyText: (text) => ipcRenderer.invoke('clipboard:writeText', text),

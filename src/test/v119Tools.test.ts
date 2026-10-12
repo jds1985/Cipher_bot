@@ -50,7 +50,9 @@ test('7. calculator: precedence, power, functions, errors; own parser (no eval, 
   assert.doesNotMatch(src, /\beval\s*\(|new Function|Function\(|require\(|import\(|fetch|http/);
   assert.equal(CALCULATOR_TOOL.function.name, 'calculator');
   const engine = read('src/main/chatEngine.ts');
-  assert.match(engine, /\.\.\.\(deps\.fromRoutine \? \[\] : \[CALCULATOR_TOOL\]\)/);
+  // v1.23: offered only while allowed (its switch on; never for routines, reminders only if switched on).
+  assert.match(engine, /\.\.\.\(allowed\('calculator'\) \? \[CALCULATOR_TOOL\] : \[\]\)/);
+  assert.match(engine, /case 'calculator': return t\.calculator && \(!deps\.fromRoutine \|\| deps\.reminder === true\);/);
 });
 
 // ---------- 1. page as text ----------
@@ -208,7 +210,7 @@ function fileHas(file: string, needle: string): boolean {
 test('4. memory note: stored in cipher.db (v9 migration), in the system prompt every chat, capped, and really deleted on clear', () => {
   const file = tmpDb();
   const db = new CipherDb(file);
-  assert.equal(SCHEMA_VERSION, 12);
+  assert.equal(SCHEMA_VERSION, 13);
   const bot = db.createBot({ name: 'Ada', systemPrompt: 'Be brief.', toolsEnabled: false, folderPath: null });
   assert.equal(bot.memoryNote, '');
   const withNote = db.setBotMemory(bot.id, '  I live in Zanzibar-Quokka-77.  ');
@@ -242,7 +244,7 @@ test('4. migration v8 → v9: memory_note and search_history added, data kept, i
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 12);
+  assert.equal(chk.pragma('user_version', { simple: true }), 13);
   chk.close();
 });
 
@@ -284,7 +286,7 @@ test('6. multi-select delete: one confirm in main; only that chat\'s messages; r
   db.close();
   const h = /handle\('messages:delete'[\s\S]*?\n {2}\}\);/.exec(main)![0];
   assert.match(h, /if \(activeTurns\.has\(chatId\)\) throw/);
-  assert.match(h, /Delete \$\{ids\.length\} message[\s\S]*?showMessageBox[\s\S]*?if \(r\.response !== 1\) return \{ deleted: 0, canceled: true \};\s*return \{ deleted: db\.deleteMessages\(chatId, ids\) \};/);
+  assert.match(h, /Delete \$\{ids\.length\} message[\s\S]*?showMessageBox[\s\S]*?if \(r\.response !== 1\) return \{ deleted: 0, canceled: true \};\s*const undoId = beginUndo\(\);\s*const deleted = db\.softDeleteMessages\(chatId, ids, undoId\);/);
   assert.deepEqual(plusMenuItems({ kind: 'bot', toolsEnabled: false, folderPath: null, busy: false, routineTime: null }).find((i) => i.id === 'select'),
     { id: 'select', label: 'Select messages…', disabled: false });
   assert.match(html, /<div id="select-bar" class="select-bar" hidden>/);
@@ -388,7 +390,7 @@ test('policy and what\'s new describe v1.19 truthfully', () => {
   const { WHATS_NEW } = require('../renderer/whatsNew.js') as { WHATS_NEW: readonly string[] };
   assert.ok(WHATS_NEW.length <= 5);
   const pkg = JSON.parse(read('package.json')) as { name: string; productName: string; version: string; build: { productName: string } };
-  assert.equal(pkg.version, '1.22.0');
+  assert.equal(pkg.version, '1.23.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(pkg.build.productName, 'Cipher');

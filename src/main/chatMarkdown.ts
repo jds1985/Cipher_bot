@@ -8,7 +8,7 @@ export function chatMarkdown(botName: string, messages: readonly Message[]): str
     if (m.role === 'user') {
       out.push('**You:**');
       if (m.quote) out.push(...m.quote.split('\n').map((l) => `> ${l}`), '');
-      if (m.image) out.push(`*[Image: ${m.image.split(/[\\/]/).pop()}]*`, '');
+      if (m.image) out.push(`*[Image: ${m.image.startsWith('pasted:') ? 'pasted screenshot' : m.image.split(/[\\/]/).pop()}]*`, '');
       out.push(m.content, '');
     } else if (m.role === 'assistant') {
       if (!m.content.trim()) continue;

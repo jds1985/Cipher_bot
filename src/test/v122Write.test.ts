@@ -45,10 +45,10 @@ const files = (d: string) => fs.readdirSync(d).sort();
 
 test('version 1.22.0, schema 12, WHATS_NEW five lines of 90 chars or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.22.0');
+  assert.equal(pkg.version, '1.23.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 12);
+  assert.equal(SCHEMA_VERSION, 13);
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5);
   for (const l of WHATS_NEW) assert.ok(l.length <= 90, l);
   assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
@@ -167,7 +167,7 @@ test('2. confirmAndWrite: Cancel, lock, or no answer writes nothing; Write / Rep
   // Existing file: the dialog says so; Replace replaces; Save as new name picks "plan (2).md".
   r = await confirmAndWrite(deps(2), 1, 'Ada', d, 'plan.md', 'v2');
   assert.match(asked!.message, /REPLACE/);
-  assert.match(asked!.detail, /already exists and would be replaced/);
+  assert.match(asked!.detail, /already exists\. Replace file will OVERWRITE it/);
   assert.equal(fs.readFileSync(path.join(d, 'plan (2).md'), 'utf8'), 'v2');
   assert.equal(fs.readFileSync(path.join(d, 'plan.md'), 'utf8'), 'old plan\n');
   r = await confirmAndWrite(deps(1), 1, 'Ada', d, 'plan.md', 'v3');
@@ -242,7 +242,8 @@ function scripted(calls: unknown[], offered: string[][]): typeof fetch {
 test('2/7. engine: desktop offers write_file + checklist_add; routines and phone turns never get them or run them', async () => {
   const db = new CipherDb(tmpDb());
   const d = folder();
-  const bot = db.createBot({ name: 'Ada', systemPrompt: 'Hi', toolsEnabled: true, folderPath: d });
+  const bot0 = db.createBot({ name: 'Ada', systemPrompt: 'Hi', toolsEnabled: true, folderPath: d });
+  const bot = db.setToolSwitches(bot0.id, { checklist: true, write: true }); // v1.23: off by default
   const chat = db.getBotChat(bot.id);
   const hits: string[] = [];
   const actions: ActionHooks = {
@@ -397,7 +398,7 @@ test('8. phone: archived bots listed as hidden, not openable; archive/unarchive 
 test('policy describes file writes, the checklist and the phone truthfully', () => {
   assert.match(policy, /never writes without asking/);
   assert.match(policy, /full path on this computer/);
-  assert.match(policy, /Rooms, routines and the phone can never write files, and the phone cannot answer the question/);
+  assert.match(policy, /Rooms, routines, reminders and the phone can never write files, and the phone cannot answer the question/);
   assert.match(policy, /only after you press Add/);
   assert.match(policy, /shows it on the phone only as hidden/);
   assert.match(policy, /up to 2000 characters; when it is full/);
