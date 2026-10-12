@@ -1,7 +1,8 @@
-import type { Bot, Chat, ChecklistItem, DiskUsage, Reminder, ToolSwitches, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
+import type { BackupScheduleState, Bot, Chat, ChecklistItem, MessageEdit, DiskUsage, Reminder, ToolSwitches, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
-import { decideView, formatReminderAt, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId } from './view.js';
+import { decideView, formatReminderAt, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId,
+  REACTION_CHOICES, allTags, autoTitle, dockSections, formatActivity, tokensPerSecond } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -87,12 +88,33 @@ const el = {
   focusToggle: $<HTMLButtonElement>('focus-toggle'), diskList: $('disk-list'), diskRefresh: $<HTMLButtonElement>('disk-refresh'),
   tips: $('tips'), tipIcon: $<HTMLImageElement>('tip-icon'), tipTitle: $('tip-title'), tipBody: $('tip-body'), tipStep: $('tip-step'), tipSkip: $<HTMLButtonElement>('tip-skip'), tipNext: $<HTMLButtonElement>('tip-next'),
   shortcutList: $('shortcut-list'), debugChats: $<HTMLInputElement>('debug-chats'), debugExport: $<HTMLButtonElement>('debug-export'), debugMsg: $('debug-msg'),
+  // v1.24
+  tagFilter: $<HTMLSelectElement>('tag-filter'), botTags: $<HTMLInputElement>('bot-tags'), botGroup: $<HTMLInputElement>('bot-group'),
+  botGroupList: $('bot-group-list'), chatActivity: $('chat-activity'),
+  lockTimeout: $<HTMLSelectElement>('lock-timeout'), tpsSwitch: $<HTMLInputElement>('tps-switch'), fontSelect: $<HTMLSelectElement>('font-select'),
+  backupSchedule: $<HTMLSelectElement>('backup-schedule'), backupFolderBtn: $<HTMLButtonElement>('backup-folder-btn'),
+  backupSchedMsg: $('backup-sched-msg'), backupSchedError: $('backup-sched-error'),
+  sharedFolderPath: $('shared-folder-path'), sharedFolderPick: $<HTMLButtonElement>('shared-folder-pick'), sharedFolderClear: $<HTMLButtonElement>('shared-folder-clear'),
+  settingsMemory: $<HTMLInputElement>('settings-memory'), settingsExport: $<HTMLButtonElement>('settings-export'), settingsImport: $<HTMLButtonElement>('settings-import'),
+  settingsFileMsg: $('settings-file-msg'), settingsFileError: $('settings-file-error'),
+  editsModal: $('edits-modal'), editsList: $('edits-list'), editsClose: $<HTMLButtonElement>('edits-close'),
+  reminderImportForm: $<HTMLFormElement>('reminder-import-form'), reminderLine: $<HTMLInputElement>('reminder-line'),
 };
 
 const CHAT_PLACEHOLDER = el.input.placeholder;
 const ROOM_PLACEHOLDER = 'Message the room (each Cipher bot replies once; type @Name to ask just one)';
 
 const state = {
+  /** v1.24: dock tag filter ('' = all), collapsed dock folders, tokens/s display and per-reply measurements. */
+  tagFilter: '',
+  groupsCollapsed: [] as string[],
+  showTps: false,
+  tps: new Map<number, string>(),
+  tpsRun: new Map<number, { start: number; tokens: number }>(),
+  activity: '',
+  /** v1.24: the name was typed by the user (auto-title stops filling it in). */
+  nameTouched: false,
+  editingMsg: null as number | null,
   bots: [] as Bot[],
   rooms: [] as Room[],
   /** The open bot's one chat (bot mode). */
@@ -298,7 +320,7 @@ function nameMatches(hay: string, q: string): boolean {
 function renderRail(): void {
   const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen && !state.policyOpen && !state.aboutOpen;
   const q = state.searchQuery.trim().toLowerCase();
-  el.botList.replaceChildren(...activeBots().map((b) => {
+  const botButton = (b: Bot): HTMLButtonElement => {
     const working = state.speakingBots.has(b.id);
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
@@ -307,6 +329,21 @@ function renderRail(): void {
     addUnreadDot(btn, b.unread && !(showingChat && b.id === state.botId));
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
+  };
+  // v1.24: dock folders (collapsible) and the tag filter.
+  renderTagFilter();
+  el.botList.replaceChildren(...dockSections(activeBots(), state.tagFilter, state.groupsCollapsed).flatMap((sec) => {
+    if (!sec.group) return sec.bots.map(botButton);
+    const head = document.createElement('button');
+    head.type = 'button'; head.className = 'dock-group-head';
+    head.setAttribute('aria-expanded', String(!sec.collapsed));
+    head.title = `${sec.collapsed ? 'Show' : 'Hide'} folder ${sec.group} (${sec.bots.length})`;
+    head.setAttribute('aria-label', head.title);
+    head.append(node('span', 'ico ico-dock-folders'), node('span', 'rail-name', sec.group));
+    head.addEventListener('click', () => void toggleGroup(sec.group));
+    const box = node('div', 'dock-group');
+    box.append(head, ...(sec.collapsed ? [] : sec.bots.map(botButton)));
+    return [box];
   }));
   el.roomList.replaceChildren(...activeRooms().map((r) => {
     const label = `Room: ${roomName(r)}`;
@@ -386,6 +423,8 @@ async function selectBot(botId: number): Promise<void> {
   state.chat = await api.openBotChat(botId);
   state.messages = await api.listMessages(state.chat.id);
   state.routine = await api.getRoutine(botId);
+  state.activity = '';
+  void refreshActivity();
   state.live = '';
   state.error = null;
   renderRail();
@@ -702,7 +741,22 @@ function decorateMessage(row: HTMLElement, m: Message, chatId: number): void {
     iconButton('assets/cipher-pin.svg', m.pinned ? 'Unpin' : 'Pin to the top', `pin-btn${m.pinned ? ' on' : ''}`, () => void togglePin(chatId, m.id, !m.pinned)),
     iconButton('assets/cipher-memory.svg', 'Save to memory note', 'remember-btn', () => void rememberMessage(chatId, m.id)),
   );
+  // v1.24: edit your own message (the old text is kept in its history).
+  if (m.role === 'user' && !m.content.startsWith(PAGE_BLOCK_START)) {
+    const ed = document.createElement('button');
+    ed.type = 'button'; ed.className = 'msg-act edit-btn edited-mark'; ed.textContent = 'Edit'; ed.title = 'Edit this message';
+    ed.addEventListener('click', (e) => { e.stopPropagation(); startEdit(row, m, chatId); });
+    acts.append(ed);
+  }
   row.append(acts);
+  if (m.edited) {
+    const h = document.createElement('button');
+    h.type = 'button'; h.className = 'edited-mark'; h.textContent = 'edited'; h.title = 'See the old text';
+    h.addEventListener('click', () => void openEdits(chatId, m.id));
+    row.append(h);
+  }
+  if (m.role === 'assistant' && state.showTps && state.tps.has(m.id)) row.append(node('div', 'tps-line', state.tps.get(m.id)!));
+  row.append(reactBar(m, chatId));
 }
 
 async function togglePin(chatId: number, id: number, on: boolean): Promise<void> {
@@ -772,6 +826,7 @@ function renderBotChat(): void {
   el.chatIcon.hidden = false;
   el.chatIcon.replaceChildren(botIcon(bot, 40));
   el.chatBotName.textContent = bot.name;
+  el.chatActivity.textContent = state.activity;
 
   const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
@@ -843,6 +898,7 @@ function renderRoom(): void {
   el.chatIcon.hidden = true;
   el.chatIcon.replaceChildren();
   el.chatBotName.textContent = roomName(room);
+  el.chatActivity.textContent = '';
 
   const q = state.searchQuery.trim().toLowerCase();
   const items: HTMLElement[] = [];
@@ -954,11 +1010,21 @@ async function onChatEvent(ev: ChatEvent): Promise<void> {
   }
   if (state.roomId !== null || ev.chatId !== state.chat?.id) return;
   switch (ev.type) {
-    case 'token':
+    case 'token': {
       state.live += ev.text;
+      const run = state.tpsRun.get(ev.chatId) ?? { start: performance.now(), tokens: 0 };
+      run.tokens++; state.tpsRun.set(ev.chatId, run);
       updateLive();
       return;
+    }
     case 'message':
+      if (ev.message.role === 'assistant' && ev.message.content) {
+        const run = state.tpsRun.get(ev.chatId);
+        const t = run ? tokensPerSecond(run.tokens, performance.now() - run.start) : null;
+        if (t) state.tps.set(ev.message.id, t);
+        state.tpsRun.delete(ev.chatId);
+        void refreshActivity();
+      }
       state.messages.push(ev.message);
       if (ev.message.role === 'assistant') state.live = '';
       if (ev.message.role === 'user' && state.chat && state.chat.title === 'New chat') {
@@ -1086,6 +1152,8 @@ function openBotForm(): void {
   state.formOpen = true;
   state.roomFormOpen = false;
   state.settingsOpen = false;
+  state.nameTouched = false;
+  fillGroupList();
   renderRail();
   applyView();
   el.botName.focus();
@@ -1100,6 +1168,10 @@ function openEditBot(): void {
   el.botJob.value = bot.systemPrompt;
   el.botMemory.value = bot.memoryNote;
   el.replyLength.value = bot.replyLength;
+  el.botTags.value = (bot.tags ?? []).join(', ');
+  el.botGroup.value = bot.group ?? '';
+  state.nameTouched = true;
+  fillGroupList();
   // A bad stored shape/color shows (and saves) as the default, same as everywhere else.
   const shape = shapeOf(bot.shape);
   const color = colorOf(bot.color);
@@ -1128,6 +1200,7 @@ async function submitBotForm(e: Event): Promise<void> {
       let updated = await api.updateBot(state.editBotId, form);
       if (el.botMemory.value.trim() !== updated.memoryNote) updated = await api.setBotMemory(updated.id, el.botMemory.value);
       if (el.replyLength.value !== updated.replyLength) updated = await api.setReplyLength(updated.id, el.replyLength.value as Bot['replyLength']);
+      updated = await saveTagsAndGroup(updated);
       state.editBotId = null;
       applyView();
       await replaceBot(updated); // the left column and the chat header update right away
@@ -1138,7 +1211,7 @@ async function submitBotForm(e: Event): Promise<void> {
     return;
   }
   try {
-    const bot = await api.createBot(form);
+    const bot = await saveTagsAndGroup(await api.createBot(form));
     state.formOpen = false;
     await loadBots();
     await selectBot(bot.id);
@@ -1213,6 +1286,7 @@ function openSettings(): void {
   state.settingsOpen = true;
   state.policyOpen = false;
   void refreshDisk();
+  void refreshV124Settings();
   state.editBotId = null;
   state.formOpen = false;
   state.roomFormOpen = false;
@@ -1711,6 +1785,7 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'markdown': return copyMarkdown();
     case 'checklist': return openChecklist();
     case 'reminder': return openReminders();
+    case 'summarize': return summarizeFolder();
     case 'archive': return state.roomId !== null ? archiveItem('room', state.roomId) : state.botId !== null ? archiveItem('bot', state.botId) : undefined;
   }
 }
@@ -2066,6 +2141,9 @@ async function loadAppData(): Promise<void> {
     state.prefs = await api.getUiPrefs();
     applyMotion();
     void api.getAccent().then(applyAccent).catch(() => undefined);
+    void api.getFont().then(applyFont).catch(() => undefined);
+    state.showTps = await api.getShowTps();
+    state.groupsCollapsed = await api.getDockGroupsCollapsed();
     for (const a of await api.pendingSearches()) state.searchAsks.set(a.id, { chatId: a.chatId, query: a.query });
     state.phone = await api.getPhoneLink();
     await loadBots();
@@ -2521,3 +2599,174 @@ async function refreshDisk(): Promise<void> {
   try { renderDisk(await api.diskUsage()); } catch (err) { el.diskList.replaceChildren(document.createTextNode(plainError(err))); }
 }
 el.diskRefresh.addEventListener('click', () => void refreshDisk());
+
+// ---------- v1.24 ----------
+function renderTagFilter(): void {
+  const tags = allTags(activeBots());
+  if (state.tagFilter && !tags.some((t) => t.toLowerCase() === state.tagFilter.toLowerCase())) state.tagFilter = '';
+  const opts = [new Option('All', ''), ...tags.map((t) => new Option(t, t))];
+  el.tagFilter.replaceChildren(...opts);
+  el.tagFilter.value = state.tagFilter;
+  (el.tagFilter.parentElement as HTMLElement).hidden = tags.length === 0;
+}
+el.tagFilter.addEventListener('change', () => { state.tagFilter = el.tagFilter.value; renderRail(); });
+
+async function toggleGroup(group: string): Promise<void> {
+  const next = state.groupsCollapsed.includes(group) ? state.groupsCollapsed.filter((g) => g !== group) : [...state.groupsCollapsed, group];
+  state.groupsCollapsed = next;
+  renderRail();
+  try { state.groupsCollapsed = await api.setDockGroupsCollapsed(next); } catch { /* kept locally until next load */ }
+}
+
+function fillGroupList(): void {
+  const groups = [...new Set(state.bots.map((b) => b.group).filter((g): g is string => !!g))].sort();
+  el.botGroupList.replaceChildren(...groups.map((g) => new Option(g, g)));
+}
+
+async function saveTagsAndGroup(bot: Bot): Promise<Bot> {
+  const tags = el.botTags.value.split(',').map((t) => t.trim()).filter(Boolean);
+  let b = bot;
+  if (tags.join('|') !== (b.tags ?? []).join('|')) b = await api.setBotTags(b.id, tags);
+  if (el.botGroup.value.trim() !== (b.group ?? '')) b = await api.setBotGroup(b.id, el.botGroup.value);
+  return b;
+}
+
+// Auto-title: the name follows the job until the user types a name (always editable).
+el.botName.addEventListener('input', () => { state.nameTouched = el.botName.value.trim().length > 0; });
+el.botJob.addEventListener('input', () => {
+  if (state.editBotId !== null || state.nameTouched) return;
+  el.botName.value = autoTitle(el.botJob.value);
+});
+
+async function refreshActivity(): Promise<void> {
+  const id = state.botId;
+  if (id === null) return;
+  try {
+    const a = await api.botActivity(id);
+    if (state.botId !== id) return;
+    state.activity = formatActivity(a);
+    el.chatActivity.textContent = state.roomId === null ? state.activity : '';
+  } catch { /* the line just stays empty */ }
+}
+
+function reactBar(m: Message, chatId: number): HTMLElement {
+  const bar = node('div', 'react-bar');
+  bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Reactions');
+  for (const r of REACTION_CHOICES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'react-btn'; b.title = r.label; b.setAttribute('aria-label', r.label);
+    b.setAttribute('aria-pressed', String(m.reaction === r.id));
+    b.append(node('span', `ico ico-react-${r.id}`));
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void api.reactMessage(chatId, m.id, m.reaction === r.id ? null : r.id).then((upd) => {
+        const cur = state.messages.find((x) => x.id === m.id);
+        if (cur) cur.reaction = upd.reaction ?? null;
+        renderChat();
+      }).catch((err) => { state.error = plainError(err); renderChat(); });
+    });
+    bar.append(b);
+  }
+  return bar;
+}
+
+function startEdit(row: HTMLElement, m: Message, chatId: number): void {
+  const textEl = row.querySelector('.msg-text');
+  if (!textEl || row.querySelector('.edit-area')) return;
+  const ta = document.createElement('textarea');
+  ta.className = 'edit-area'; ta.value = m.content; ta.rows = 3; ta.setAttribute('aria-label', 'Edit message');
+  const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save';
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'Cancel';
+  const bar = node('div', 'row end'); bar.append(cancel, save);
+  textEl.replaceWith(ta);
+  row.append(bar);
+  ta.focus();
+  cancel.addEventListener('click', () => renderChat());
+  save.addEventListener('click', () => {
+    void api.editMessage(chatId, m.id, ta.value).then((upd) => {
+      const i = state.messages.findIndex((x) => x.id === m.id);
+      if (i >= 0) state.messages[i] = upd;
+      renderChat();
+    }).catch((err) => { state.error = plainError(err); renderChat(); });
+  });
+}
+
+async function openEdits(chatId: number, id: number): Promise<void> {
+  let edits: MessageEdit[] = [];
+  try { edits = await api.listMessageEdits(chatId, id); } catch (err) { state.error = plainError(err); renderChat(); return; }
+  el.editsList.replaceChildren(...edits.map((e) => {
+    const li = document.createElement('li');
+    li.append(node('span', 'muted', `${formatMessageTime(e.editedAt)} · before: `), document.createTextNode(e.oldText));
+    return li;
+  }));
+  if (!edits.length) el.editsList.replaceChildren(node('li', 'muted', 'No older text.'));
+  el.editsModal.hidden = false;
+  el.editsClose.focus();
+}
+el.editsClose.addEventListener('click', () => { el.editsModal.hidden = true; });
+el.editsModal.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); el.editsModal.hidden = true; } });
+
+async function summarizeFolder(): Promise<void> {
+  const chat = state.chat;
+  if (!chat || state.roomId !== null) return;
+  try { await api.summarizeFolder(chat.id); } catch (err) { state.error = plainError(err); renderChat(); }
+}
+
+el.reminderImportForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = reminderBot;
+  if (id === null) return;
+  void reminderCall(() => api.importReminder(id, el.reminderLine.value)).then((ok) => { if (ok) el.reminderLine.value = ''; });
+});
+
+// Settings: lock timeout, tokens/s, font, scheduled backup, shared folder, settings file.
+function applyFont(f: string): void {
+  if (f === 'system') delete document.documentElement.dataset.font;
+  else document.documentElement.dataset.font = f;
+  el.fontSelect.value = f;
+}
+function renderBackupSched(b: BackupScheduleState): void {
+  el.backupSchedule.value = b.schedule;
+  el.backupSchedMsg.textContent = `${b.folder ? `Folder: ${b.folder}` : 'No folder chosen.'}${b.last ? ` · Last backup ${new Date(b.last).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : ''}`;
+}
+const sharedText = (f: string | null): string => f ?? 'None';
+async function refreshV124Settings(): Promise<void> {
+  try {
+    el.lockTimeout.value = await api.getLockTimeout();
+    el.tpsSwitch.checked = state.showTps = await api.getShowTps();
+    applyFont(await api.getFont());
+    renderBackupSched(await api.getBackupSchedule());
+    const sf = await api.getSharedFolder();
+    el.sharedFolderPath.textContent = sharedText(sf);
+    el.sharedFolderClear.disabled = !sf;
+  } catch { /* locked or closing */ }
+  for (const p of [el.backupSchedError, el.settingsFileMsg, el.settingsFileError]) p.hidden = true;
+}
+el.lockTimeout.addEventListener('change', () => void api.setLockTimeout(el.lockTimeout.value as '1' | '5' | '15' | 'never'));
+el.tpsSwitch.addEventListener('change', () => void api.setShowTps(el.tpsSwitch.checked).then((on) => { state.showTps = on; }));
+el.fontSelect.addEventListener('change', () => void api.setFont(el.fontSelect.value as 'system' | 'sans' | 'serif' | 'mono').then(applyFont));
+const backupSchedCall = (f: () => Promise<BackupScheduleState>): void => {
+  el.backupSchedError.hidden = true;
+  void f().then(renderBackupSched).catch((err) => {
+    el.backupSchedError.textContent = plainError(err); el.backupSchedError.hidden = false;
+    void api.getBackupSchedule().then(renderBackupSched).catch(() => undefined);
+  });
+};
+el.backupSchedule.addEventListener('change', () => backupSchedCall(() => api.setBackupSchedule(el.backupSchedule.value as 'off' | 'daily' | 'weekly')));
+el.backupFolderBtn.addEventListener('click', () => backupSchedCall(() => api.pickBackupFolder()));
+el.sharedFolderPick.addEventListener('click', () => void api.pickSharedFolder().then((f) => { el.sharedFolderPath.textContent = sharedText(f); el.sharedFolderClear.disabled = !f; }));
+el.sharedFolderClear.addEventListener('click', () => void api.clearSharedFolder().then(() => { el.sharedFolderPath.textContent = 'None'; el.sharedFolderClear.disabled = true; }));
+const settingsFileResult = (msg: string | null, err?: unknown): void => {
+  el.settingsFileMsg.hidden = !msg; el.settingsFileMsg.textContent = msg ?? '';
+  el.settingsFileError.hidden = err === undefined; el.settingsFileError.textContent = err === undefined ? '' : plainError(err);
+};
+el.settingsExport.addEventListener('click', () => void api.exportSettings(el.settingsMemory.checked)
+  .then((r) => settingsFileResult(r.ok ? `Saved to ${r.path}` : null)).catch((e) => settingsFileResult(null, e)));
+el.settingsImport.addEventListener('click', () => void api.importSettings(el.settingsMemory.checked)
+  .then(async (r) => {
+    if (!r.ok) return settingsFileResult(null);
+    settingsFileResult(`Imported ${r.applied} setting${r.applied === 1 ? '' : 's'}${r.memory ? ` and ${r.memory} memory note${r.memory === 1 ? '' : 's'}` : ''}.`);
+    state.prefs = await api.getUiPrefs(); state.sendSound = await api.getSendSound();
+    applyMotion(); void api.getAccent().then(applyAccent);
+    await refreshV124Settings(); await loadBots(); renderSettings();
+  }).catch((e) => settingsFileResult(null, e)));

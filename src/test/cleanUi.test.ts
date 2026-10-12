@@ -23,7 +23,7 @@ test('plus menu in a room: only Export', () => {
 
 test('plus menu in a 1:1 chat: attach, export, clear, edit, folder, second folder, read files (on/off), routine', () => {
   const off = view.plusMenuItems({ kind: 'bot', toolsEnabled: false, folderPath: null, busy: false, routineTime: null });
-  assert.deepEqual(off.map((i) => i.id), ['attach', 'export', 'markdown', 'clear', 'select', 'edit', 'folder', 'second', 'tools', 'checklist', 'reminder', 'routine', 'mute', 'archive']);
+  assert.deepEqual(off.map((i) => i.id), ['attach', 'export', 'markdown', 'clear', 'select', 'edit', 'folder', 'second', 'summarize', 'tools', 'checklist', 'reminder', 'routine', 'mute', 'archive']);
   const tools = (items: PlusItem[]) => items.find((i) => i.id === 'tools')!;
   assert.equal(tools(off).label, 'Tools…', 'v1.23: the tool switches open in one dialog');
   assert.equal(off.find((i) => i.id === 'folder')!.disabled, true, 'Choose folder needs Read files on (as before)');

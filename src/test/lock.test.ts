@@ -208,7 +208,11 @@ test('re-showing a hidden window shows the lock screen (safety net: locks if som
 test('the passphrase only goes to main over IPC, never to the phone or a URL', () => {
   const preload = src('preload/preload.ts');
   assert.match(preload, /unlock: \(passphrase\) => ipcRenderer\.invoke\('lock:unlock', passphrase\)/);
-  for (const f of ['main/phoneServer.ts', 'phone/app.js', 'phone/index.html']) assert.doesNotMatch(src(f), /passphrase|lock:unlock|appLock/i, f);
+  // v1.24: the phone has its own passphrase field (phone unlock), but the passphrase never leaves the phone: it only
+  // sends a challenge-response, and the phone server never sees the lock or calls the desktop unlock.
+  for (const f of ['main/phoneServer.ts', 'phone/app.js', 'phone/index.html']) assert.doesNotMatch(src(f), /lock:unlock|appLock|verifyPassphrase|LockStore/, f);
+  assert.match(src('phone/app.js'), /body: JSON\.stringify\(\{ response \}\)/);
+  assert.doesNotMatch(src('phone/app.js'), /JSON\.stringify\(\{[^}]*pass/);
   assert.doesNotMatch(src('main/main.ts'), /console\.|passphrase[^)]*\)\s*\)?\s*;?\s*\/\/\s*log/i);
 });
 

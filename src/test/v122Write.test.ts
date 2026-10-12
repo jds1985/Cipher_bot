@@ -45,13 +45,13 @@ const files = (d: string) => fs.readdirSync(d).sort();
 
 test('version 1.22.0, schema 12, WHATS_NEW five lines of 90 chars or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.23.0');
+  assert.equal(pkg.version, '1.24.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 13);
+  assert.equal(SCHEMA_VERSION, 14);
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5);
   for (const l of WHATS_NEW) assert.ok(l.length <= 90, l);
-  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.doesNotMatch(WHATS_NEW.join(' ') + policy + html, /grok/i);
   assert.doesNotMatch(html, /\sstyle="/, 'no inline styles');
 });
@@ -211,9 +211,9 @@ test('2. no write path skips the confirm (source audit of every file write in ma
   // Every other file write in main is a known, user-chosen or app-internal path (see the PR's list).
   const writers = fs.readdirSync(path.join(root, 'src/main')).filter((f) => f.endsWith('.ts') &&
     /\bfs(\.promises)?\.(writeFile|writeFileSync|appendFile|createWriteStream|copyFileSync|renameSync|rename|link)\(|\.backup\(|open\([^)]*'wx?'/.test(read(`src/main/${f}`))).sort();
-  assert.deepEqual(writers, ['backup.ts', 'db.ts', 'fileWrite.ts', 'lock.ts', 'main.ts', 'updateCheck.ts', 'windowBounds.ts']);
-  // main's writes: only the native Save dialog's chosen path (export, debug log) and the backup.
-  assert.equal((main.match(/fs\.writeFile\(r\.filePath/g) ?? []).length, 2);
+  assert.deepEqual(writers, ['backup.ts', 'db.ts', 'fileWrite.ts', 'lock.ts', 'main.ts', 'scheduledBackup.ts', 'updateCheck.ts', 'windowBounds.ts']);
+  // main's writes: only the native Save dialog's chosen path (export, debug log, v1.24 settings file) and the backup.
+  assert.equal((main.match(/fs\.writeFile\(r\.filePath/g) ?? []).length, 3);
   assert.doesNotMatch(main, /fs\.writeFile\((?!r\.filePath)/);
   // The renderer and preload have no way to write: no write channel, no token in, no path out.
   assert.doesNotMatch(preload, /write_file|file:write|writeFile|confirmWrite/i);

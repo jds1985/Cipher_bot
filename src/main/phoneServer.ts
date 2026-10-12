@@ -13,6 +13,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import type { PhoneUnlock } from './phoneUnlock';
 import { randomBytes } from 'node:crypto';
 import QRCode from 'qrcode';
 import type { ChatEvent, RoomEvent } from '../shared/types';
@@ -62,6 +63,8 @@ export interface PhoneServerDeps {
   answerSearch?: (id: string, ok: boolean) => void;
   /** v1.19: confirm cards waiting for this chat (shown when the phone opens it). */
   pendingSearches?: (chatId: number) => { id: string; query: string }[];
+  /** v1.24: while the lock is on, each paired phone must also unlock (challenge-response; see phoneUnlock.ts). */
+  phoneUnlock?: PhoneUnlock;
 }
 
 /** HTTP status and message the phone API returns for every request while Cipher is locked on the desktop. */
@@ -260,6 +263,7 @@ export class PhoneServer {
     }
     this.sse.clear();
     this.sessions.clear();
+    this.deps.phoneUnlock?.revokeAll(); // v1.24
     this.pairing = null;
     this.qrDataUrl = null;
     this.qrForUrl = null;
@@ -277,6 +281,7 @@ export class PhoneServer {
    * phone works again after the desktop is unlocked; until then every API call is refused.
    */
   closeStreams(): void {
+    this.deps.phoneUnlock?.revokeAll(); // v1.24: a desktop lock voids every phone unlock
     for (const client of this.sse) {
       try { client.res.end(); } catch { /* ignore */ }
     }
@@ -431,9 +436,29 @@ export class PhoneServer {
 
     // v1.19: the phone can never read or change Online (it is a desktop-only setting). Refused before anything else.
     if (/^\/api\/(online|settings|update|debug)(\/|$)/i.test(url.pathname)) return json(res, 403, { error: 'Online can only be changed on the desktop.' });
+    // v1.24: desktop-only features; the phone is always refused.
+    if (/^\/api\/(backup|shared-folder|tools|tags|dock|reactions?|edits?|summar\w*|fonts?|lock|export|import)(\/|$)/i.test(url.pathname)) {
+      return json(res, 403, { error: 'That is only available on the desktop.' });
+    }
 
     const token = this.requireSession(req, res, url);
     if (!token) return;
+
+    // v1.24: while the lock is on, this phone must answer a challenge first (the passphrase itself is never sent).
+    const pu = this.deps.phoneUnlock;
+    if (pu && pu.required()) {
+      if (method === 'POST' && url.pathname === '/api/unlock/challenge') {
+        const r = pu.challenge(token);
+        return r.ok ? json(res, 200, r.challenge) : json(res, 429, { error: r.error, waitMs: r.waitMs });
+      }
+      if (method === 'POST' && url.pathname === '/api/unlock/answer') {
+        let body: { response?: unknown } = {};
+        try { body = JSON.parse(await readBody(req, 1024)) as { response?: unknown }; } catch { /* empty */ }
+        const r = pu.answer(token, body.response);
+        return r.ok ? json(res, 200, { ok: true }) : json(res, r.waitMs > 0 ? 429 : 401, { error: r.error, waitMs: r.waitMs });
+      }
+      if (!pu.isUnlocked(token)) return json(res, 401, { error: 'Enter the passphrase on this phone.', phoneLocked: true });
+    }
 
     const { db } = this.deps;
 

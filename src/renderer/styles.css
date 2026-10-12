@@ -559,3 +559,40 @@ mark.find-hit.current { background: var(--accent); color: #fff; }
 .image-chip:not([hidden]),
 .quote-chip:not([hidden]):has(+ .image-chip[hidden]),
 .attach-chip:not([hidden]):has(+ .quote-chip[hidden] + .image-chip[hidden]) { margin-bottom: 78px; position: relative; z-index: 6; }
+
+/* ---- v1.24 ---- */
+@font-face { font-family: "Cipher Sans"; src: url("assets/fonts/DejaVuSans.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Cipher Serif"; src: url("assets/fonts/DejaVuSerif.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Cipher Mono"; src: url("assets/fonts/DejaVuSansMono.ttf") format("truetype"); font-display: swap; }
+html[data-font="sans"] body, html[data-font="sans"] button, html[data-font="sans"] input, html[data-font="sans"] textarea, html[data-font="sans"] select { font-family: "Cipher Sans", sans-serif; }
+html[data-font="serif"] body, html[data-font="serif"] button, html[data-font="serif"] input, html[data-font="serif"] textarea, html[data-font="serif"] select { font-family: "Cipher Serif", serif; }
+html[data-font="mono"] body, html[data-font="mono"] button, html[data-font="mono"] input, html[data-font="mono"] textarea, html[data-font="mono"] select { font-family: "Cipher Mono", monospace; }
+.ico-shared-folder { --ico: url("assets/cipher-shared-folder.svg"); }
+.ico-dock-folders { --ico: url("assets/cipher-dock-folders.svg"); }
+.ico-tags { --ico: url("assets/cipher-tags.svg"); }
+.ico-react-like { --ico: url("assets/cipher-react-like.svg"); }
+.ico-react-heart { --ico: url("assets/cipher-react-heart.svg"); }
+.ico-react-laugh { --ico: url("assets/cipher-react-laugh.svg"); }
+.ico-react-check { --ico: url("assets/cipher-react-check.svg"); }
+.ico-react-star { --ico: url("assets/cipher-react-star.svg"); }
+.tag-filter-wrap { display: flex; align-items: center; gap: 2px; width: 100%; justify-content: center; }
+.tag-filter-wrap .ico { width: 14px; height: 14px; }
+.tag-filter-wrap select { max-width: 76px; font-size: 11px; padding: 2px; }
+.dock-group { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.dock-group-head { display: flex; align-items: center; gap: 2px; font-size: 10px; max-width: 64px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  background: none; border: 0; color: var(--muted, #9aa4b2); padding: 2px 4px; cursor: pointer; }
+.dock-group-head .ico { width: 14px; height: 14px; }
+.dock-group-head[aria-expanded="false"] { color: var(--accent); }
+.react-bar { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.react-btn { background: none; border: 1px solid transparent; border-radius: 10px; padding: 2px 4px; cursor: pointer; opacity: .55; line-height: 0; }
+.react-btn .ico { width: 16px; height: 16px; }
+.react-btn:hover, .react-btn:focus-visible { opacity: 1; }
+.react-btn[aria-pressed="true"] { opacity: 1; border-color: var(--accent); }
+.edited-mark { font-size: 11px; background: none; border: 0; color: var(--muted, #9aa4b2); text-decoration: underline; cursor: pointer; padding: 0 4px; }
+.edits-list { max-height: 50vh; overflow: auto; padding-left: 20px; }
+.edits-list li { margin: 8px 0; white-space: pre-wrap; }
+.tps-line { font-size: 11px; color: var(--muted, #9aa4b2); margin-top: 2px; }
+.activity-line { font-size: 12px; color: var(--muted, #9aa4b2); margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.path-line { word-break: break-all; }
+.auto-title-hint { margin: -4px 0 4px; font-size: 12px; }
+#lock-timeout-wrap { gap: 8px; align-items: center; margin-top: 8px; }

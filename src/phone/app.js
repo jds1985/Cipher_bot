@@ -23,13 +23,44 @@
     const body = await res.json().catch(() => ({}));
     // 423: Cipher is locked on the desktop. Everything is refused (pairing too) until it's unlocked there.
     if (res.status === 423) { closeEvents(); setBusy(false); show('locked'); throw new Error(body.error || 'Cipher Bot is locked on the desktop.'); }
+    // v1.24: the lock is on and this phone hasn't unlocked (or the unlock expired / the desktop locked since).
+    if (res.status === 401 && body.phoneLocked) { closeEvents(); setBusy(false); show('unlock'); throw new Error(body.error); }
     if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
     return body;
   }
 
+  // v1.24: phone unlock. The passphrase stays on this phone: we fetch a one-time challenge, derive the key with the
+  // same scrypt settings as the desktop lock (kdf.js) and send only the HMAC answer. It is cleared from the field.
+  async function unlockPhone(e) {
+    e.preventDefault();
+    const err = $('unlock-error');
+    err.hidden = true;
+    const pass = $('unlock-pass').value;
+    $('unlock-pass').value = '';
+    if (!pass) return;
+    $('unlock-btn').disabled = true;
+    $('unlock-btn').textContent = 'Checking…';
+    try {
+      const ch = await api('/api/unlock/challenge', { method: 'POST', headers: headers(true), body: '{}' });
+      await new Promise((r) => setTimeout(r, 30)); // let the button repaint before the slow key derivation
+      const response = window.CipherKdf.unlockResponse(pass, ch);
+      await api('/api/unlock/answer', { method: 'POST', headers: headers(true), body: JSON.stringify({ response }) });
+      await loadList();
+    } catch (x) {
+      err.textContent = x.message || String(x);
+      err.hidden = false;
+      if ($('unlock-view').hidden) show('unlock');
+    } finally {
+      $('unlock-btn').disabled = false;
+      $('unlock-btn').textContent = 'Unlock';
+    }
+  }
+  $('unlock-form').addEventListener('submit', unlockPhone);
+
   function show(view) {
     $('locked-view').hidden = view !== 'locked';
     $('pair-view').hidden = view !== 'pair';
+    $('unlock-view').hidden = view !== 'unlock';
     $('list-view').hidden = view !== 'list';
     $('chat-view').hidden = view !== 'chat';
   }

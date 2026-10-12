@@ -94,3 +94,26 @@ export class ReminderScheduler {
     this.timer = null;
   }
 }
+
+/**
+ * v1.24: import a reminder from one line of text: "<date> <time> <prompt>". Dates: 2026-10-14 or 10/14/2026;
+ * times: 09:30, 9:30 PM or 9 PM; an ISO "2026-10-14T09:30" works too. Returns the same shape as the form.
+ */
+export function parseReminderLine(line: unknown): { at: string; prompt: string } {
+  if (typeof line !== 'string') throw new Error('Paste one line: date, time, then the message.');
+  const s = line.trim().slice(0, REMINDER_PROMPT_MAX + 40);
+  const m = /^(?:(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})\/(\d{1,2})\/(\d{4}))[T\s,]+(\d{1,2})(?::(\d{2}))?\s*([AaPp]\.?[Mm]\.?)?(?:\s*[,\-–]\s*|\s+)(.+)$/s.exec(s);
+  if (!m) throw new Error('Could not read that line. Use: 2026-10-14 9:30 AM Call the plumber');
+  const [, y1, mo1, d1, mo2, d2, y2, hRaw, minRaw, ampm, prompt] = m;
+  const y = Number(y1 ?? y2), mo = Number(mo1 ?? mo2), d = Number(d1 ?? d2);
+  let h = Number(hRaw);
+  const min = minRaw ? Number(minRaw) : 0;
+  if (ampm) {
+    if (h < 1 || h > 12) throw new Error('That time is not valid.');
+    const pm = /^p/i.test(ampm);
+    h = (h % 12) + (pm ? 12 : 0);
+  }
+  if (h > 23 || min > 59) throw new Error('That time is not valid.');
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return { at: `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(min)}`, prompt: prompt.trim() };
+}

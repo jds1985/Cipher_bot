@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -37,6 +37,15 @@ import { buildDebugLog, recentLogLines, recordLogLine } from './debugLog';
 import { SCHEMA_VERSION } from './db';
 import { UPDATE_LAST_CHECK_KEY, checkForUpdate, downloadUpdate, isCheckDue, type UpdateInfo } from './updateCheck';
 import { readUiPrefs as readPrefsForLog } from './uiPrefs';
+import { IDLE_CHECK_MS, LOCK_TIMEOUT_KEY, LOCK_TIMEOUTS, parseLockTimeout, shouldIdleLock } from './lockTimeout';
+import { BACKUP_CHECK_MS, BACKUP_FOLDER_KEY, BACKUP_LAST_KEY, BACKUP_SCHEDULE_KEY, BACKUP_SCHEDULES, checkBackupFolder, isBackupDue, parseSchedule, runScheduledBackup } from './scheduledBackup';
+import { isNetworkFolder } from './mountInfo';
+import { FONT_KEY, FONTS, TPS_KEY, buildSettingsExport, parseFont, parseMemoryImport, parseSettingsImport } from './settingsFile';
+import { normalizeGroup, normalizeTags, parseReaction } from './botMeta';
+import { confirmFolderSummary } from './folderSummary';
+import { PhoneUnlock } from './phoneUnlock';
+import { parseReminderLine } from './reminders';
+import { MEMORY_NOTE_MAX } from './db';
 
 // v1.20: keep the last log lines (redacted) for "Export debug log". Still printed as before.
 for (const level of ['error', 'warn'] as const) {
@@ -141,6 +150,8 @@ async function lockApp(win: BrowserWindow): Promise<void> {
   writeConsent.revokeAll(); // v1.22: unused write / checklist tokens die on lock
   checklistConsent.revokeAll();
   finishUndo(); // v1.23: a pending delete is purged for real on lock (no undo after unlock)
+  summaryConsent.revokeAll(); // v1.24: folder-summary tokens and phone unlock sessions die on lock too
+  phoneUnlock?.revokeAll();
   if (!win.webContents.isDestroyed()) {
     await win.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lock: String(++lockLoads) }, hash: 'nosplash' })
       .catch(() => undefined);
@@ -341,13 +352,20 @@ function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => voi
   // v1.19: phone turns get web search too (the confirm card shows on the phone and the desktop). Routines never do.
   // v1.22: write_file / checklist_add only on the desktop (toolsOff is true for the phone): the confirm is a native
   // dialog on this computer, so the phone can never approve a write or a checklist item.
-  const base = { db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks, userExtras };
+  const base = { db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks, userExtras, sharedFolder };
   return runChatTurn({ ...base, actions: toolsOff ? undefined : actionHooks }, chatId, text, signal);
 }
 
 // ---------- v1.22: file writes and checklist adds (native confirm in main, one-time tokens) ----------
 const writeConsent = new WriteConsent();
 const checklistConsent = new SearchConsent();
+/** v1.24: one-time tokens for "Summarize folder" (issued after the native confirm, consumed right before reading). */
+const summaryConsent = new SearchConsent();
+/** v1.24: phone challenge-response unlock, verified here in main against the lock hash. Never sent to the phone. */
+let phoneUnlock: PhoneUnlock | null = null;
+const SHARED_FOLDER_KEY = 'shared_folder';
+const DOCK_GROUPS_COLLAPSED_KEY = 'dock_groups_collapsed';
+const sharedFolder = (): string | null => db.getSetting(SHARED_FOLDER_KEY) || null;
 
 /** Main's native confirm (never the renderer). Cancel is the default and the Escape answer. */
 async function nativeAsk(title: string, t: { message: string; detail: string; buttons: string[] }): Promise<number> {
@@ -529,7 +547,7 @@ function runReminderTurn(r: Reminder, chatId: number): void {
   activeTurns.set(chatId, controller);
   let failed = false;
   const emit = (ev: ChatEvent) => { if (ev.type === 'error') failed = true; broadcastChat(ev); };
-  void runChatTurn({ db, model: currentModel(), emit, forceToolsOff: false, fromRoutine: true, reminder: true }, chatId, r.prompt, controller.signal)
+  void runChatTurn({ db, model: currentModel(), emit, forceToolsOff: false, fromRoutine: true, reminder: true, sharedFolder }, chatId, r.prompt, controller.signal)
     .catch((err: unknown) => { failed = true; broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }); })
     .finally(() => {
       activeTurns.delete(chatId);
@@ -964,6 +982,132 @@ function registerIpc(): void {
   });
   handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
 
+  // ---- v1.24 ----
+  const pickFolder = async (e: Electron.IpcMainInvokeEvent, title: string): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = { title, properties: ['openDirectory' as const, 'createDirectory' as const] };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  };
+  // Shared folder: app-wide, read-only, only read by a bot whose Files switch is on (checked at offer and run).
+  handle('shared:get', () => sharedFolder());
+  handle('shared:pick', async (e) => {
+    const f = await pickFolder(e, 'Choose the shared folder');
+    if (f) db.setSetting(SHARED_FOLDER_KEY, await fs.realpath(f));
+    return sharedFolder();
+  });
+  handle('shared:clear', () => { db.setSetting(SHARED_FOLDER_KEY, ''); return null; });
+  // Lock timeout, tokens per second, font.
+  handle('locktimeout:get', () => parseLockTimeout(db.getSetting(LOCK_TIMEOUT_KEY)));
+  handle('locktimeout:set', (_e, v: unknown) => {
+    if (!(LOCK_TIMEOUTS as readonly unknown[]).includes(v)) throw new Error('Unknown lock timeout.');
+    db.setSetting(LOCK_TIMEOUT_KEY, v as string); return parseLockTimeout(v);
+  });
+  handle('tps:get', () => db.getSetting(TPS_KEY) === '1');
+  handle('tps:set', (_e, on: unknown) => { db.setSetting(TPS_KEY, on === true ? '1' : '0'); return on === true; });
+  handle('font:get', () => parseFont(db.getSetting(FONT_KEY)));
+  handle('font:set', (_e, v: unknown) => {
+    if (!(FONTS as readonly unknown[]).includes(v)) throw new Error('Unknown font.');
+    db.setSetting(FONT_KEY, v as string); return parseFont(v);
+  });
+  // Reactions, edits, activity, tags, dock folders.
+  handle('messages:react', (_e, chatId: unknown, id: unknown, r: unknown) => db.setReaction(asId(chatId), asId(id), parseReaction(r)));
+  handle('messages:edit', (_e, chatId: unknown, id: unknown, text: unknown) => {
+    if (activeTurns.has(asId(chatId))) throw new Error('This chat is still replying.');
+    return db.editMessage(asId(chatId), asId(id), text);
+  });
+  handle('messages:edits', (_e, chatId: unknown, id: unknown) => db.listMessageEdits(asId(chatId), asId(id)));
+  handle('bots:activity', (_e, botId: unknown) => db.botActivity(asId(botId)));
+  handle('bots:setTags', (_e, botId: unknown, tags: unknown) => db.setBotTags(asId(botId), normalizeTags(tags)));
+  handle('bots:setGroup', (_e, botId: unknown, g: unknown) => db.setBotGroup(asId(botId), normalizeGroup(g)));
+  handle('dock:groupsCollapsed', () => {
+    try { const v = JSON.parse(db.getSetting(DOCK_GROUPS_COLLAPSED_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 100) : []; } catch { return []; }
+  });
+  handle('dock:setGroupsCollapsed', (_e, list: unknown) => {
+    const v = Array.isArray(list) ? [...new Set(list.map(normalizeGroup).filter(Boolean))].slice(0, 100) : [];
+    db.setSetting(DOCK_GROUPS_COLLAPSED_KEY, JSON.stringify(v)); return v;
+  });
+  // Reminder from one line of text.
+  handle('reminders:import', (_e, botId: unknown, line: unknown) => {
+    const { at, prompt } = parseReminderLine(line);
+    db.addReminder(asId(botId), at, prompt);
+    return db.listReminders(asId(botId));
+  });
+  // Summarize a folder: native confirm in main, one-time token, Files switch re-checked before reading.
+  handle('folder:summarize', async (_e, chatIdRaw: unknown) => {
+    const chatId = asId(chatIdRaw);
+    if (activeTurns.has(chatId)) throw new Error('This chat is still replying.');
+    const botId = botOfChat(chatId);
+    const text = await confirmFolderSummary({
+      consent: summaryConsent, isLocked, ask: (t) => nativeAsk('Summarize folder', t),
+      bot: () => { const b = botId === null ? null : db.getBot(botId.id); return b ? { name: b.name, folderPath: b.folderPath, filesOn: b.toolsEnabled } : null; },
+    }, chatId);
+    if (!text) return { ok: false as const, canceled: true as const };
+    if (activeTurns.has(chatId)) throw new Error('This chat is still replying.');
+    const controller = new AbortController();
+    activeTurns.set(chatId, controller);
+    void beginChatTurn(chatId, text, broadcastChat, controller.signal, false)
+      .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => { activeTurns.delete(chatId); noteReplyFinished(botOfChat(chatId), controller.signal.aborted); });
+    return { ok: true as const };
+  });
+  // Scheduled backup: a local folder picked in a native dialog; warns on network/cloud mounts. No network.
+  const backupState = () => ({
+    schedule: parseSchedule(db.getSetting(BACKUP_SCHEDULE_KEY)), folder: db.getSetting(BACKUP_FOLDER_KEY) || null,
+    last: db.getSetting(BACKUP_LAST_KEY) || null,
+  });
+  handle('backupsched:get', () => backupState());
+  handle('backupsched:set', (_e, v: unknown) => {
+    if (!(BACKUP_SCHEDULES as readonly unknown[]).includes(v)) throw new Error('Unknown schedule.');
+    if (v !== 'off' && !db.getSetting(BACKUP_FOLDER_KEY)) throw new Error('Choose a backup folder first.');
+    db.setSetting(BACKUP_SCHEDULE_KEY, v as string); return backupState();
+  });
+  handle('backupsched:pick', async (e) => {
+    const f = await pickFolder(e, 'Choose a folder for backups');
+    if (!f) return backupState();
+    const dir = await checkBackupFolder(f);
+    const mount = isNetworkFolder(dir);
+    if (mount.network) {
+      const ok = await nativeAsk('Backup folder', {
+        message: 'That folder looks like a network or cloud drive.',
+        detail: `${dir}\nFile system: ${mount.fstype ?? 'network share'}\n\nBackups hold all your chats. Saving them there copies them off this computer. Use it anyway?`,
+        buttons: ['Cancel', 'Use this folder'],
+      });
+      if (ok !== 1) return backupState();
+    }
+    db.setSetting(BACKUP_FOLDER_KEY, dir);
+    return backupState();
+  });
+  // Settings file: never chats or lock data; memory notes only if the user opts in.
+  handle('settings:export', async (e, includeMemory: unknown) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = { title: 'Export settings', defaultPath: path.join(app.getPath('documents'), 'cipher-bot-settings.json'), filters: [{ name: 'Settings', extensions: ['json'] }] };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true as const };
+    await fs.writeFile(r.filePath, buildSettingsExport((k) => db.getSetting(k), app.getVersion(), includeMemory === true ? db.memoryNotes() : null), 'utf8');
+    return { ok: true as const, path: r.filePath };
+  });
+  handle('settings:import', async (e, includeMemory: unknown) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = { title: 'Import settings', properties: ['openFile' as const], filters: [{ name: 'Settings', extensions: ['json'] }] };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (r.canceled || !r.filePaths[0]) return { ok: false as const, canceled: true as const };
+    const st = await fs.stat(r.filePaths[0]);
+    if (st.size > 16 * 1024) throw new Error('That is not a Cipher Bot settings file (too large).');
+    const text = await fs.readFile(r.filePaths[0], 'utf8');
+    const items = parseSettingsImport(text);
+    for (const { key, value } of items) db.setSetting(key, value);
+    let memory = 0;
+    if (includeMemory === true) {
+      const bots = db.listBots();
+      for (const m of parseMemoryImport(text, MEMORY_NOTE_MAX)) {
+        const b = bots.find((x) => x.name === m.bot);
+        if (b) { db.setBotMemory(b.id, m.note); memory++; }
+      }
+    }
+    return { ok: true as const, applied: items.length, memory };
+  });
+
   // ---- v1.20: quote, pin, mute, dropped images ----
   handle('messages:pin', (_e, chatIdRaw: unknown, idRaw: unknown, on: unknown) => db.setPinned(asId(chatIdRaw), asId(idRaw), on === true));
   handle('messages:pinned', (_e, chatIdRaw: unknown) => db.listPinned(asId(chatIdRaw)));
@@ -1140,7 +1284,26 @@ if (!app.requestSingleInstanceLock()) {
     // Online defaults off: do not seed '1'. Absence means off.
     lockDownNetwork();
     setup = new SetupManager({ model: currentModel(), onChange: broadcastSetup });
+    phoneUnlock = new PhoneUnlock({ record: () => { const r = new LockStore(app.getPath('userData')).read(); return r && r !== 'invalid' ? r : null; } });
+    // v1.24: idle lock (Settings → Lock after) and scheduled backups, both checked locally on a timer.
+    setInterval(() => {
+      if (shouldIdleLock({ enabled: appLock.isEnabled(), locked: appLock.isLocked(), timeout: parseLockTimeout(db.getSetting(LOCK_TIMEOUT_KEY)), idleSeconds: powerMonitor.getSystemIdleTime() })) {
+        const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed());
+        if (w) void lockApp(w); else appLock.lock();
+      }
+    }, IDLE_CHECK_MS).unref?.();
+    const backupTick = () => {
+      const st = parseSchedule(db.getSetting(BACKUP_SCHEDULE_KEY));
+      if (!isBackupDue(st, db.getSetting(BACKUP_LAST_KEY), new Date())) return;
+      const now = new Date();
+      void runScheduledBackup({ folder: db.getSetting(BACKUP_FOLDER_KEY), now, backup: (dest) => db.backup(dest) })
+        .then(() => db.setSetting(BACKUP_LAST_KEY, now.toISOString()))
+        .catch((err: unknown) => recordLogLine('warn', [`scheduled backup failed: ${err instanceof Error ? err.message : String(err)}`]));
+    };
+    setTimeout(backupTick, 60_000).unref?.();
+    setInterval(backupTick, BACKUP_CHECK_MS).unref?.();
     phone = new PhoneServer({
+      phoneUnlock,
       db,
       staticDir: phoneStaticDir(),
       model: currentModel(),

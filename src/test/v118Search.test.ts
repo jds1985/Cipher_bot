@@ -135,7 +135,7 @@ test('2. main issues tokens only from its own pending ask, only on Search, only 
   assert.match(main, /run: async[\s\S]*?if \(isLocked\(\)\) throw/);
   assert.match(main, /confirm: [\s\S]*?if \(!isOnline\(\) \|\| isLocked\(\) \|\| signal\.aborted\) \{ resolve\(null\); return; \}/);
   // v1.19: phone turns get search (confirm card on the phone too); routines never; rooms have no tools at all.
-  assert.match(main, /forceToolsOff: toolsOff, search: searchHooks(, userExtras)? \}/);
+  assert.match(main, /forceToolsOff: toolsOff, search: searchHooks(, userExtras)?(, sharedFolder)? \}/);
   assert.match(main, /runChatTurn\(\{ db, model: currentModel\(\), emit, forceToolsOff: true, fromRoutine: true \}/);
   assert.doesNotMatch(read('src/main/roomEngine.ts'), /web_search|search/i);
   assert.doesNotMatch(read('src/main/phoneServer.ts'), /web_search|searchHooks|webSearch\(/);
@@ -272,7 +272,7 @@ test('results persist in the chat (schema v8, idempotent migration); only stored
   assert.equal(db.listMessages(chat.id).length, 2);
   db.close();
   const check = new Database(file);
-  assert.equal(check.pragma('user_version', { simple: true }), 13); // current schema (v13 since v1.23)
+  assert.equal(check.pragma('user_version', { simple: true }), 14); // current schema (v14 since v1.24)
   check.close();
 });
 

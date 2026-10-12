@@ -41,6 +41,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Pasted images (v1.23): a screenshot you paste into a Cipher bot\'s chat is checked the same way as a dropped image (PNG, JPEG, GIF or WebP, up to 5 MB) and kept inside cipher.db with that message, not saved into any folder. It is shown from those stored bytes and never loaded from the internet. A paste you remove before sending is deleted. The model gets only a note that an image was attached.',
       'Tool switches (v1.23): each Cipher bot has switches for Files, Search, Calculator, Checklist and Write file (plus menu → Tools). New and existing bots have all of them off except Files. They are saved in cipher.db and only you can change them, in this window; the phone and a bot\'s replies cannot. Cipher Bot checks them every time it would offer a tool and again right before running one, and refuses any tool that is switched off.',
       'Rooms, Phone link and routines never read files. Reminders read files only if that bot\'s Files switch is on.',
+      'Shared folder (v1.24): in Settings you can choose one folder on this computer that every Cipher bot may read, separate from each bot\'s own folders. A bot reads it only while its Files switch is on, checked when the tool is offered and again right before each read. ' +
+        'The same rules as a bot\'s folder apply: read-only (no bot can write there), paths outside the folder are refused, also through symbolic links, and only its location is saved, in cipher.db. Removing it in Settings does not touch your files.',
+      'Summarize folder (v1.24): from the plus menu, with the Files switch on, Cipher Bot itself (not the chat window) first lists the files it would read (the top of that bot\'s read folder, up to 20 files) and asks; Cancel is the default. Only after you agree, and only if Files is still on, does it read them; their text becomes your message in that chat and goes to the model on this computer.',
       'Writing files (v1.22): with the Write file and Files switches on (v1.23), a Cipher bot can ask to write one text file (such as .txt, .md, .csv or .json, up to 200 KB) into its read folder. ' +
         'It never writes without asking: Cipher Bot itself (not the chat window) shows a question with the full path on this computer and says whether an existing file would be replaced; for an existing file it is a separate question that warns it will be overwritten. Cancel is the default. ' +
         'An existing file is only replaced if you press Replace; you can save under a new name instead. Only after you answer does Cipher Bot write that exact text to that exact path, once, within a minute; then it is written to a temporary file in the same folder and moved into place. ' +
@@ -135,6 +138,14 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     ],
   },
   {
+    heading: 'Dock folders, tags, reactions, edits and display (v1.24)',
+    paragraphs: [
+      'Dock folders, tags, reactions, message edits (with the old text kept so you can see it), the activity line (last reply time and last tool used), auto-titles, the font and tokens per second are all kept in cipher.db or worked out in the window, on this computer. They use no network and are not shown on the phone.',
+      'The fonts (DejaVu Sans, Serif and Sans Mono, free licence) are files bundled with Cipher Bot; nothing is downloaded. The window\'s content security policy allows fonts only from the app itself.',
+      'A reminder can be imported from one line of text (date, time, message); it is checked exactly like one made with the date and time pickers.',
+    ],
+  },
+  {
     heading: 'Reminders',
     paragraphs: [
       'A reminder (plus menu → Reminders) sends a message you write to one Cipher bot once, at the date and time you pick. Like routines, it runs only on this computer while Cipher Bot is open or in the tray, uses no network of its own, and is kept in cipher.db.',
@@ -157,6 +168,10 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Your passphrase never leaves this computer and is never saved. Cipher Bot keeps only a salted scrypt hash of it, in a small file, lock.json, in Cipher Bot\'s user data folder, separate from cipher.db. There is no account.',
       'The lock does not encrypt anything. It stops someone using the Cipher Bot window and Phone link, but cipher.db and any backup files stay readable by anyone with access to your user account\'s files.',
       'While Cipher Bot is locked, including while it sits locked in the tray, Phone link refuses every request, pairing included, and closes open phone connections; only its page loads, to show "Cipher Bot is locked on the desktop" on the phone. Routines keep running while locked, and their notification (bot name only) still shows. A reply that is still being written when Cipher Bot locks finishes and is saved, but can\'t be read until you unlock.',
+      'Lock after (v1.24): when the lock is on, Cipher Bot also locks after 1, 5 or 15 minutes (5 by default) with no keyboard or mouse use on this computer, or never. It asks your system for the idle time; nothing is sent anywhere.',
+      'Phone unlock (v1.24): when the lock is on, a paired phone also has to enter the passphrase. Phone link is plain HTTP, so the passphrase is never sent: this computer sends a one-time challenge (a random number, plus the non-secret salt and settings of the stored hash), the phone works out a proof from the passphrase, and this computer checks it against lock.json. ' +
+        'lock.json and its hash are never sent. Each challenge works once, within a minute; wrong answers count toward the same wait as the desktop; an unlocked phone stays unlocked for 10 minutes at most, and locking Cipher Bot or stopping Phone link ends it. ' +
+        'Someone who records that Wi-Fi traffic could still try to guess a weak passphrase offline, so use a long one.',
       'There is no recovery: Cipher Bot can\'t reset a forgotten passphrase. If you forget it, quit Cipher Bot and delete lock.json from Cipher Bot\'s user data folder. That removes the lock and keeps your chats. Anyone who can change your user account\'s files can do the same, which is another reason the lock is not protection for the files themselves.',
     ],
   },
@@ -165,6 +180,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'Back up (Settings → Backup) saves a copy of cipher.db to a file you choose on this computer. Restore (Settings → Restore) replaces the current database with a backup file you choose. Nothing is uploaded.',
       'A backup is not encrypted and contains all your Cipher bots (with their memory notes), chats, rooms, routines, search history and settings. It does not include the lock: restoring never changes whether Cipher Bot is locked or what the passphrase is.',
+      'Scheduled backup (v1.24): Cipher Bot can also save a backup daily or weekly, while it is running, into a folder you choose in a dialog on this computer. Each backup is a new file; old ones are kept and nothing is deleted. It is the same unencrypted copy of cipher.db and never includes lock.json. ' +
+        'If the folder is on a network or cloud drive (for example SMB/CIFS, NFS, SSHFS or a GNOME network mount), Cipher Bot warns you first, since your chats would then leave this computer through that drive; Cipher Bot itself sends nothing.',
+      'Settings file (v1.24): Export settings saves your preferences (accent, font, lock timeout, backup schedule and display switches) to a file you choose. It never contains chats, the lock or its passphrase, pairing codes, search history or folder paths; memory notes only if you tick Include memory notes. Import accepts only those settings, each checked, and ignores anything else.',
       'Before restoring, Cipher Bot saves a copy of the current database next to it (cipher.db.before-restore-<date>-<time>), then restarts. Restore turns Online off.',
     ],
   },

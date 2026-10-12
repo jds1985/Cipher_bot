@@ -56,12 +56,12 @@ function makePdf(pages: string[], js = false): Buffer {
 
 test('version 1.22.0+, schema 12+, WHATS_NEW five lines or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.23.0');
+  assert.equal(pkg.version, '1.24.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 13);
+  assert.equal(SCHEMA_VERSION, 14);
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5);
-  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.doesNotMatch(WHATS_NEW.join(' ') + policy + html, /grok/i);
 });
 
@@ -166,7 +166,7 @@ test('2. archive: not a delete; hidden from dock and phone; an archived bot\'s r
     assert.equal(UNLOCKED_CHANNELS.has(ch), false, ch);
   }
   assert.match(renderer, /const activeBots = \(\) => state\.bots\.filter\(\(b\) => !b\.archived\);/);
-  assert.match(renderer, /el\.botList\.replaceChildren\(\.\.\.activeBots\(\)\.map/);
+  assert.match(renderer, /el\.botList\.replaceChildren\(\.\.\.dockSections\(activeBots\(\)/);
   assert.match(html, /assets\/cipher-archive\.svg/);
   assert.deepEqual(plusMenuItems({ kind: 'room' }).map((i) => i.id), ['export', 'markdown', 'mute', 'archive']);
 });
@@ -186,7 +186,7 @@ test('migration v10 → v11: archived, reply_length and blocked_sites added, dat
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 13);
+  assert.equal(chk.pragma('user_version', { simple: true }), 14);
   chk.close();
 });
 

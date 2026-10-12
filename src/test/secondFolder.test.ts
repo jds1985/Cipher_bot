@@ -50,7 +50,7 @@ test('second folder: same containment and size limits as the read folder', async
     assert.equal(r.ok, false, p);
     assert.doesNotMatch(r.content, /TOP SECRET|from main/, p);
   }
-  assert.deepEqual(READ_FILE_TOOL.function.parameters.properties.folder.enum, ['main', 'second']);
+  assert.deepEqual(READ_FILE_TOOL.function.parameters.properties.folder.enum, ['main', 'second', 'shared']);
   assert.deepEqual(READ_FILE_TOOL.function.parameters.required, ['path']);
 });
 

@@ -44,12 +44,12 @@ test('1. package screen says Cipher Bot, has the icon, and no lone "Cipher"; set
 });
 
 test('2. version: from package.json via app.getVersion(), read once in main, never hardcoded in the UI', () => {
-  assert.equal(pkg.version, '1.23.0');
+  assert.equal(pkg.version, '1.24.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher', 'userData stays ~/.config/Cipher');
   assert.equal(pkg.build.productName, 'Cipher');
-  // v1.20: main also reads it for the update check and the debug log; the UI still gets it only via app:version.
-  assert.equal((main.match(/app\.getVersion\(\)/g) ?? []).length, 3, 'main only');
+  // v1.20: main also reads it for the update check and the debug log (v1.24: and the settings file); the UI still gets it only via app:version.
+  assert.equal((main.match(/app\.getVersion\(\)/g) ?? []).length, 4, 'main only');
   assert.match(main, /handle\('app:version', \(\) => app\.getVersion\(\)\);/);
   assert.match(renderer, /state\.version = await api\.getVersion\(\);/);
   for (const t of [html, renderer, read('src/renderer/view.ts')]) assert.doesNotMatch(t, /\b(0\.1\.0|1\.16\.0|1\.17\.0)\b/);
@@ -96,7 +96,7 @@ test('3. unread: stored locally (v7 migration, idempotent), set and cleared per 
   assert.equal(db.getRoom(room.id)!.unread, false);
   db.close();
   const check = new Database(file, { readonly: true });
-  assert.equal(check.pragma('user_version', { simple: true }), 13); // current schema (v13 since v1.23)
+  assert.equal(check.pragma('user_version', { simple: true }), 14); // current schema (v14 since v1.24)
   assert.equal(SCHEMA_VERSION >= 7, true);
   check.close();
 });
@@ -132,7 +132,7 @@ test('4. send sound: bundled generated WAV, off by default, plays only when on; 
   db.close();
   assert.match(renderer, /if \(!state\.sendSound\) return;\n {2}sendAudio \?\?= new Audio\('assets\/send\.wav'\);/);
   assert.match(section('settings-view'), /<input type="checkbox" id="sound-switch" \/>[\s\S]*Send sound[\s\S]*Off by default/);
-  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.doesNotMatch(html, /style=/);
 });
 
