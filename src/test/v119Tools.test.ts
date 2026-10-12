@@ -208,7 +208,7 @@ function fileHas(file: string, needle: string): boolean {
 test('4. memory note: stored in cipher.db (v9 migration), in the system prompt every chat, capped, and really deleted on clear', () => {
   const file = tmpDb();
   const db = new CipherDb(file);
-  assert.equal(SCHEMA_VERSION, 11);
+  assert.equal(SCHEMA_VERSION, 12);
   const bot = db.createBot({ name: 'Ada', systemPrompt: 'Be brief.', toolsEnabled: false, folderPath: null });
   assert.equal(bot.memoryNote, '');
   const withNote = db.setBotMemory(bot.id, '  I live in Zanzibar-Quokka-77.  ');
@@ -242,7 +242,7 @@ test('4. migration v8 → v9: memory_note and search_history added, data kept, i
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 11);
+  assert.equal(chk.pragma('user_version', { simple: true }), 12);
   chk.close();
 });
 
@@ -388,7 +388,7 @@ test('policy and what\'s new describe v1.19 truthfully', () => {
   const { WHATS_NEW } = require('../renderer/whatsNew.js') as { WHATS_NEW: readonly string[] };
   assert.ok(WHATS_NEW.length <= 5);
   const pkg = JSON.parse(read('package.json')) as { name: string; productName: string; version: string; build: { productName: string } };
-  assert.equal(pkg.version, '1.21.0');
+  assert.equal(pkg.version, '1.22.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(pkg.build.productName, 'Cipher');

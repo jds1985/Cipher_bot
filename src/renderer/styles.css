@@ -1,5 +1,5 @@
 :root { color-scheme: dark; --bg: #15171c; --panel: #1d2027; --panel2: #242833; --line: #2c303a; --text: #e6e8ee;
-  --muted: #9096a3; --accent: #5b8cff; --accent2: #3f6fe0; --err: #ff6b6b; --warn-bg: #3a2f17; --warn-line: #7a5a1c;
+  --muted: #9096a3; --accent: #5b8cff; --accent2: #3f6fe0; --accent-rgb: 91, 140, 255; --err: #ff6b6b; --warn-bg: #3a2f17; --warn-line: #7a5a1c;
   /* Title strip height = Liz's top frame: the Window Controls Overlay height when it's active (40px, see main.ts). */
   --titlebar-h: env(titlebar-area-height, 40px);
   /* Liz's bottom frame. */
@@ -212,8 +212,10 @@ label.member-opt .bot-icon { width: 30px; height: 30px; }
   max-width: min(640px, calc(100% - 28px));
 }
 .attach-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attach-error { position: absolute; left: 50%; transform: translateX(-50%); bottom: 72px; z-index: 6;
-  margin: 0; max-width: min(640px, calc(100% - 28px)); font-size: 12px; }
+/* v1.22: notices sit just above the composer (anchored to it, so they follow its height), never on the message box. */
+.attach-error { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + 8px); z-index: 6;
+  width: max-content; max-width: 100%; margin: 0; padding: 4px 12px; text-align: center; font-size: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 4px 14px #0006; }
 button.danger, button.danger-btn { background: #6b2a2a; color: #fff; }
 button.danger:hover, button.danger-btn:hover { background: #8a3535; }
 button.secondary.danger { background: var(--panel2); color: var(--err); border-color: #6b2a2a; }
@@ -309,7 +311,7 @@ button.plus-item:disabled { background: transparent; }
 .lock-logo { grid-area: 1 / 1; width: min(80vw, 80vh); height: min(80vw, 80vh); max-width: 100%; max-height: 100%;
   object-fit: contain; pointer-events: none; user-select: none; }
 .lock-panel { grid-area: 1 / 1; position: relative; z-index: 1; width: min(320px, 86vw); padding: 16px 18px 18px; text-align: left;
-  background: #15171cdb; border: 1px solid #5b8cff73; border-radius: 12px; box-shadow: 0 0 28px #5b8cff2e, 0 8px 28px #000a; }
+  background: #15171cdb; border: 1px solid rgba(var(--accent-rgb), .45); border-radius: 12px; box-shadow: 0 0 28px rgba(var(--accent-rgb), .18), 0 8px 28px #000a; }
 .lock-panel h2 { margin: 0 0 12px; font-size: 18px; text-align: center; }
 .lock-panel label { margin-bottom: 10px; }
 .lock-panel .error { margin: 0 0 10px; }
@@ -326,7 +328,7 @@ button.plus-item:disabled { background: transparent; }
 
 /* ---------- v1.16: unread dot, setup brand, About ---------- */
 .unread-dot { position: absolute; top: 4px; right: 4px; width: 10px; height: 10px; border-radius: 50%;
-  background: #5b8cff; box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
 .setup-brand { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-weight: 700; font-size: 18px; color: var(--text); }
 .setup-logo { display: block; width: 56px; height: 56px; }
 .about-card { text-align: center; }
@@ -354,15 +356,15 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .msg .msg-time { display: block; margin-top: 4px; font-size: 11px; opacity: .7; text-align: right; }
 .msg.assistant .msg-time { text-align: left; }
 .drop-hint { display: none; }
-#chat-view.drop-over { outline: 2px dashed #5b8cff; outline-offset: -8px; border-radius: 12px; }
+#chat-view.drop-over { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 12px; }
 #chat-view.drop-over .drop-hint { display: block; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 5;
-  padding: 6px 14px; border-radius: 999px; background: #15171c; border: 1px solid #5b8cff; color: var(--text); font-size: 13px; pointer-events: none; }
+  padding: 6px 14px; border-radius: 999px; background: #15171c; border: 1px solid var(--accent); color: var(--text); font-size: 13px; pointer-events: none; }
 .whats-new-title { margin: 14px 0 6px; font-size: 1rem; }
 .whats-new { margin: 0 auto 14px; padding-left: 20px; max-width: 460px; text-align: left; color: var(--muted); }
 .whats-new li { margin: 2px 0; }
 
 /* ---------- v1.18: web search confirm card, results with source links, Online state ---------- */
-.msg.search-ask, .msg.search-results { align-self: stretch; max-width: 78%; background: var(--panel); border: 1px solid #5b8cff; border-radius: 14px; white-space: normal; }
+.msg.search-ask, .msg.search-results { align-self: stretch; max-width: 78%; background: var(--panel); border: 1px solid var(--accent); border-radius: 14px; white-space: normal; }
 .msg.search-results { border-color: var(--line); }
 .search-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .search-icon { width: 20px; height: 20px; flex: none; }
@@ -370,7 +372,7 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .search-note { font-size: 12px; margin: 0 0 8px; }
 .search-list { margin: 0; padding-left: 20px; }
 .search-list li { margin: 0 0 10px; }
-.link-btn { background: none; border: 0; padding: 0; color: #5b8cff; text-align: left; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent); text-align: left; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
 .link-btn:hover { background: none; color: #8aaeff; }
 .link-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .search-url { font-size: 12px; color: var(--muted); word-break: break-all; }
@@ -418,20 +420,20 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .msg-acts { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; opacity: 0; transition: opacity 0.12s; }
 .msg:hover .msg-acts, .msg:focus-within .msg-acts, .msg-act.on { opacity: 1; }
 .msg-act { background: none; border: none; padding: 2px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; }
-.msg-act:hover, .msg-act:focus-visible { background: rgba(91, 140, 255, 0.15); }
+.msg-act:hover, .msg-act:focus-visible { background: rgba(var(--accent-rgb), 0.15); }
 .msg-act img { width: 20px; height: 20px; display: block; }
-.msg-act.on { background: rgba(91, 140, 255, 0.2); }
-.msg-quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid #5b8cff; opacity: 0.85; font-size: 0.92em; white-space: pre-wrap; }
+.msg-act.on { background: rgba(var(--accent-rgb), 0.2); }
+.msg-quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid var(--accent); opacity: 0.85; font-size: 0.92em; white-space: pre-wrap; }
 .msg-image { display: block; max-width: min(360px, 100%); max-height: 320px; border-radius: 8px; margin: 2px 0 6px; object-fit: contain; }
 .image-missing { display: block; font-size: 0.9em; }
-.msg.pinned { box-shadow: inset 3px 0 0 #5b8cff; }
-.msg.flash { outline: 2px solid #5b8cff; }
+.msg.pinned { box-shadow: inset 3px 0 0 var(--accent); }
+.msg.flash { outline: 2px solid var(--accent); }
 .pinned-strip { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px; border-bottom: 1px solid rgba(127, 127, 127, 0.25); max-height: 116px; overflow-y: auto; }
 .pinned-item { display: flex; align-items: center; gap: 6px; }
 .pinned-item img { width: 20px; height: 20px; flex: none; }
 .pinned-go { flex: 1; text-align: left; background: none; border: none; color: inherit; cursor: pointer; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; }
 .pinned-go:hover { text-decoration: underline; }
-.quote-chip, .image-chip { display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 4px 8px; border-left: 3px solid #5b8cff; border-radius: 6px; background: rgba(91, 140, 255, 0.08); }
+.quote-chip, .image-chip { display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 4px 8px; border-left: 3px solid var(--accent); border-radius: 6px; background: rgba(var(--accent-rgb), 0.08); }
 .quote-chip[hidden], .image-chip[hidden], .pinned-strip[hidden] { display: none; }
 .quote-chip span, .image-chip span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quote-icon { width: 20px; height: 20px; flex: none; }
@@ -442,7 +444,7 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .starter-jobs[hidden] { display: none; }
 .starter-job { display: inline-flex; align-items: center; gap: 6px; }
 .starter-job img { width: 20px; height: 20px; }
-.starter-job.active { outline: 2px solid #5b8cff; }
+.starter-job.active { outline: 2px solid var(--accent); }
 .shortcut-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
 .shortcut-list dt { font-family: ui-monospace, monospace; font-weight: 600; }
 .shortcut-list dd { margin: 0; }
@@ -453,8 +455,8 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 /* ---------- v1.21: always on top, archive, blocked sites, image viewer, tips ---------- */
 #titlebar .titlebar-btn { margin-left: 10px; width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; opacity: 0.6; padding: 0; }
 #titlebar .titlebar-btn img { width: 20px; height: 20px; display: block; }
-#titlebar .titlebar-btn:hover, #titlebar .titlebar-btn:focus-visible { opacity: 1; background: rgba(91, 140, 255, 0.12); }
-#titlebar .titlebar-btn.on { opacity: 1; background: rgba(91, 140, 255, 0.2); border-color: rgba(91, 140, 255, 0.5); }
+#titlebar .titlebar-btn:hover, #titlebar .titlebar-btn:focus-visible { opacity: 1; background: rgba(var(--accent-rgb), 0.12); }
+#titlebar .titlebar-btn.on { opacity: 1; background: rgba(var(--accent-rgb), 0.2); border-color: rgba(var(--accent-rgb), 0.5); }
 .archive-icon { width: 20px; height: 20px; margin-right: 6px; vertical-align: -4px; }
 .archived-list, .site-list { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 6px; }
 .archived-item, .site-item { justify-content: space-between; gap: 12px; }
@@ -473,3 +475,53 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .tip-icon { width: 96px; height: 96px; margin: 6px auto 4px; display: block; }
 .tip-step { font-size: 12px; }
 .attach-error.ok { color: var(--muted); }
+
+/* ---------- v1.22: accent colors (CSS variables only), reduce motion, find in chat, checklist ---------- */
+:root[data-accent="teal"]   { --accent: #2ec4b6; --accent2: #1f9488; --accent-rgb: 46, 196, 182; }
+:root[data-accent="violet"] { --accent: #9b7bff; --accent2: #7656e6; --accent-rgb: 155, 123, 255; }
+:root[data-accent="amber"]  { --accent: #f5a524; --accent2: #b9760c; --accent-rgb: 245, 165, 36; }
+:root[data-accent="rose"]   { --accent: #ff6b8a; --accent2: #d6456a; --accent-rgb: 255, 107, 138; }
+.accent-list { display: flex; gap: 10px; flex-wrap: wrap; }
+.accent-swatch { padding: 3px; background: transparent; border: 2px solid transparent; border-radius: 50%; line-height: 0; }
+.accent-swatch:hover { background: rgba(255, 255, 255, 0.06); }
+.accent-swatch.on { border-color: var(--text); }
+.accent-swatch img { width: 32px; height: 32px; display: block; }
+
+/* Reduce motion: the setting, or the system's prefers-reduced-motion. The splash still goes away, without the fade. */
+:root.reduce-motion .bot-icon { animation: none !important; }
+:root.reduce-motion #splash { animation: splash-out 0s linear 1.75s forwards; transition: none !important; }
+:root.reduce-motion *, :root.reduce-motion *::before, :root.reduce-motion *::after { transition: none !important; scroll-behavior: auto !important; }
+@media (prefers-reduced-motion: reduce) {
+  .bot-icon { animation: none !important; }
+  #splash { animation: splash-out 0s linear 1.75s forwards; transition: none !important; }
+  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+}
+
+.find-bar { gap: 6px; margin: 0 12px 6px; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.find-bar[hidden] { display: none; }
+.find-bar input { flex: 1; min-width: 0; }
+.find-count { min-width: 74px; text-align: center; font-size: 12px; }
+mark.find-hit { background: rgba(var(--accent-rgb), 0.35); color: inherit; border-radius: 3px; padding: 0 1px; }
+mark.find-hit.current { background: var(--accent); color: #fff; }
+
+.checklist-modal { position: fixed; inset: 0; z-index: 115; background: rgba(5, 8, 14, 0.78); display: flex; align-items: center; justify-content: center; }
+.checklist-modal[hidden] { display: none; }
+.checklist-card { width: min(520px, 92vw); max-height: 80vh; overflow: auto; background: var(--panel); border: 1px solid rgba(var(--accent-rgb), 0.45); border-radius: 14px; padding: 18px 20px; }
+.checklist-title { gap: 8px; margin: 0 0 4px; }
+.checklist-list { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.checklist-item { justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--panel2); }
+.checklist-label { gap: 8px; flex: 1; min-width: 0; }
+.checklist-item.done .checklist-text { text-decoration: line-through; opacity: 0.6; }
+.checklist-text { overflow-wrap: anywhere; }
+#checklist-form { gap: 8px; }
+#checklist-form input { flex: 1; }
+.row.end { justify-content: flex-end; margin-top: 10px; }
+
+/* v1.22 fix: the pinned-strip pin icons and the dock's mute icon follow the accent, like Send. The <img> keeps its
+   local SVG as a CSS mask and is painted with the accent; the image itself is moved out of its box. (img-src 'self'
+   covers mask images; no inline styles.) The circuit frames keep their brand blue. */
+.pinned-item img, .mute-mark {
+  background-color: var(--accent); object-position: -9999px 0;
+  -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+.pinned-item img { -webkit-mask-image: url("assets/cipher-pin.svg"); mask-image: url("assets/cipher-pin.svg"); }
+.mute-mark { -webkit-mask-image: url("assets/cipher-mute.svg"); mask-image: url("assets/cipher-mute.svg"); }

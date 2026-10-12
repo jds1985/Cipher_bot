@@ -38,6 +38,11 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Images: you can drop a PNG, JPEG, GIF or WebP image (up to 5 MB) from a Cipher bot\'s read folder into its chat, under the same folder rules as Attach. Only its location in that folder is saved with your message; the picture is read from this computer each time it is shown, and never loaded from the internet. The model on this computer gets the file name, not the picture.',
       'PDFs (v1.21): Cipher Bot reads only a PDF\'s text, on this computer, with PDF.js (Mozilla\'s open-source PDF reader, bundled with the app). Nothing is downloaded to read it: no fonts, no character maps and no helper code from the internet, and the PDF\'s own scripts never run. Up to 10 MB, the first 50 pages and 200,000 characters; the text is handled like any file the bot reads.',
       'Rooms, Phone link and routines never read files.',
+      'Writing files (v1.22): with Read files on, a Cipher bot can ask to write one text file (such as .txt, .md, .csv or .json, up to 200 KB) into its read folder. ' +
+        'It never writes without asking: Cipher Bot itself (not the chat window) shows a question with the full path on this computer and says whether an existing file would be replaced. Cancel is the default. ' +
+        'An existing file is only replaced if you press Replace; you can save under a new name instead. Only after you answer does Cipher Bot write that exact text to that exact path, once, within a minute; then it is written to a temporary file in the same folder and moved into place. ' +
+        'It refuses paths outside the folder (also through symbolic links), absolute paths and "..", does not create folders, and never writes while Cipher Bot is locked. Rooms, routines and the phone can never write files, and the phone cannot answer the question.',
+      'Cipher Bot also writes files you ask for with a Save dialog (Export chat, Backup, Export debug log, Update download), to the place you choose.',
     ],
   },
   {
@@ -68,7 +73,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Memory notes',
     paragraphs: [
-      'Each Cipher bot can have a memory note you write in its settings (Edit bot). It is sent to that bot\'s local model with every chat, on this computer, and is saved in cipher.db. Emptying the note deletes it from the database file. Backups include memory notes; restoring one brings them back.',
+      'Each Cipher bot can have a memory note you write in its settings (Edit bot), or add to with the memory button on a message (up to 2000 characters; when it is full, Cipher Bot says so and changes nothing). It is sent to that bot\'s local model with every chat, on this computer, and is saved in cipher.db. Emptying the note deletes it from the database file. Backups include memory notes; restoring one brings them back.',
     ],
   },
   {
@@ -108,8 +113,15 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Archive, reply length, always on top and tips',
     paragraphs: [
-      'Archiving a Cipher bot or room hides it from the left column and the phone and pauses an archived bot\'s routine; nothing is deleted, and Settings → Archived restores it. The lock applies to archived bots and rooms like any others.',
+      'Archiving a Cipher bot or room hides it from the left column, shows it on the phone only as hidden (it cannot be opened, archived or restored there), and pauses an archived bot\'s routine; nothing is deleted, and Settings → Archived restores it. The lock applies to archived bots and rooms like any others.',
       'Reply length (short, normal or long) is a line in that bot\'s instructions to the local model, plus a length cap for short and long. Always on top, the first-run tips flag, and Copy chat as Markdown (which goes only to your clipboard) are kept locally; none of them uses the network.',
+    ],
+  },
+  {
+    heading: 'Checklist, accent color, reduce motion and find',
+    paragraphs: [
+      'Each Cipher bot has a checklist (plus menu → Checklist), kept in cipher.db on this computer. You add, check and delete items. A bot can only add an item, and only after you press Add in a question Cipher Bot itself shows; nothing in a reply can approve it. Rooms, routines and the phone cannot add items. Deleting a bot deletes its checklist.',
+      'Accent color and Reduce motion are saved in cipher.db. Find in chat searches only the open chat in this window. None of these uses the network.',
     ],
   },
   {

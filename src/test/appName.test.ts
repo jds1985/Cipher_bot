@@ -77,7 +77,7 @@ test('install and data names are unchanged: package name, productName, appId, ve
     build: { appId: string; productName: string; linux: { executableName?: string; desktop: { entry: { Name: string } } } };
   };
   assert.equal(pkg.name, 'cipher', '.deb is cipher_<version>_amd64.deb');
-  assert.equal(pkg.version, '1.21.0');
+  assert.equal(pkg.version, '1.22.0');
   assert.equal(pkg.productName, 'Cipher', 'Electron derives userData (~/.config/Cipher) and the install dir from this');
   assert.equal(pkg.build.productName, 'Cipher');
   assert.equal(pkg.build.appId, 'com.jds1985.cipher');
@@ -104,7 +104,7 @@ test('lock screen look: the same app icon, large and centered; passphrase panel 
   assert.doesNotMatch(lock, /style=/);
   const css = read('src/renderer/styles.css');
   assert.match(css, /\.lock-logo \{ grid-area: 1 \/ 1; width: min\(80vw, 80vh\); height: min\(80vw, 80vh\); max-width: 100%; max-height: 100%;\s*object-fit: contain;/);
-  assert.match(css, /\.lock-panel \{ grid-area: 1 \/ 1;[^}]*background: #15171cdb;[^}]*border: 1px solid #5b8cff73;/);
+  assert.match(css, /\.lock-panel \{ grid-area: 1 \/ 1;[^}]*background: #15171cdb;[^}]*border: 1px solid (#5b8cff73|rgba\(var\(--accent-rgb\), \.45\));/);
   // The overlay is opaque and above the app (no chat, bot names or sidebar show behind it).
   assert.match(css, /\.lock-screen \{\s*position: fixed; inset: var\(--titlebar-h\) 0 0 0; z-index: 90;[^}]*background: var\(--bg\);/);
   // The note: 12 px, muted text on the window background, contrast well above 4.5:1.

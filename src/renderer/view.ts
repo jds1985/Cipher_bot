@@ -71,7 +71,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive' | 'checklist';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -95,7 +95,8 @@ export function plusMenuItems(input:
   // v1.20: Mute (no tray notice for this bot or room while on), last in both menus.
   const mute: PlusItem = { id: 'mute', label: 'Mute notices', disabled: false, checked: input.muted === true };
   const archive: PlusItem = { id: 'archive', label: input.kind === 'room' ? 'Archive room' : 'Archive bot', disabled: input.kind === 'bot' && input.busy };
-  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }, mute, archive];
+  // v1.22: a room exports the same way as a bot: a text file, or Markdown on the clipboard.
+  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }, { id: 'markdown', label: 'Copy chat as Markdown', disabled: false }, mute, archive];
   return [
     { id: 'attach', label: 'Attach file…', disabled: input.busy },
     { id: 'export', label: 'Export chat…', disabled: false },
@@ -109,6 +110,7 @@ export function plusMenuItems(input:
       hint: input.toolsEnabled ? (input.secondFolderPath ?? 'No second folder') : 'Turn on Read files first',
     },
     { id: 'tools', label: 'Read files', disabled: false, checked: input.toolsEnabled },
+    { id: 'checklist', label: 'Checklist…', disabled: false },
     { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
     mute,
     archive,
@@ -143,6 +145,7 @@ export const SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: 'Shift+Enter', action: 'New line in the message' },
   { keys: 'Escape', action: 'Close the plus menu, or remove the quote being written' },
   { keys: '↑ / ↓', action: 'Move through the plus menu' },
+  { keys: 'Ctrl+F', action: 'Find in the open chat' },
   { keys: 'Ctrl+Q', action: 'Quit Cipher Bot' },
 ];
 
@@ -154,3 +157,14 @@ export const TIPS: readonly { icon: string; title: string; body: string }[] = [
   { icon: 'assets/cipher-tip-4-private.svg', title: 'Private and local', body: 'Chats stay in cipher.db on this computer and replies come from the local model. Online is off until you turn it on in Settings.' },
   { icon: 'assets/cipher-tip-5-shortcuts.svg', title: 'Shortcuts', body: 'Enter sends, Shift+Enter adds a line, Escape closes menus. The full list is in Settings.' },
 ];
+
+// ---------- v1.22: find in chat ----------
+/** Start/end offsets of every case-insensitive match of `query` in `text` (non-overlapping). */
+export function findRanges(text: string, query: string): [number, number][] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const t = text.toLowerCase();
+  const out: [number, number][] = [];
+  for (let i = t.indexOf(q); i !== -1; i = t.indexOf(q, i + q.length)) out.push([i, i + q.length]);
+  return out;
+}

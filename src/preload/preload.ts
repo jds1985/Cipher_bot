@@ -104,6 +104,19 @@ const api: CipherApi = {
   tipsPending: () => ipcRenderer.invoke('tips:get'),
   tipsDone: () => ipcRenderer.invoke('tips:done'),
   copyChatMarkdown: (botId) => ipcRenderer.invoke('chat:markdown', botId),
+  copyMarkdown: (kind, id) => ipcRenderer.invoke('chat:markdown', kind, id),
+  getAccent: () => ipcRenderer.invoke('accent:get'),
+  setAccent: (accent) => ipcRenderer.invoke('accent:set', accent),
+  rememberMessage: (chatId, messageId) => ipcRenderer.invoke('memory:remember', chatId, messageId),
+  checklist: (botId) => ipcRenderer.invoke('checklist:list', botId),
+  checklistAdd: (botId, text) => ipcRenderer.invoke('checklist:add', botId, text),
+  checklistSetDone: (botId, itemId, done) => ipcRenderer.invoke('checklist:done', botId, itemId, done),
+  checklistDelete: (botId, itemId) => ipcRenderer.invoke('checklist:delete', botId, itemId),
+  onChecklist: (cb) => {
+    const fn = (_e: IpcRendererEvent, botId: number) => cb(botId);
+    ipcRenderer.on('checklist:changed', fn);
+    return () => ipcRenderer.removeListener('checklist:changed', fn);
+  },
   pinMessage: (chatId, id, on) => ipcRenderer.invoke('messages:pin', chatId, id, on === true),
   listPinned: (chatId) => ipcRenderer.invoke('messages:pinned', chatId),
   setMuted: (kind, id, on) => ipcRenderer.invoke('mute:set', kind, id, on === true),

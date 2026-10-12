@@ -38,3 +38,4 @@ button.ghost { width: auto; background: transparent; color: var(--text); padding
 .msg.search-ask { align-self: stretch; border: 1px solid #5b8cff; border-radius: 14px; padding: 10px 12px; }
 .search-query { font-family: ui-monospace, monospace; border: 1px solid #2c303a; border-radius: 8px; padding: 6px 8px; margin: 6px 0; word-break: break-word; }
 .msg.search-ask .row { display: flex; gap: 8px; justify-content: flex-end; }
+.item.hidden-bot { opacity: 0.55; font-style: italic; cursor: default; }

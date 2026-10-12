@@ -35,7 +35,7 @@ const fn = (name: string) => { const m = new RegExp(`(?:async )?function ${name}
 
 test('version 1.21.0+, schema 10+, WHATS_NEW five lines or fewer, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.21.0');
+  assert.equal(pkg.version, '1.22.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.ok(SCHEMA_VERSION >= 10);
@@ -96,7 +96,7 @@ test('2. pin: per chat, listed in order, strip at the top; 3. mute: stored per b
   db.close();
   assert.match(html, /<div id="pinned-strip" class="pinned-strip" hidden><\/div>\s*<div id="messages">/);
   assert.match(main, /handle\('messages:pin', \(_e, chatIdRaw: unknown, idRaw: unknown, on: unknown\) => db\.setPinned\(asId\(chatIdRaw\), asId\(idRaw\), on === true\)\);/);
-  assert.deepEqual(plusMenuItems({ kind: 'room', muted: true }).map((i) => [i.id, i.checked]), [['export', undefined], ['mute', true], ['archive', undefined]]);
+  assert.deepEqual(plusMenuItems({ kind: 'room', muted: true }).map((i) => [i.id, i.checked]), [['export', undefined], ['markdown', undefined], ['mute', true], ['archive', undefined]]);
 });
 
 test('3. mute: a muted bot gets no tray notice; others still do', () => {

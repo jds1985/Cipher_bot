@@ -54,12 +54,12 @@ function makePdf(pages: string[], js = false): Buffer {
   return Buffer.from(out, 'latin1');
 }
 
-test('version 1.21.0, schema 11, WHATS_NEW five lines or fewer, CSP unchanged, names unchanged', () => {
+test('version 1.22.0+, schema 12+, WHATS_NEW five lines or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.21.0');
+  assert.equal(pkg.version, '1.22.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 11);
+  assert.equal(SCHEMA_VERSION, 12);
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5);
   assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.doesNotMatch(WHATS_NEW.join(' ') + policy + html, /grok/i);
@@ -159,7 +159,7 @@ test('2. archive: not a delete; hidden from dock and phone; an archived bot\'s r
   assert.throws(() => db.setArchived('bot', 999, true), /not found/);
   db.close();
   assert.match(main, /listRoutines: \(\) => db\.listActiveRoutines\(\)/);
-  assert.match(phone, /db\.listBots\(\)\.filter\(\(b\) => !b\.archived\)/);
+  assert.match(phone, /db\.listBots\(\)\.map\(\(b\) => \(\{ id: b\.id, name: b\.name, shape: b\.shape, color: b\.color, hidden: b\.archived \}\)\)/);
   assert.match(phone, /db\.listRooms\(\)\.filter\(\(r\) => !r\.archived\)/);
   assert.match(phone, /return json\(res, 404, \{ error: 'This is archived on the desktop\.' \}\)/);
   for (const ch of ['archive:set', 'bots:setReplyLength', 'sites:add', 'sites:list', 'sites:remove', 'window:setAlwaysOnTop', 'chat:markdown', 'tips:done']) {
@@ -168,7 +168,7 @@ test('2. archive: not a delete; hidden from dock and phone; an archived bot\'s r
   assert.match(renderer, /const activeBots = \(\) => state\.bots\.filter\(\(b\) => !b\.archived\);/);
   assert.match(renderer, /el\.botList\.replaceChildren\(\.\.\.activeBots\(\)\.map/);
   assert.match(html, /assets\/cipher-archive\.svg/);
-  assert.deepEqual(plusMenuItems({ kind: 'room' }).map((i) => i.id), ['export', 'mute', 'archive']);
+  assert.deepEqual(plusMenuItems({ kind: 'room' }).map((i) => i.id), ['export', 'markdown', 'mute', 'archive']);
 });
 
 test('migration v10 → v11: archived, reply_length and blocked_sites added, data kept, idempotent', () => {
@@ -186,7 +186,7 @@ test('migration v10 → v11: archived, reply_length and blocked_sites added, dat
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 11);
+  assert.equal(chk.pragma('user_version', { simple: true }), 12);
   chk.close();
 });
 

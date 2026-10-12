@@ -73,7 +73,7 @@ test('1. drop: rooms are refused with a note; files never load in the window (do
   assert.match(renderer, /document\.addEventListener\('drop', \(e\) => \{\n {2}e\.preventDefault\(\);/);
   assert.match(main, /win\.webContents\.on\('will-navigate', \(e\) => e\.preventDefault\(\)\);/);
   assert.match(main, /setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/);
-  assert.match(css, /#chat-view\.drop-over \{[^}]*#5b8cff/);
+  assert.match(css, /#chat-view\.drop-over \{[^}]*(#5b8cff|var\(--accent\))/);
   assert.doesNotMatch(html, /style=/);
 });
 
@@ -155,7 +155,7 @@ test('5. About: "New in this version" from one constant, five lines or fewer; ve
   assert.match(html, /<h3 class="whats-new-title">New in this version<\/h3>\s*<ul id="whats-new" class="whats-new"><\/ul>/);
   assert.match(renderer, /el\.whatsNew\.replaceChildren\(\.\.\.WHATS_NEW\.slice\(0, 5\)/);
   const pkg = JSON.parse(read('package.json')) as { name: string; productName: string; version: string };
-  assert.equal(pkg.version, '1.21.0');
+  assert.equal(pkg.version, '1.22.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher', 'userData stays ~/.config/Cipher');
 });

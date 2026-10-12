@@ -4,7 +4,21 @@ export const UI_PREFS = {
   showTimes: { key: 'show_message_times', default: true },
   /** Bot dock collapsed to icons only. Off (expanded) by default. */
   dockCollapsed: { key: 'dock_collapsed', default: false },
+  /** v1.22: stop icon animation and the splash fade. Off by default (the system's prefers-reduced-motion also applies). */
+  reduceMotion: { key: 'reduce_motion', default: false },
 } as const;
+
+/** v1.22: accent colors (Liz's swatches). The stylesheet maps each name to its CSS variables. */
+export const ACCENTS = [
+  { id: 'blue', label: 'Blue (default)', hex: '#5b8cff' },
+  { id: 'teal', label: 'Teal', hex: '#2ec4b6' },
+  { id: 'violet', label: 'Violet', hex: '#9b7bff' },
+  { id: 'amber', label: 'Amber', hex: '#f5a524' },
+  { id: 'rose', label: 'Rose', hex: '#ff6b8a' },
+] as const;
+export type AccentId = (typeof ACCENTS)[number]['id'];
+export const ACCENT_KEY = 'accent';
+export const parseAccent = (v: unknown): AccentId => (ACCENTS.find((a) => a.id === v)?.id ?? 'blue');
 export type UiPrefName = keyof typeof UI_PREFS;
 export type UiPrefs = Record<UiPrefName, boolean>;
 

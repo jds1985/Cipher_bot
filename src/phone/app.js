@@ -72,7 +72,12 @@
       btn.type = 'button';
       btn.className = 'item';
       btn.textContent = b.name;
-      btn.addEventListener('click', () => openBot(b.id, b.name));
+      if (b.hidden) {
+        // v1.22: archived on the desktop. Shown as hidden; it cannot be opened or restored from the phone.
+        btn.disabled = true;
+        btn.classList.add('hidden-bot');
+        btn.textContent = b.name + ' (hidden, archived on the desktop)';
+      } else btn.addEventListener('click', () => openBot(b.id, b.name));
       botList.append(btn);
     }
     const roomList = $('room-list');
@@ -86,7 +91,7 @@
       btn.addEventListener('click', () => openRoom(r.id, title));
       roomList.append(btn);
     }
-    $('list-empty').hidden = bots.bots.length > 0 || rooms.rooms.length > 0;
+    $('list-empty').hidden = bots.bots.some((b) => !b.hidden) || rooms.rooms.length > 0;
   }
 
   function setBusy(busy) {

@@ -151,7 +151,7 @@ test('migration from v1.3 (schema 2) to v4: icons backfilled in creation order, 
   db.close();
   for (const c of ['icon', 'shape', 'color']) assert.equal(columnNames(file).filter((n) => n === c).length, 1);
   const raw = new Database(file, { readonly: true });
-  assert.equal(raw.pragma('user_version', { simple: true }), 11); // current schema (v11 since v1.21)
+  assert.equal(raw.pragma('user_version', { simple: true }), 12); // current schema (v12 since v1.22)
   raw.close();
 });
 

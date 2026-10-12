@@ -6,7 +6,9 @@ import { validateRoutine } from './routine';
 import { normalizeSite } from './blockedSites';
 export { isUrlBlocked, normalizeSite } from './blockedSites';
 
-export const SCHEMA_VERSION = 11;
+import { CHECKLIST_MAX_ITEMS, normalizeItem } from './checklist';
+import type { ChecklistItem } from '../shared/types';
+export const SCHEMA_VERSION = 12;
 /** v1.21: reply lengths a bot can have. */
 export const REPLY_LENGTHS = ['short', 'normal', 'long'] as const;
 export type ReplyLength = (typeof REPLY_LENGTHS)[number];
@@ -214,6 +216,9 @@ export class CipherDb {
     this.addColumnIfMissing('rooms', 'archived', 'archived INTEGER NOT NULL DEFAULT 0');
     this.addColumnIfMissing('bots', 'reply_length', "reply_length TEXT NOT NULL DEFAULT 'normal'");
     this.db.exec('CREATE TABLE IF NOT EXISTS blocked_sites (site TEXT PRIMARY KEY, added_at TEXT NOT NULL)');
+    // v12 (idempotent): checklist items per bot.
+    this.db.exec('CREATE TABLE IF NOT EXISTS checklist_items (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE, ' +
+      'text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)');
     this.db.exec('CREATE TABLE IF NOT EXISTS search_history (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, searched_at TEXT NOT NULL)');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
@@ -315,6 +320,54 @@ export class CipherDb {
     const bot = this.getBot(id);
     if (!bot) throw new Error('Cipher bot not found.');
     return bot;
+  }
+
+  /**
+   * v1.22: append a message's text to a bot's memory note (one tap). Refuses, with a clear message, when the result
+   * would pass MEMORY_NOTE_MAX; the note is left unchanged then.
+   */
+  appendBotMemory(id: number, text: unknown): Bot {
+    const bot = this.getBot(id);
+    if (!bot) throw new Error('Cipher bot not found.');
+    if (typeof text !== 'string' || !text.trim()) throw new Error('Nothing to remember.');
+    const add = text.replace(/\r\n?/g, '\n').trim();
+    const cur = bot.memoryNote.trim();
+    const next = cur ? `${cur}\n${add}` : add;
+    if (next.length > MEMORY_NOTE_MAX) {
+      const free = Math.max(0, MEMORY_NOTE_MAX - cur.length - (cur ? 1 : 0));
+      throw new Error(free === 0
+        ? `The memory note is full (${MEMORY_NOTE_MAX} characters). Edit it in the bot's settings to make room.`
+        : `The memory note is almost full: ${free} of ${MEMORY_NOTE_MAX} characters left, and this message has ${add.length}. Edit the note to make room.`);
+    }
+    return this.setBotMemory(id, next);
+  }
+
+  /** v1.22: a bot's checklist (oldest first). */
+  listChecklist(botId: number): ChecklistItem[] {
+    return (this.db.prepare('SELECT id, bot_id, text, done, created_at FROM checklist_items WHERE bot_id = ? ORDER BY id').all(botId) as
+      { id: number; bot_id: number; text: string; done: number; created_at: string }[])
+      .map((r) => ({ id: r.id, botId: r.bot_id, text: r.text, done: r.done === 1, createdAt: r.created_at }));
+  }
+
+  addChecklistItem(botId: number, raw: unknown): ChecklistItem[] {
+    if (!this.getBot(botId)) throw new Error('Cipher bot not found.');
+    const text = normalizeItem(raw);
+    const n = (this.db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE bot_id = ?').get(botId) as { n: number }).n;
+    if (n >= CHECKLIST_MAX_ITEMS) throw new Error(`The checklist is full (${CHECKLIST_MAX_ITEMS} items).`);
+    this.db.prepare('INSERT INTO checklist_items (bot_id, text, done, created_at) VALUES (?, ?, 0, ?)').run(botId, text, new Date().toISOString());
+    return this.listChecklist(botId);
+  }
+
+  setChecklistDone(botId: number, itemId: number, done: boolean): ChecklistItem[] {
+    const r = this.db.prepare('UPDATE checklist_items SET done = ? WHERE id = ? AND bot_id = ?').run(done ? 1 : 0, itemId, botId);
+    if (r.changes === 0) throw new Error('Checklist item not found.');
+    return this.listChecklist(botId);
+  }
+
+  deleteChecklistItem(botId: number, itemId: number): ChecklistItem[] {
+    this.db.prepare('DELETE FROM checklist_items WHERE id = ? AND bot_id = ?').run(itemId, botId);
+    this.flushDeleted();
+    return this.listChecklist(botId);
   }
 
   /** v1.19: remember a search that was sent (local only). Keeps the newest SEARCH_HISTORY_MAX. */
@@ -440,6 +493,7 @@ export class CipherDb {
       const touched = (
         this.db.prepare('SELECT room_id FROM room_members WHERE bot_id = ?').all(id) as { room_id: number }[]
       ).map((r) => r.room_id);
+      this.db.prepare('DELETE FROM checklist_items WHERE bot_id = ?').run(id);
       this.db.prepare('DELETE FROM bots WHERE id = ?').run(id);
       const deletedRoomIds: number[] = [];
       for (const roomId of touched) {
