@@ -128,6 +128,12 @@ export function formatMessageTime(iso: string, toLocal: (d: Date) => { h: number
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+/** v1.23: a reminder's local "YYYY-MM-DDTHH:MM" as "YYYY-MM-DD 4:45 PM", with the same 12-hour formatter as chat. */
+export function formatReminderAt(at: string): string {
+  const time = formatMessageTime(at); // no zone in the string, so it is read as local time
+  return time ? `${at.slice(0, 10)} ${time}` : at;
+}
+
 // ---------- v1.20: starter jobs (local presets for the create form) ----------
 export type StarterId = 'writer' | 'researcher' | 'files' | 'blank';
 export interface StarterJob { id: StarterId; label: string; name: string; job: string; icon: string }

@@ -12,7 +12,7 @@ import { REMINDER_GRACE_MS, ReminderScheduler, reminderState, validateReminder }
 import { MAX_DOCX_ENTRIES, MAX_DOCX_XML, docxBytesToText, documentXmlToText, readDocxInFolder } from '../main/docxText';
 import { readFileInFolder } from '../main/readFileTool';
 import { diskUsage, folderBytes } from '../main/diskUsage';
-import { formatSize, plusMenuItems, SHORTCUTS } from '../renderer/view';
+import { formatMessageTime, formatReminderAt, formatSize, plusMenuItems, SHORTCUTS } from '../renderer/view';
 import { WHATS_NEW } from '../renderer/whatsNew';
 import { POLICY_SECTIONS } from '../renderer/policy';
 import type { ChatEvent, Reminder } from '../shared/types';
@@ -440,4 +440,13 @@ test('policy and new channels: truthful text; no new network path; new channels 
   for (const f of ['reminders.ts', 'docxText.ts', 'diskUsage.ts', 'toolSwitches.ts']) {
     assert.doesNotMatch(read(`src/main/${f}`), /fetch\(|https?:\/\/|net\.|http\.request|electron/, `${f}: no network`);
   }
+});
+
+test('Reminders list uses the same 12-hour formatter as the picker and chat', () => {
+  assert.equal(formatReminderAt('2026-10-12T16:45'), '2026-10-12 4:45 PM');
+  assert.equal(formatReminderAt('2026-10-13T00:05'), '2026-10-13 12:05 AM');
+  assert.equal(formatReminderAt('2026-10-13T12:00'), '2026-10-13 12:00 PM');
+  assert.equal(formatReminderAt('2026-10-13T09:00').slice(11), formatMessageTime(new Date(2026, 9, 13, 9, 0).toISOString()));
+  assert.match(renderer, /text\.textContent = `\$\{formatReminderAt\(r\.at\)\} · /);
+  assert.doesNotMatch(renderer, /r\.at\.replace\('T', ' '\)/);
 });

@@ -1,7 +1,7 @@
 import type { Bot, Chat, ChecklistItem, DiskUsage, Reminder, ToolSwitches, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
-import { decideView, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId } from './view.js';
+import { decideView, formatReminderAt, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -2442,7 +2442,7 @@ function renderReminders(list: Reminder[]): void {
     li.className = `checklist-item reminder-${r.status}`;
     const text = document.createElement('span');
     text.className = 'checklist-text';
-    text.textContent = `${r.at.replace('T', ' ')} · ${STATUS_TEXT[r.status]}: ${r.prompt}`;
+    text.textContent = `${formatReminderAt(r.at)} · ${STATUS_TEXT[r.status]}: ${r.prompt}`;
     if (r.note) text.title = r.note;
     const del = document.createElement('button');
     del.type = 'button';
