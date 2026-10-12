@@ -1178,7 +1178,7 @@ function currentPlusItems(): PlusItem[] {
   const bot = currentBot();
   if (!bot) return [];
   return plusMenuItems({
-    kind: 'bot', toolsEnabled: bot.toolsEnabled, folderPath: bot.folderPath,
+    kind: 'bot', toolsEnabled: bot.toolsEnabled, folderPath: bot.folderPath, secondFolderPath: bot.secondFolderPath,
     busy: state.chat ? state.busy.has(state.chat.id) : false,
     routineTime: state.routine && state.routine.botId === bot.id && state.routine.enabled ? state.routine.time : null,
   });
@@ -1230,6 +1230,7 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'clear': return requestClearChat();
     case 'edit': return openEditBot();
     case 'folder': return chooseFolder();
+    case 'second': return toggleSecondFolder();
     case 'tools': { const bot = currentBot(); if (bot) await setTools(!bot.toolsEnabled); return; }
     case 'routine': return openRoutine();
   }
@@ -1246,6 +1247,16 @@ async function chooseFolder(): Promise<void> {
   const bot = currentBot();
   const folder = bot && (await api.pickFolder());
   if (bot && folder) await replaceBot(await api.setBotFolder(bot.id, folder));
+}
+
+/** v1.15: attach a second local folder with the folder picker, or remove it. The read folder is not touched. */
+async function toggleSecondFolder(): Promise<void> {
+  const bot = currentBot();
+  if (!bot) return;
+  if (bot.secondFolderPath) { await replaceBot(await api.setBotSecondFolder(bot.id, null)); return; }
+  const folder = await api.pickFolder();
+  if (!folder) return;
+  try { await replaceBot(await api.setBotSecondFolder(bot.id, folder)); } catch (err) { showAttachError(plainError(err)); }
 }
 
 function onPlusMenuKey(e: KeyboardEvent): void {

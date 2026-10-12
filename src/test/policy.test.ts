@@ -41,7 +41,7 @@ test('required points: local database and where, files only from the chosen fold
   assert.match(all, /cipher\.db/);
   assert.match(all, /user data folder/);
   assert.match(all, /not encrypted: anyone who can open your user account/);
-  assert.match(section(/^Files$/), /only from the one folder you choose/);
+  assert.match(section(/^Files$/), /only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder/);
   assert.match(section(/^Files$/), /Read files on/);
   assert.match(section(/model/i), /Ollama on this computer/);
   assert.match(section(/model/i), /can't control what Ollama does/);

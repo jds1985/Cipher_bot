@@ -394,6 +394,12 @@ function registerIpc(): void {
   handle('routines:set', (_e, botId: unknown, input: unknown) =>
     db.setRoutine(asId(botId), (input && typeof input === 'object' ? input : {}) as Record<string, unknown>));
   handle('bots:setFolder', (_e, botId: unknown, folder: unknown) => db.setBotFolder(asId(botId), asFolder(folder)));
+  handle('bots:setSecondFolder', (_e, botId: unknown, folder: unknown) => {
+    const id = asId(botId);
+    const second = asFolder(folder);
+    if (second !== null && second === db.getBot(id)?.folderPath) throw new Error('Choose a different folder than this Cipher bot\'s read folder.');
+    return db.setBotSecondFolder(id, second);
+  });
   handle('bots:setTools', (_e, botId: unknown, enabled: unknown) => db.setBotTools(asId(botId), Boolean(enabled)));
   // Delete (after the UI confirm): refused while the bot or room is replying.
   handle('bots:delete', (_e, botIdRaw: unknown) => {

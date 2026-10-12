@@ -6,6 +6,7 @@ const api: CipherApi = {
   createBot: (bot: NewBotForm) => ipcRenderer.invoke('bots:create', bot),
   updateBot: (botId, bot: NewBotForm) => ipcRenderer.invoke('bots:update', botId, bot),
   setBotFolder: (botId, folderPath) => ipcRenderer.invoke('bots:setFolder', botId, folderPath),
+  setBotSecondFolder: (botId, folderPath) => ipcRenderer.invoke('bots:setSecondFolder', botId, folderPath),
   setBotTools: (botId, enabled) => ipcRenderer.invoke('bots:setTools', botId, enabled),
   deleteBot: (botId) => ipcRenderer.invoke('bots:delete', botId),
   deleteRoom: (roomId) => ipcRenderer.invoke('rooms:delete', roomId),

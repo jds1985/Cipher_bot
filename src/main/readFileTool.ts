@@ -17,6 +17,10 @@ export const READ_FILE_TOOL = {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'File path relative to the shared folder.' },
+        folder: {
+          type: 'string', enum: ['main', 'second'],
+          description: 'Which shared folder to read from: "main" (default) or "second" (the second folder, if the user attached one).',
+        },
       },
       required: ['path'],
     },
@@ -108,7 +112,7 @@ export interface ToolOutcome {
 }
 
 /** Execute a single tool call requested by the model. Never throws. */
-export async function executeToolCall(call: ToolCall, folder: string | null): Promise<ToolOutcome> {
+export async function executeToolCall(call: ToolCall, folder: string | null, secondFolder: string | null = null): Promise<ToolOutcome> {
   const name = call?.function?.name ?? '';
   let args: unknown = call?.function?.arguments ?? {};
   if (typeof args === 'string') {
@@ -120,8 +124,11 @@ export async function executeToolCall(call: ToolCall, folder: string | null): Pr
     return { name, path: shownPath, ok: false, content: `Error: unknown tool "${name}". The only available tool is read_file.` };
   }
   try {
-    const r = await readFileInFolder(folder, requested);
-    return { name, path: r.relPath, ok: true, content: r.content };
+    // v1.15: folder "second" reads the bot's second folder through the same sandbox; anything else is the read folder.
+    const useSecond = (args as { folder?: unknown })?.folder === 'second';
+    if (useSecond && !secondFolder) throw new ToolError('No second folder has been attached to this bot.');
+    const r = await readFileInFolder(useSecond ? secondFolder : folder, requested);
+    return { name, path: useSecond ? `second: ${r.relPath}` : r.relPath, ok: true, content: r.content };
   } catch (e) {
     const msg = e instanceof ToolError ? e.message : 'Could not read the file.';
     return { name, path: shownPath, ok: false, content: `Error: ${msg}` };

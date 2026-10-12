@@ -70,7 +70,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'edit' | 'folder' | 'tools' | 'routine';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'edit' | 'folder' | 'second' | 'tools' | 'routine';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -85,11 +85,12 @@ export interface PlusItem {
 /**
  * The plus menu's items. Rooms get only what rooms had before (Export). A bot's chat gets Attach, Export, Clear,
  * Edit, Choose folder, Read files and Routine, with the same availability as the old header/composer controls:
- * Attach waits while the chat is replying; Choose folder needs Read files on.
+ * Attach waits while the chat is replying; Choose folder needs Read files on. v1.15: the second folder item sits next
+ * to Choose folder ("Attach second folder…" or "Remove second folder") and also needs Read files on.
  */
 export function plusMenuItems(input:
   | { kind: 'room' }
-  | { kind: 'bot'; toolsEnabled: boolean; folderPath: string | null; busy: boolean; routineTime: string | null }): PlusItem[] {
+  | { kind: 'bot'; toolsEnabled: boolean; folderPath: string | null; secondFolderPath?: string | null; busy: boolean; routineTime: string | null }): PlusItem[] {
   if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }];
   return [
     { id: 'attach', label: 'Attach file…', disabled: input.busy },
@@ -97,6 +98,10 @@ export function plusMenuItems(input:
     { id: 'clear', label: 'Clear chat…', disabled: false },
     { id: 'edit', label: 'Edit bot…', disabled: false },
     { id: 'folder', label: 'Choose folder…', disabled: !input.toolsEnabled, hint: input.toolsEnabled ? (input.folderPath ?? 'No folder chosen') : 'Turn on Read files first' },
+    {
+      id: 'second', label: input.secondFolderPath ? 'Remove second folder' : 'Attach second folder…', disabled: !input.toolsEnabled,
+      hint: input.toolsEnabled ? (input.secondFolderPath ?? 'No second folder') : 'Turn on Read files first',
+    },
     { id: 'tools', label: 'Read files', disabled: false, checked: input.toolsEnabled },
     { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
   ];

@@ -4,13 +4,14 @@ import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIc
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 /** Longest optional room name. */
 export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
 
 interface BotRow {
   id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string;
+  second_folder_path?: string | null;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
@@ -21,7 +22,7 @@ interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistan
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -154,6 +155,8 @@ export class CipherDb {
       );
     `);
     this.addColumnIfMissing('messages', 'routine', 'routine INTEGER NOT NULL DEFAULT 0');
+    // v6 (idempotent; nothing is deleted): an optional second local folder per bot, separate from folder_path.
+    this.addColumnIfMissing('bots', 'second_folder_path', 'second_folder_path TEXT');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -264,6 +267,14 @@ export class CipherDb {
 
   setBotFolder(id: number, folderPath: string | null): Bot {
     this.db.prepare('UPDATE bots SET folder_path = ? WHERE id = ?').run(folderPath, id);
+    const bot = this.getBot(id);
+    if (!bot) throw new Error('Cipher bot not found.');
+    return bot;
+  }
+
+  /** The bot's second local folder (v1.15), separate from its read folder. null removes it. */
+  setBotSecondFolder(id: number, folderPath: string | null): Bot {
+    this.db.prepare('UPDATE bots SET second_folder_path = ? WHERE id = ?').run(folderPath, id);
     const bot = this.getBot(id);
     if (!bot) throw new Error('Cipher bot not found.');
     return bot;
