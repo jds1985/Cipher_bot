@@ -200,6 +200,13 @@ export interface CipherApi {
    * for inclusion in the next user message. Not available on phone UI.
    */
   pickAttachFile(botId: number): Promise<AttachPickResult>;
+  /** v1.17: the local path of a dropped file (webUtils.getPathForFile); '' if it isn't a file on this computer. */
+  pathForFile(file: File): string;
+  /** v1.17: attach a dropped file, through the same checks as pickAttachFile. */
+  attachDroppedFile(botId: number, filePath: string): Promise<AttachPickResult>;
+  /** v1.17: display preferences (message times, dock collapsed), stored locally. */
+  getUiPrefs(): Promise<{ showTimes: boolean; dockCollapsed: boolean }>;
+  setUiPref(name: 'showTimes' | 'dockCollapsed', value: boolean): Promise<{ showTimes: boolean; dockCollapsed: boolean }>;
   /** The bot's one chat (its most recent one), created on first open. */
   openBotChat(botId: number): Promise<Chat>;
   listMessages(chatId: number): Promise<Message[]>;

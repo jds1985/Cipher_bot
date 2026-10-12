@@ -330,6 +330,33 @@ button.plus-item:disabled { background: transparent; }
 .setup-brand { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-weight: 700; font-size: 18px; color: var(--text); }
 .setup-logo { display: block; width: 56px; height: 56px; }
 .about-card { text-align: center; }
-.about-card .about-logo { display: block; width: 128px; height: 128px; margin: 4px auto 8px; }
+.about-card .about-logo { display: block; width: 128px; height: 128px; margin: 4px auto 8px; border-radius: 22px; }
 .about-card h2 { margin: 0 0 6px; }
 .row.center { justify-content: center; }
+
+/* ---------- v1.17: dock collapse, message times, drop highlight, What's new ---------- */
+.dock-toggle { flex: none; width: 34px; height: 26px; padding: 0; display: grid; place-items: center; background: transparent;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 8px; }
+.dock-toggle:hover { background: var(--panel2); color: var(--text); }
+.dock-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dock-toggle svg { transition: none; }
+body:not(.dock-collapsed) #sidebar { width: 196px; align-items: stretch; padding: 10px 8px; }
+body:not(.dock-collapsed) .dock-toggle { align-self: flex-end; }
+body:not(.dock-collapsed) .rail-list { align-items: stretch; }
+body:not(.dock-collapsed) .rail-list .rail-btn { width: 100%; justify-content: flex-start; gap: 10px; padding: 0 8px; }
+body:not(.dock-collapsed) .rail-list .rail-btn.room { border-radius: 25px; }
+body:not(.dock-collapsed) .rail-btn.active::before { left: -8px; }
+body:not(.dock-collapsed) .rail-sep { align-self: center; }
+body:not(.dock-collapsed) #sidebar > .rail-btn { align-self: center; }
+.rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text); }
+body.dock-collapsed .rail-name { display: none; }
+body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
+.msg .msg-time { display: block; margin-top: 4px; font-size: 11px; opacity: .7; text-align: right; }
+.msg.assistant .msg-time { text-align: left; }
+.drop-hint { display: none; }
+#chat-view.drop-over { outline: 2px dashed #5b8cff; outline-offset: -8px; border-radius: 12px; }
+#chat-view.drop-over .drop-hint { display: block; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 5;
+  padding: 6px 14px; border-radius: 999px; background: #15171c; border: 1px solid #5b8cff; color: var(--text); font-size: 13px; pointer-events: none; }
+.whats-new-title { margin: 14px 0 6px; font-size: 1rem; }
+.whats-new { margin: 0 auto 14px; padding-left: 20px; max-width: 460px; text-align: left; color: var(--muted); }
+.whats-new li { margin: 2px 0; }

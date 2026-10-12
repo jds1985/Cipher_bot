@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
@@ -6,14 +6,15 @@ import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
 import { runRoomTurn } from './roomEngine';
 import { SEND_SOUND_SETTING_KEY, parseSendSound, shouldMarkUnread } from './unread';
+import { DEFAULT_SIZE, MIN_SIZE, SAVE_DEBOUNCE_MS, debounce, loadWindowState, saveWindowState } from './windowBounds';
+import { UI_PREFS, isUiPrefName, readUiPrefs } from './uiPrefs';
 import { formToProfile, toNewBot } from './createBot';
 import { botChatExportLines, exportFileName, formatChatExport, roomExportLines } from './exportChat';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
 import { ONLINE_SETTING_KEY, assertOutboundAllowed, onlineSettingValue, parseOnlineSetting } from './networkGuard';
 import { PhoneServer, PHONE_LINK_PORT } from './phoneServer';
-import { readFileForAttach } from './attachFile';
-import { ToolError } from './readFileTool';
+import { attachFromPath } from './attachFile';
 import { RoutineScheduler } from './routine';
 import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
 import { RoutineNotifier, routineOutcome } from './routineNotice';
@@ -167,11 +168,12 @@ const TITLE_BAR_HEIGHT = 40;
 let windowsCreated = 0;
 
 function createWindow(): BrowserWindow {
+  // v1.17: reopen at the saved size and position, clamped onto a connected display (else the default size, centered).
+  const saved = loadWindowState(app.getPath('userData'), screen.getAllDisplays().map((d) => d.workArea));
   const win = new BrowserWindow({
-    width: 1100,
-    height: 760,
-    minWidth: 760,
-    minHeight: 480,
+    ...(saved ? { x: saved.x, y: saved.y, width: saved.width, height: saved.height } : DEFAULT_SIZE),
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
     resizable: true,
     title: 'Cipher Bot',
     backgroundColor: FRAME_BG,
@@ -190,6 +192,17 @@ function createWindow(): BrowserWindow {
     },
   });
   win.removeMenu();
+  if (saved?.maximized) win.maximize();
+  // Save size/position/maximized (debounced). The normal bounds are kept while maximized, so un-maximizing restores them.
+  const saveBounds = debounce(() => {
+    if (win.isDestroyed() || win.isMinimized()) return;
+    saveWindowState(app.getPath('userData'), { ...win.getNormalBounds(), maximized: win.isMaximized() });
+  }, SAVE_DEBOUNCE_MS);
+  win.on('resize', saveBounds.call);
+  win.on('move', saveBounds.call);
+  win.on('maximize', saveBounds.call);
+  win.on('unmaximize', saveBounds.call);
+  win.on('close', saveBounds.flush);
   // Close hides to the tray (Cipher keeps running: phone link, routines and replies continue; with the lock on, it
   // locks as it hides). A real quit closes.
   win.on('close', (e) => {
@@ -469,12 +482,8 @@ function registerIpc(): void {
    * the same read_file sandbox. Rejects paths outside the folder (incl. .. and symlink escape).
    */
   handle('dialog:pickAttachFile', async (e, botIdRaw: unknown) => {
-    const botId = asId(botIdRaw);
-    const bot = db.getBot(botId);
-    if (!bot) return { ok: false as const, error: 'Cipher bot not found.' };
-    if (!bot.folderPath) {
-      return { ok: false as const, error: 'Choose a folder for this Cipher bot before attaching a file.', needFolder: true };
-    }
+    const bot = db.getBot(asId(botIdRaw));
+    if (!bot?.folderPath) return attachFromPath(bot, null);
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
       title: 'Attach a text file from this Cipher bot\'s folder',
@@ -483,13 +492,19 @@ function registerIpc(): void {
     };
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
     if (r.canceled || !r.filePaths[0]) return { ok: false as const, error: 'No file selected.' };
-    try {
-      const attached = await readFileForAttach(bot.folderPath, r.filePaths[0]);
-      return { ok: true as const, relPath: attached.relPath, block: attached.block };
-    } catch (err) {
-      const msg = err instanceof ToolError ? err.message : (err instanceof Error ? err.message : 'Could not attach the file.');
-      return { ok: false as const, error: msg };
-    }
+    return attachFromPath(bot, r.filePaths[0]);
+  });
+  // v1.17: a file dropped on a bot's chat goes through exactly the same checks as Attach (attachFromPath).
+  handle('attach:dropped', (_e, botIdRaw: unknown, filePath: unknown) => {
+    const bot = db.getBot(asId(botIdRaw));
+    if (typeof filePath !== 'string' || !filePath) return { ok: false as const, error: 'Only files from this computer can be attached.' };
+    return attachFromPath(bot, filePath);
+  });
+  handle('prefs:get', () => readUiPrefs((k) => db.getSetting(k)));
+  handle('prefs:set', (_e, name: unknown, value: unknown) => {
+    if (!isUiPrefName(name)) throw new Error('Unknown setting.');
+    db.setSetting(UI_PREFS[name].key, value === true ? '1' : '0');
+    return readUiPrefs((k) => db.getSetting(k));
   });
 
   // One chat per bot: its most recent chat, created on first open. Older chats stay in the database, hidden.

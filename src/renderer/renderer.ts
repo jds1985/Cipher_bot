@@ -1,5 +1,6 @@
 import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult } from '../shared/types';
-import { decideView, plusMenuItems, roomTitle, setupCopy, showsSplash, splashRemainingMs, SPLASH_MAX_MS, type PlusItem, type PlusItemId } from './view.js';
+import { WHATS_NEW } from './whatsNew.js';
+import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, showsSplash, splashRemainingMs, SPLASH_MAX_MS, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -54,6 +55,8 @@ const el = {
   backupBtn: $<HTMLButtonElement>('backup-btn'), backupMsg: $('backup-msg'), backupError: $('backup-error'),
   restoreBtn: $<HTMLButtonElement>('restore-btn'), restoreError: $('restore-error'),
   soundSwitch: $<HTMLInputElement>('sound-switch'), settingsVersion: $('settings-version'),
+  timesSwitch: $<HTMLInputElement>('times-switch'), dockToggle: $<HTMLButtonElement>('dock-toggle'),
+  whatsNew: $('whats-new'), dropHint: $('drop-hint'),
   openAbout: $<HTMLButtonElement>('open-about'), aboutView: $('about-view'), aboutVersion: $('about-version'),
   aboutPolicy: $<HTMLButtonElement>('about-policy'), aboutClose: $<HTMLButtonElement>('about-close'),
 };
@@ -88,6 +91,8 @@ const state = {
   version: '',
   /** v1.16: optional send sound (off by default). */
   sendSound: false,
+  /** v1.17: display preferences (stored in main): message times (on by default), dock collapsed (off by default). */
+  prefs: { showTimes: true, dockCollapsed: false },
   /** The open bot's daily routine, or null if it has none. */
   routine: null as Routine | null,
   /** Bot ids currently streaming a reply (working-dot). */
@@ -245,7 +250,7 @@ function renderRail(): void {
     const working = state.speakingBots.has(b.id);
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
-    btn.append(botIcon(b, 42));
+    btn.append(botIcon(b, 42), node('span', 'rail-name', b.name));
     addUnreadDot(btn, b.unread && !(showingChat && b.id === state.botId));
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
@@ -254,12 +259,30 @@ function renderRail(): void {
     const label = `Room: ${roomName(r)}`;
     const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'room', r.id));
-    btn.append(roomMark(r));
+    btn.append(roomMark(r), node('span', 'rail-name', roomName(r)));
     addUnreadDot(btn, r.unread && !(showingChat && r.id === state.roomId));
     if (!nameMatches(roomName(r), q) && !nameMatches(r.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
   el.openSettings.classList.toggle('active', state.settingsOpen || state.policyOpen || state.aboutOpen);
+  renderDock();
+}
+
+/** v1.17: the bot dock expanded (icons and names) or collapsed (icons only; unread dots still show). */
+function renderDock(): void {
+  const collapsed = state.prefs.dockCollapsed;
+  document.body.classList.toggle('dock-collapsed', collapsed);
+  el.dockToggle.setAttribute('aria-expanded', String(!collapsed));
+  const label = collapsed ? 'Expand the bot dock' : 'Collapse the bot dock';
+  el.dockToggle.setAttribute('aria-label', label);
+  el.dockToggle.title = label;
+}
+
+async function setUiPref(name: 'showTimes' | 'dockCollapsed', value: boolean): Promise<void> {
+  state.prefs = await api.setUiPref(name, value);
+  renderRail();
+  if (name === 'showTimes' && !el.chatView.hidden) renderChat();
+  el.timesSwitch.checked = state.prefs.showTimes;
 }
 
 /** v1.16: a small accent dot on a bot or room with a reply the user hasn't opened yet. */
@@ -390,11 +413,18 @@ function copyButton(text: string): HTMLButtonElement {
 }
 
 /** A user or bot message bubble: the text plus a small copy button (and a "Routine" tag for routine messages). */
-function bubble(cls: string, text: string, fromRoutine = false): HTMLElement {
+function bubble(cls: string, text: string, fromRoutine = false, createdAt?: string): HTMLElement {
   const msg = node('div', `msg ${cls}`);
   if (fromRoutine) msg.append(node('span', 'routine-tag', 'Routine'));
   msg.append(node('span', 'msg-text', text), copyButton(text));
+  addTime(msg, createdAt);
   return msg;
+}
+
+/** v1.17: the message's local time under its text, when "Show message times" is on. */
+function addTime(msg: HTMLElement, createdAt?: string): void {
+  const t = state.prefs.showTimes && createdAt ? formatMessageTime(createdAt) : '';
+  if (t) msg.append(node('span', 'msg-time', t));
 }
 
 function renderChat(): void {
@@ -422,9 +452,9 @@ function renderBotChat(): void {
   for (const m of state.messages) {
     const match = !q || m.content.toLowerCase().includes(q);
     let row: HTMLElement | null = null;
-    if (m.role === 'user') row = bubble('user', m.content, m.routine);
+    if (m.role === 'user') row = bubble('user', m.content, m.routine, m.createdAt);
     else if (m.role === 'assistant') {
-      if (m.content) row = bubble('assistant', m.content);
+      if (m.content) row = bubble('assistant', m.content, false, m.createdAt);
       if (m.toolCalls?.length) {
         const note = node('div', 'msg note', `Reading file: ${toolCallLabel(m)}`);
         if (!match) note.classList.add('search-hidden');
@@ -450,7 +480,7 @@ function renderBotChat(): void {
 }
 
 /** A room reply: the speaking bot's icon + name, then the text. */
-function roomReply(botId: number | null, text: string, live = false): HTMLElement {
+function roomReply(botId: number | null, text: string, live = false, createdAt?: string): HTMLElement {
   const bot = botById(botId);
   const msg = node('div', `msg assistant room-msg${live ? ' live' : ''}`);
   const speaker = node('div', 'speaker');
@@ -458,6 +488,7 @@ function roomReply(botId: number | null, text: string, live = false): HTMLElemen
   speaker.append(node('span', 'name', bot ? bot.name : 'Cipher bot'));
   msg.append(speaker, node('div', 'text', text));
   if (!live) msg.append(copyButton(text));
+  addTime(msg, createdAt);
   return msg;
 }
 
@@ -474,7 +505,7 @@ function renderRoom(): void {
   const items: HTMLElement[] = [];
   for (const m of state.roomMessages) {
     const match = !q || m.content.toLowerCase().includes(q);
-    const row = m.role === 'user' ? bubble('user', m.content) : roomReply(m.botId, m.content);
+    const row = m.role === 'user' ? bubble('user', m.content, false, m.createdAt) : roomReply(m.botId, m.content, false, m.createdAt);
     if (!match) row.classList.add('search-hidden');
     items.push(row);
   }
@@ -834,6 +865,7 @@ function renderSettings(): void {
   renderLockSettings();
   el.onlineSwitch.checked = state.online;
   el.soundSwitch.checked = state.sendSound;
+  el.timesSwitch.checked = state.prefs.showTimes;
   el.settingsVersion.textContent = state.version;
   const ph = state.phone;
   el.phoneStart.hidden = ph.running;
@@ -1047,6 +1079,7 @@ function closePolicy(): void {
 // ---------- About (v1.16): icon, name, version from main, and the in-app Policy screen ----------
 function renderAbout(): void {
   el.aboutVersion.textContent = state.version;
+  el.whatsNew.replaceChildren(...WHATS_NEW.slice(0, 5).map((line) => node('li', undefined, line)));
 }
 
 function openAbout(): void {
@@ -1402,6 +1435,41 @@ el.policyClose.addEventListener('click', closePolicy);
 el.openAbout.addEventListener('click', openAbout);
 el.aboutPolicy.addEventListener('click', openPolicy);
 el.aboutClose.addEventListener('click', openSettings);
+el.timesSwitch.addEventListener('change', () => void setUiPref('showTimes', el.timesSwitch.checked));
+el.dockToggle.addEventListener('click', () => void setUiPref('dockCollapsed', !state.prefs.dockCollapsed));
+
+// ---------- drag a file onto a 1:1 chat to attach it (v1.17) ----------
+// Never let a dropped file load in the window: the default dragover/drop is blocked on the whole document
+// (main also blocks will-navigate). Only a drop on an open bot chat does anything, through main's attach checks.
+const dropTargetOk = (): boolean => !el.chatView.hidden && state.botId !== null && state.roomId === null;
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  const onChat = el.chatView.contains(e.target as Node) && !el.chatView.hidden;
+  if (e.dataTransfer) e.dataTransfer.dropEffect = onChat && dropTargetOk() ? 'copy' : 'none';
+  el.chatView.classList.toggle('drop-over', onChat && dropTargetOk());
+});
+document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) el.chatView.classList.remove('drop-over'); });
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  el.chatView.classList.remove('drop-over');
+  if (el.chatView.hidden || !el.chatView.contains(e.target as Node)) return;
+  void onChatDrop(e.dataTransfer?.files ?? null);
+});
+
+async function onChatDrop(files: FileList | null): Promise<void> {
+  clearAttachError();
+  if (state.roomId !== null) { showAttachError('Files can be attached in a Cipher bot\'s chat, not in rooms.'); return; }
+  const bot = currentBot();
+  if (!bot || !files || files.length === 0) return;
+  if (files.length > 1) { showAttachError('Drop one file at a time.'); return; }
+  const filePath = api.pathForFile(files[0]);
+  if (!filePath) { showAttachError('Only files from this computer can be attached.'); return; }
+  const result = await api.attachDroppedFile(bot.id, filePath);
+  if (!result.ok) { showAttachError(result.error); return; }
+  state.pendingAttach = { relPath: result.relPath, block: result.block };
+  renderAttachUi(true);
+}
+
 el.soundSwitch.addEventListener('change', () => {
   void api.setSendSound(el.soundSwitch.checked).then((on) => { state.sendSound = on; el.soundSwitch.checked = on; });
 });
@@ -1500,6 +1568,7 @@ async function loadAppData(): Promise<void> {
     state.online = await api.getOnline();
     state.version = await api.getVersion();
     state.sendSound = await api.getSendSound();
+    state.prefs = await api.getUiPrefs();
     state.phone = await api.getPhoneLink();
     await loadBots();
     await loadRooms();

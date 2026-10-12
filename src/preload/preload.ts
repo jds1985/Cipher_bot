@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import type { ChatEvent, CipherApi, NewBotForm, NewRoomForm, PhoneLinkStatus, RoomEvent, SetupState } from '../shared/types';
 
 const api: CipherApi = {
@@ -13,6 +13,10 @@ const api: CipherApi = {
   showItemMenu: (kind) => ipcRenderer.invoke('menu:item', kind),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   pickAttachFile: (botId) => ipcRenderer.invoke('dialog:pickAttachFile', botId),
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
+  attachDroppedFile: (botId, filePath) => ipcRenderer.invoke('attach:dropped', botId, filePath),
+  getUiPrefs: () => ipcRenderer.invoke('prefs:get'),
+  setUiPref: (name, value) => ipcRenderer.invoke('prefs:set', name, value),
   openBotChat: (botId) => ipcRenderer.invoke('chats:openForBot', botId),
   listMessages: (chatId) => ipcRenderer.invoke('messages:list', chatId),
   clearBotChat: (botId) => ipcRenderer.invoke('chats:clearForBot', botId),

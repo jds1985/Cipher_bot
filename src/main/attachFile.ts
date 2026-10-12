@@ -5,6 +5,7 @@
  */
 import path from 'node:path';
 import { readFileInFolder, ToolError } from './readFileTool';
+import type { AttachPickResult } from '../shared/types';
 
 export interface AttachResult {
   relPath: string;
@@ -41,4 +42,21 @@ export function mergeAttachIntoMessage(typed: string, block: string | null): str
 /** Basename for UI chip display. */
 export function attachDisplayName(relPath: string): string {
   return path.basename(relPath.replace(/\\/g, '/'));
+}
+
+/**
+ * The one attach path (plus > Attach and drag-and-drop): the file must be inside the bot's folder and pass the
+ * read_file sandbox (containment incl. .. and symlink escape, size cap, text only). Never throws.
+ */
+export async function attachFromPath(bot: { folderPath: string | null } | null, filePath: string | null): Promise<AttachPickResult> {
+  if (!bot) return { ok: false, error: 'Cipher bot not found.' };
+  if (!bot.folderPath) return { ok: false, error: 'Choose a folder for this Cipher bot before attaching a file.', needFolder: true };
+  if (!filePath) return { ok: false, error: 'No file selected.' };
+  try {
+    const attached = await readFileForAttach(bot.folderPath, filePath);
+    return { ok: true, relPath: attached.relPath, block: attached.block };
+  } catch (err) {
+    const msg = err instanceof ToolError ? err.message : (err instanceof Error ? err.message : 'Could not attach the file.');
+    return { ok: false, error: msg };
+  }
 }

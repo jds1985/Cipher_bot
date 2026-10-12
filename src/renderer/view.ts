@@ -107,3 +107,12 @@ export function plusMenuItems(input:
     { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
   ];
 }
+
+// ---------- message times (v1.17) ----------
+/** Local time of a stored message timestamp as h:mm with AM/PM (e.g. "9:05 AM"); '' if the timestamp is unreadable. */
+export function formatMessageTime(iso: string, toLocal: (d: Date) => { h: number; m: number } = (d) => ({ h: d.getHours(), m: d.getMinutes() })): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const { h, m } = toLocal(d);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
