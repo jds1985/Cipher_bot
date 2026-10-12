@@ -57,6 +57,7 @@ const el = {
   soundSwitch: $<HTMLInputElement>('sound-switch'), settingsVersion: $('settings-version'),
   timesSwitch: $<HTMLInputElement>('times-switch'), dockToggle: $<HTMLButtonElement>('dock-toggle'),
   whatsNew: $('whats-new'), dropHint: $('drop-hint'),
+  onlineState: $('online-state'), onlineOnIcon: $<HTMLImageElement>('online-on-icon'), lastSearch: $('last-search'),
   openAbout: $<HTMLButtonElement>('open-about'), aboutView: $('about-view'), aboutVersion: $('about-version'),
   aboutPolicy: $<HTMLButtonElement>('about-policy'), aboutClose: $<HTMLButtonElement>('about-close'),
 };
@@ -93,6 +94,10 @@ const state = {
   sendSound: false,
   /** v1.17: display preferences (stored in main): message times (on by default), dock collapsed (off by default). */
   prefs: { showTimes: true, dockCollapsed: false },
+  /** v1.18: confirm cards main is waiting on (id → chat and exact query). */
+  searchAsks: new Map<string, { chatId: number; query: string }>(),
+  /** v1.18: ISO time of the last search sent, or null. */
+  lastSearch: null as string | null,
   /** The open bot's daily routine, or null if it has none. */
   routine: null as Routine | null,
   /** Bot ids currently streaming a reply (working-dot). */
@@ -359,10 +364,73 @@ async function selectRoom(roomId: number): Promise<void> {
 
 // ---------- chat view (a bot's chat or a room) ----------
 function toolCallLabel(m: Message): string {
-  return (m.toolCalls ?? []).map((c) => {
+  return (m.toolCalls ?? []).filter((c) => c.function?.name !== 'web_search').map((c) => {
     const p = (c.function?.arguments as { path?: unknown })?.path;
     return typeof p === 'string' ? p : '';
   }).join(', ');
+}
+
+// ---------- web search (v1.18) ----------
+/** The confirm card: the exact query, Search and Cancel. Nothing is sent before Search. */
+function searchAskCard(id: string, query: string): HTMLElement {
+  const card = node('div', 'msg search-ask');
+  card.setAttribute('role', 'group');
+  card.setAttribute('aria-label', 'Confirm web search');
+  const head = node('div', 'search-head');
+  const icon = document.createElement('img');
+  icon.src = 'assets/cipher-online-on.svg'; icon.alt = ''; icon.width = 20; icon.height = 20; icon.className = 'search-icon';
+  head.append(icon, node('strong', undefined, 'Search the web for:'));
+  const q = node('div', 'search-query', query);
+  const note = node('p', 'muted search-note', 'Only these words are sent, to DuckDuckGo (which also sees your IP address). Nothing is sent unless you press Search.');
+  const row = node('div', 'row end');
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'Cancel';
+  const go = document.createElement('button');
+  go.type = 'button'; go.textContent = 'Search';
+  const answer = (ok: boolean) => { go.disabled = true; cancel.disabled = true; void api.answerSearch(id, ok).catch(() => undefined); };
+  cancel.addEventListener('click', () => answer(false));
+  go.addEventListener('click', () => answer(true));
+  row.append(cancel, go);
+  card.append(head, q, note, row);
+  return card;
+}
+
+/** A stored web_search tool message: the results with source links, or why no search was made. */
+function searchResultRow(m: Message): HTMLElement {
+  if (!m.search) {
+    const why = m.content.startsWith('User did not confirm') ? 'Search cancelled: nothing was sent.'
+      : m.content.startsWith('Online is off') ? 'No search: Online is off.'
+        : `The web search did not work${/failed \((.*)\)\. Answer/.exec(m.content)?.[1] ? `: ${/failed \((.*)\)\. Answer/.exec(m.content)![1]}` : '.'}`;
+    return node('div', 'msg note', why);
+  }
+  const card = node('div', 'msg search-results');
+  const head = node('div', 'search-head');
+  const icon = document.createElement('img');
+  icon.src = 'assets/cipher-search-result.svg'; icon.alt = ''; icon.width = 20; icon.height = 20; icon.className = 'search-icon';
+  head.append(icon, node('span', undefined, `Web search: "${m.search.query}"`));
+  card.append(head);
+  if (!m.search.results.length) card.append(node('p', 'muted', 'No results.'));
+  const list = node('ol', 'search-list');
+  for (const r of m.search.results) {
+    const li = node('li');
+    const link = document.createElement('button');
+    link.type = 'button'; link.className = 'link-btn'; link.textContent = r.title; link.title = r.url;
+    link.addEventListener('click', () => void api.openLink(r.url).catch((err) => showAttachError(plainError(err))));
+    li.append(link, node('div', 'search-url', r.url), node('div', 'search-snippet', r.snippet));
+    list.append(li);
+  }
+  card.append(list);
+  addTime(card, m.createdAt);
+  return card;
+}
+
+function onSearchAsk(a: { id: string; chatId: number; query: string }): void {
+  state.searchAsks.set(a.id, { chatId: a.chatId, query: a.query });
+  if (state.chat?.id === a.chatId && !el.chatView.hidden) renderChat();
+}
+
+function onSearchClosed(e: { id: string }): void {
+  if (state.searchAsks.delete(e.id) && !el.chatView.hidden) renderChat();
 }
 
 // ---------- copy a message ----------
@@ -455,11 +523,13 @@ function renderBotChat(): void {
     if (m.role === 'user') row = bubble('user', m.content, m.routine, m.createdAt);
     else if (m.role === 'assistant') {
       if (m.content) row = bubble('assistant', m.content, false, m.createdAt);
-      if (m.toolCalls?.length) {
+      if (m.toolCalls?.some((c) => c.function?.name !== 'web_search')) {
         const note = node('div', 'msg note', `Reading file: ${toolCallLabel(m)}`);
         if (!match) note.classList.add('search-hidden');
         items.push(note);
       }
+    } else if (m.toolName === 'web_search') {
+      row = searchResultRow(m);
     } else {
       const bad = m.content.startsWith('Error:');
       row = node('div', `msg note${bad ? ' bad' : ''}`, bad ? `Couldn't read the file: ${m.content.slice(7)}` : `Read ${m.content.length} characters from the file`);
@@ -470,6 +540,7 @@ function renderBotChat(): void {
     }
   }
   const busy = state.busy.has(chat.id);
+  for (const [id, a] of state.searchAsks) if (a.chatId === chat.id) items.push(searchAskCard(id, a.query));
   if (busy) items.push(node('div', 'msg assistant live', state.live));
   if (state.error) items.push(node('div', 'msg error', state.error));
   if (!items.length) items.push(node('div', 'msg note', `Say hello to ${bot.name}.`));
@@ -850,6 +921,7 @@ function closeForms(): void {
 
 function openSettings(): void {
   state.aboutOpen = false;
+  void api.lastSearch().then((t) => { state.lastSearch = t; if (state.settingsOpen) renderSettings(); }).catch(() => undefined);
   void api.getLockState().then((ls) => { state.lock = ls; if (state.settingsOpen) renderLockSettings(); });
   for (const p of [el.lockMsg, el.lockError, el.backupMsg, el.backupError, el.restoreError]) p.hidden = true;
   state.settingsOpen = true;
@@ -865,6 +937,9 @@ function renderSettings(): void {
   renderLockSettings();
   el.onlineSwitch.checked = state.online;
   el.soundSwitch.checked = state.sendSound;
+  el.onlineState.textContent = state.online ? 'Online is on: web search is available (after you press Search).' : 'Online is off: nothing is sent to the internet.';
+  el.onlineOnIcon.hidden = !state.online;
+  el.lastSearch.textContent = state.lastSearch ? new Date(state.lastSearch).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
   el.timesSwitch.checked = state.prefs.showTimes;
   el.settingsVersion.textContent = state.version;
   const ph = state.phone;
@@ -1497,6 +1572,8 @@ el.onlineSwitch.addEventListener('change', async () => {
   state.online = await api.setOnline(el.onlineSwitch.checked);
   renderSettings();
 });
+api.onSearchAsk(onSearchAsk);
+api.onSearchClosed(onSearchClosed);
 el.lockForm.addEventListener('submit', (e) => void submitUnlock(e));
 el.lockSetForm.addEventListener('submit', (e) => void submitLockSet(e));
 el.lockChangeForm.addEventListener('submit', (e) => void submitLockChange(e));
@@ -1569,6 +1646,7 @@ async function loadAppData(): Promise<void> {
     state.version = await api.getVersion();
     state.sendSound = await api.getSendSound();
     state.prefs = await api.getUiPrefs();
+    for (const a of await api.pendingSearches()) state.searchAsks.set(a.id, { chatId: a.chatId, query: a.query });
     state.phone = await api.getPhoneLink();
     await loadBots();
     await loadRooms();

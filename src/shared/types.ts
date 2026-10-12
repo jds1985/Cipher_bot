@@ -44,6 +44,8 @@ export interface Message {
   createdAt: string;
   /** True for a user message sent by the bot's daily routine (not typed by the user). */
   routine: boolean;
+  /** v1.18: for a web_search tool message, the query and its results (title, link, snippet); otherwise null. */
+  search: { query: string; results: { title: string; url: string; snippet: string }[] } | null;
 }
 
 /** A bot's daily routine: a saved prompt sent to its chat at a local time (at most one per bot). */
@@ -252,7 +254,19 @@ export interface CipherApi {
   setSendSound(on: boolean): Promise<boolean>;
   /** Clicking a routine notice asks the window to open that bot's chat. */
   onOpenBot(cb: (botId: number) => void): () => void;
-  /** Online switch: default off; persists; enables nothing new in v1.6 when on. */
+  /** v1.18: a confirm card for a web search the bot wants to make (main asks; nothing is sent before Search). */
+  onSearchAsk(cb: (ask: { id: string; chatId: number; query: string }) => void): () => void;
+  /** v1.18: a confirm card was answered, timed out, or closed by Online off / lock. */
+  onSearchClosed(cb: (e: { id: string }) => void): () => void;
+  /** v1.18: confirm cards still waiting (e.g. after reopening a chat). */
+  pendingSearches(): Promise<{ id: string; chatId: number; query: string }[]>;
+  /** v1.18: the user pressed Search (true) or Cancel (false) on a confirm card. */
+  answerSearch(id: string, ok: boolean): Promise<void>;
+  /** v1.18: ISO time of the last search sent, or null (never). The query is not stored. */
+  lastSearch(): Promise<string | null>;
+  /** v1.18: open a source link from a stored search result in the system browser (http/https, Online on). */
+  openLink(url: string): Promise<void>;
+  /** Online switch: default off; persists. v1.18: when on, web search works (after the user presses Search). */
   getOnline(): Promise<boolean>;
   setOnline(on: boolean): Promise<boolean>;
   /** Phone link: start/stop LAN server, refresh pairing code, read status. */

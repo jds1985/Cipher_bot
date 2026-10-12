@@ -66,6 +66,20 @@ const api: CipherApi = {
     ipcRenderer.on('routine:openBot', listener);
     return () => ipcRenderer.removeListener('routine:openBot', listener);
   },
+  onSearchAsk: (cb) => {
+    const listener = (_e: IpcRendererEvent, a: { id: string; chatId: number; query: string }) => cb(a);
+    ipcRenderer.on('search:ask', listener);
+    return () => ipcRenderer.removeListener('search:ask', listener);
+  },
+  onSearchClosed: (cb) => {
+    const listener = (_e: IpcRendererEvent, a: { id: string }) => cb(a);
+    ipcRenderer.on('search:closed', listener);
+    return () => ipcRenderer.removeListener('search:closed', listener);
+  },
+  pendingSearches: () => ipcRenderer.invoke('search:pending'),
+  answerSearch: (id, ok) => ipcRenderer.invoke('search:answer', id, ok),
+  lastSearch: () => ipcRenderer.invoke('search:last'),
+  openLink: (url) => ipcRenderer.invoke('link:open', url),
   getOnline: () => ipcRenderer.invoke('online:get'),
   setOnline: (on) => ipcRenderer.invoke('online:set', on),
   getPhoneLink: () => ipcRenderer.invoke('phone:get'),

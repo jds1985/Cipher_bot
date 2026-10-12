@@ -1,8 +1,8 @@
 {
   "name": "cipher",
   "productName": "Cipher",
-  "version": "1.17.0",
-  "description": "Cipher bots: a local-first desktop app. Your Cipher bots run on your own computer; nothing leaves it.",
+  "version": "1.18.0",
+  "description": "Cipher bots: a local-first desktop app. Your Cipher bots run on your own computer with a local model. Web search only when Online is on and you press Search.",
   "main": "dist/main/main.js",
   "private": true,
   "license": "UNLICENSED",

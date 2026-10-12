@@ -14,11 +14,12 @@ export const POLICY_TITLE = 'Policy';
 
 export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
-    heading: 'Your chats and files stay on this computer, with two exceptions',
+    heading: 'Your chats and files stay on this computer, with three exceptions',
     paragraphs: [
-      'Cipher Bot keeps your chats and files on this computer, with two exceptions. ' +
+      'Cipher Bot keeps your chats and files on this computer, with three exceptions. ' +
         '1) Phone link: if you turn it on, your chats travel between this computer and your phone over your local network as plain HTTP, which is not encrypted. ' +
-        '2) Model download: on first launch (or whenever the model is missing), Ollama downloads the model from its online registry. Cipher Bot only asks Ollama for the model by name; your chats are not part of that request.',
+        '2) Model download: on first launch (or whenever the model is missing), Ollama downloads the model from its online registry. Cipher Bot only asks Ollama for the model by name; your chats are not part of that request. ' +
+        '3) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo. Nothing else from your chats or files is sent.',
       'Your Cipher bots, chats, rooms, routines and settings (except the app lock; see Lock) are saved in one database file, cipher.db, in Cipher Bot\'s user data folder on this computer ' +
         '(usually ~/.config/Cipher on Linux, %APPDATA%\\Cipher on Windows, ~/Library/Application Support/Cipher on macOS). ' +
         'The file is not encrypted: anyone who can open your user account\'s files can read it.',
@@ -56,9 +57,20 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Online switch',
     paragraphs: [
-      'Online is off unless you turn it on. Turning it on does not enable any feature yet; Cipher Bot works the same either way.',
+      'Online is off unless you turn it on. When it is on, the one new thing is web search (see Web search). When it is off, web search is not offered, and turning it off stops any search that is on the way and closes any search question on screen.',
       'Online off does not mean Cipher Bot never touches the network. The model download and the "Get the engine" button (which opens ollama.com/download in your web browser) happen regardless of the switch, and Phone link uses your local network when you turn it on.',
-      'Apart from those, Cipher Bot\'s own code connects only to Ollama on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
+      'Apart from those and web search, Cipher Bot\'s own code connects only to Ollama on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
+    ],
+  },
+  {
+    heading: 'Web search',
+    paragraphs: [
+      'When Online is on, a Cipher bot may ask to search the web. It shows you the exact search words first, with Search and Cancel. Nothing is sent unless you press Search; Cancel (or no answer) means no search, and the bot answers without one.',
+      'When you press Search, the search words and your computer\'s IP address go to DuckDuckGo (html.duckduckgo.com), which runs the search. That is the only address Cipher Bot\'s own code contacts for search; no account, no API key, no cookies. DuckDuckGo\'s own privacy policy applies to what it receives.',
+      'The results (titles, links and short snippets) are saved in that chat on this computer. A result link opens in your web browser only when you click it, and only while Online is on.',
+      'Settings shows when the last search was made. Cipher Bot keeps only that time there, never the search words (they stay in the chat, where you can delete them with the chat).',
+      'Routines, rooms, Phone link and a locked Cipher Bot never search.',
+      'Dropping a saved web page (.html or .htm) onto a chat attaches its readable text only, using the same folder rules as Attach: its scripts never run, and its links and images are never loaded. This happens on this computer and does not need Online.',
     ],
   },
   {

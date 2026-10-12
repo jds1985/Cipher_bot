@@ -22,9 +22,10 @@ test('policy has the contact placeholder for the user to fill in', () => {
   assert.equal(policy.POLICY_CONTACT, 'Contact: [to be added]');
 });
 
-test('"stays on this computer" names both exceptions right there: plain-HTTP phone link and the model download', () => {
+test('"stays on this computer" names all three exceptions right there: plain-HTTP phone link, the model download, web search', () => {
   const first = policy.POLICY_SECTIONS[0];
-  assert.match(first.heading, /stay on this computer, with two exceptions/);
+  assert.match(first.heading, /stay on this computer, with three exceptions/);
+  assert.match(first.paragraphs[0], /only when Online is on, and only after you press Search[^.]*DuckDuckGo/);
   const p = first.paragraphs[0];
   assert.match(p, /stay|keeps/);
   assert.match(p, /Phone link/);
@@ -33,7 +34,7 @@ test('"stays on this computer" names both exceptions right there: plain-HTTP pho
   assert.match(p, /Ollama downloads the model from its online registry/);
   // Every sentence that says "stays on this computer" must sit in a paragraph that names both exceptions.
   for (const s of policy.POLICY_SECTIONS) for (const para of s.paragraphs) {
-    if (/stays? on this computer/i.test(para)) assert.ok(/plain HTTP/.test(para) && /registry/.test(para), para);
+    if (/stays? on this computer/i.test(para)) assert.ok(/plain HTTP/.test(para) && /registry/.test(para) && /DuckDuckGo/.test(para), para);
   }
 });
 
@@ -56,10 +57,11 @@ test('phone link: a window to this desktop, off until turned on, pairing code, p
   assert.match(p, /not encrypted/);
 });
 
-test('Online: off unless turned on, enables nothing yet, and does not claim the app never touches the network', () => {
+test('Online: off unless turned on, enables only web search, and does not claim the app never touches the network', () => {
   const p = section(/^Online/);
   assert.match(p, /off unless you turn it on/);
-  assert.match(p, /does not enable any feature/);
+  assert.match(p, /the one new thing is web search/);
+  assert.match(p, /turning it off stops any search that is on the way and closes any search question/);
   assert.match(p, /does not mean Cipher Bot never touches the network/);
   assert.match(p, /model download and the "Get the engine" button/);
   assert.match(p, /regardless of the switch/);

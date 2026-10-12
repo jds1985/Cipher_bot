@@ -6,6 +6,7 @@
 import path from 'node:path';
 import { readFileInFolder, ToolError } from './readFileTool';
 import type { AttachPickResult } from '../shared/types';
+import { htmlToText, isHtmlPath } from './htmlText';
 
 export interface AttachResult {
   relPath: string;
@@ -28,7 +29,9 @@ export function formatAttachBlock(relPath: string, content: string): string {
 export async function readFileForAttach(folderPath: string | null, requested: unknown): Promise<AttachResult> {
   if (!folderPath) throw new ToolError('Choose a folder for this Cipher bot before attaching a file.');
   const r = await readFileInFolder(folderPath, requested);
-  return { relPath: r.relPath, content: r.content, block: formatAttachBlock(r.relPath, r.content) };
+  // v1.18: a saved web page is attached as its readable text (tags, scripts and styles stripped; nothing loaded).
+  const content = isHtmlPath(r.relPath) ? htmlToText(r.content) : r.content;
+  return { relPath: r.relPath, content, block: formatAttachBlock(r.relPath, content) };
 }
 
 /** Merge optional typed text with an attach block for one user turn. */

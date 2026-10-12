@@ -15,11 +15,11 @@ test('exportTime is local "YYYY-MM-DD HH:MM"; bad input passes through', () => {
 
 test('1:1 export: header with bot name and export date, then [time] Speaker: text; tool steps left out', () => {
   const msgs: Message[] = [
-    { id: 1, chatId: 1, role: 'user', content: 'What is in notes.txt?', toolCalls: null, toolName: null, createdAt: at(9, 0), routine: false },
-    { id: 2, chatId: 1, role: 'assistant', content: '', toolCalls: [{ function: { name: 'read_file', arguments: { path: 'notes.txt' } } }], toolName: null, createdAt: at(9, 0), routine: false },
-    { id: 3, chatId: 1, role: 'tool', content: 'secret file text', toolCalls: null, toolName: 'read_file', createdAt: at(9, 1), routine: false },
-    { id: 4, chatId: 1, role: 'assistant', content: 'It says:\r\nhello\nworld', toolCalls: null, toolName: null, createdAt: at(9, 2), routine: false },
-    { id: 5, chatId: 1, role: 'user', content: 'Daily plan?', toolCalls: null, toolName: null, createdAt: at(9, 3), routine: true },
+    { id: 1, chatId: 1, role: 'user', content: 'What is in notes.txt?', toolCalls: null, toolName: null, createdAt: at(9, 0), routine: false, search: null },
+    { id: 2, chatId: 1, role: 'assistant', content: '', toolCalls: [{ function: { name: 'read_file', arguments: { path: 'notes.txt' } } }], toolName: null, createdAt: at(9, 0), routine: false, search: null },
+    { id: 3, chatId: 1, role: 'tool', content: 'secret file text', toolCalls: null, toolName: 'read_file', createdAt: at(9, 1), routine: false, search: null },
+    { id: 4, chatId: 1, role: 'assistant', content: 'It says:\r\nhello\nworld', toolCalls: null, toolName: null, createdAt: at(9, 2), routine: false, search: null },
+    { id: 5, chatId: 1, role: 'user', content: 'Daily plan?', toolCalls: null, toolName: null, createdAt: at(9, 3), routine: true, search: null },
   ];
   const text = formatChatExport({ kind: 'bot', name: 'Planner', exportedAt: new Date(2026, 9, 7, 10, 30), lines: botChatExportLines({ name: 'Planner' }, msgs) });
   assert.equal(text, [
