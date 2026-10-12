@@ -28,8 +28,11 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Files',
     paragraphs: [
-      'Cipher Bot reads files only from the one folder you choose for a Cipher bot. With Read files on, that bot can read text files in that folder when it needs to. With Attach, the file you pick from that folder is added to your message.',
+      'Cipher Bot reads files only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder. With Read files on, that bot can read text files in those folders when it needs to. With Attach, the file you pick from that folder is added to your message.',
       'File contents go to the model on this computer and are saved in that chat\'s history in the database. An attached file\'s text is part of your message, so if Phone link is on, it shows on the phone too.',
+      'Second folder: from the plus menu ("Attach second folder…") you can give a Cipher bot one more folder on this computer, separate from its read folder. ' +
+        'The folder is on this computer and Cipher Bot never uploads or syncs it; only its location is saved, in cipher.db. That bot can read text files in it only when Read files is on, with the same limits as the read folder, and what it reads is handled like any file it reads (see above). ' +
+        'It is not a cloud drive, and there is no email and no login. "Remove second folder" removes it from the bot; your files are not touched.',
       'Rooms, Phone link and routines never read files.',
     ],
   },

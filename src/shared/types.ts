@@ -6,6 +6,8 @@ export interface Bot {
   systemPrompt: string;
   toolsEnabled: boolean;
   folderPath: string | null;
+  /** v1.15: an optional second local folder, separate from folderPath. Read the same way, only with Read files on. */
+  secondFolderPath: string | null;
   createdAt: string;
   /**
    * Icon shape key from Liz's v1.5 set (hex, circle, square, diamond, triangle, shield, octagon, capsule,
@@ -180,6 +182,7 @@ export interface CipherApi {
   /** Edit a Cipher bot's name, job, icon shape and color (same fields and validation as create). */
   updateBot(botId: number, bot: NewBotForm): Promise<Bot>;
   setBotFolder(botId: number, folderPath: string | null): Promise<Bot>;
+  setBotSecondFolder(botId: number, folderPath: string | null): Promise<Bot>;
   setBotTools(botId: number, enabled: boolean): Promise<Bot>;
   /** Delete a Cipher bot after the UI confirm step. Cascades chats; removes from rooms. */
   deleteBot(botId: number): Promise<{ deletedRoomIds: number[] }>;

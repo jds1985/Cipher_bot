@@ -9,6 +9,8 @@ export const MAX_TOOL_ROUNDS = 5;
 const TOOL_HINT =
   'You have one tool, read_file, which reads text files from a folder the user shared with you. ' +
   'Use it when the user asks about the contents of their files. Paths are relative to that folder.';
+const SECOND_FOLDER_HINT =
+  'The user also attached a second folder. To read from it, call read_file with folder set to "second".';
 
 export interface EngineDeps {
   db: CipherDb;
@@ -25,7 +27,7 @@ export interface EngineDeps {
 /** Convert stored messages into Ollama's chat format. */
 export function buildHistory(bot: Bot, messages: Message[]): OllamaMessage[] {
   const out: OllamaMessage[] = [];
-  const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : ''].filter(Boolean).join('\n\n');
+  const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : ''].filter(Boolean).join('\n\n');
   if (system) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'tool') {
@@ -83,7 +85,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       }
       if (!wantsTools) break;
       for (const call of toolCalls) {
-        const outcome = await executeToolCall(call, bot.folderPath);
+        const outcome = await executeToolCall(call, bot.folderPath, bot.secondFolderPath);
         emit({ chatId, type: 'tool', name: outcome.name, path: outcome.path, ok: outcome.ok, detail: outcome.ok ? `${outcome.content.length} chars` : outcome.content });
         const toolMsg = db.addMessage({ chatId, role: 'tool', content: outcome.content, toolName: outcome.name || 'read_file' });
         emit({ chatId, type: 'message', message: toolMsg });
