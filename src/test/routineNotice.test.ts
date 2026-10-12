@@ -96,7 +96,9 @@ test('notifier never sees the prompt or the reply: it only gets the bot id and o
   assert.equal(RoutineNotifier.prototype.notify.length, 2);
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
   const calls = src.match(/routineNotifier\?\.notify\([^\n]*\)/g) ?? [];
-  assert.deepEqual(calls, ['routineNotifier?.notify(botId, routineOutcome({ aborted: controller.signal.aborted, failed }))']);
+  // v1.23: reminders use the same notice, with the same bot id + outcome only.
+  assert.deepEqual(calls, ['routineNotifier?.notify(botId, routineOutcome({ aborted: controller.signal.aborted, failed }))',
+    'routineNotifier?.notify(r.botId, routineOutcome({ aborted: controller.signal.aborted, failed }))']);
   // Electron's built-in Notification (OS service), with the existing app icon; nothing else is sent anywhere.
   assert.match(src, /import \{[^}]*\bNotification\b[^}]*\} from 'electron'/);
   assert.match(src, /isSupported: \(\) => Notification\.isSupported\(\)/);

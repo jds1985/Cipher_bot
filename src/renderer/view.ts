@@ -71,7 +71,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive' | 'checklist';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive' | 'checklist' | 'reminder';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -109,8 +109,10 @@ export function plusMenuItems(input:
       id: 'second', label: input.secondFolderPath ? 'Remove second folder' : 'Attach second folder…', disabled: !input.toolsEnabled,
       hint: input.toolsEnabled ? (input.secondFolderPath ?? 'No second folder') : 'Turn on Read files first',
     },
-    { id: 'tools', label: 'Read files', disabled: false, checked: input.toolsEnabled },
+    // v1.23: the five per-bot tool switches (files, search, calculator, checklist, write file) in one dialog.
+    { id: 'tools', label: 'Tools…', disabled: false },
     { id: 'checklist', label: 'Checklist…', disabled: false },
+    { id: 'reminder', label: 'Reminders…', disabled: false },
     { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
     mute,
     archive,
@@ -146,6 +148,7 @@ export const SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: 'Escape', action: 'Close the plus menu, or remove the quote being written' },
   { keys: '↑ / ↓', action: 'Move through the plus menu' },
   { keys: 'Ctrl+F', action: 'Find in the open chat' },
+  { keys: 'Ctrl+Shift+F', action: 'Focus mode (Esc exits)' },
   { keys: 'Ctrl+Q', action: 'Quit Cipher Bot' },
 ];
 
@@ -167,4 +170,14 @@ export function findRanges(text: string, query: string): [number, number][] {
   const out: [number, number][] = [];
   for (let i = t.indexOf(q); i !== -1; i = t.indexOf(q, i + q.length)) out.push([i, i + q.length]);
   return out;
+}
+
+/** v1.23: bytes as a short size (Settings → Storage). */
+export function formatSize(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return 'Unknown';
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }

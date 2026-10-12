@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher Bot</span><button type="button" id="always-on-top" class="titlebar-btn" aria-pressed="false" title="Always on top" aria-label="Always on top"><img src="assets/cipher-always-on-top.svg" alt="" width="20" height="20" /></button></div></div>
+    <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher Bot</span><button type="button" id="always-on-top" class="titlebar-btn" aria-pressed="false" title="Always on top" aria-label="Always on top"><img src="assets/cipher-always-on-top.svg" alt="" width="20" height="20" /></button><button type="button" id="focus-toggle" class="titlebar-btn" aria-pressed="false" title="Focus mode (Esc exits)" aria-label="Focus mode"><span class="ico ico-focus" aria-hidden="true"></span></button></div></div>
     <div id="lock-screen" class="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <div class="lock-stage">
         <img class="lock-logo" src="assets/icon-1024.png" alt="" width="1024" height="1024" />
@@ -256,6 +256,12 @@
               <dl id="shortcut-list" class="shortcut-list"></dl>
             </div>
             <div class="settings-block">
+              <h3>Storage</h3>
+              <p class="muted">Disk used by Cipher Bot's data on this computer.</p>
+              <dl id="disk-list" class="shortcut-list disk-list"></dl>
+              <div class="row"><button type="button" id="disk-refresh" class="secondary">Refresh</button></div>
+            </div>
+            <div class="settings-block">
               <h3>Debug log</h3>
               <p class="muted">Saves a text file for troubleshooting: versions, settings switches, counts and recent errors, with folder paths and addresses' queries removed. It never includes your passphrase or lock, pairing codes, memory notes, search words or folder paths. Chats are left out unless you tick the box.</p>
               <label class="row switch-row"><input type="checkbox" id="debug-chats" /><span>Include chat content</span></label>
@@ -381,6 +387,40 @@
         <p id="checklist-error" class="error" hidden></p>
         <div class="row end"><button type="button" id="checklist-close" class="secondary">Close</button></div>
       </div>
+    </div>
+    <div id="tools-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="tools-title" hidden>
+      <div class="checklist-card">
+        <h3 id="tools-title" class="row checklist-title"><span id="tools-name">Tools</span></h3>
+        <p class="muted small-note">What this Cipher bot may use. Kept in cipher.db and checked by Cipher Bot every time a tool would be offered or run. Only you can change these, here.</p>
+        <div id="tools-list" class="tools-list">
+          <label class="row switch-row tool-row"><span class="ico ico-files" aria-hidden="true"></span><input type="checkbox" data-tool="files" /><span>Files <small class="muted">read the attached folders (PDF, .docx, text)</small></span></label>
+          <label class="row switch-row tool-row"><span class="ico ico-search" aria-hidden="true"></span><input type="checkbox" data-tool="search" /><span>Search <small class="muted">web search, only while Online is on and you press Search</small></span></label>
+          <label class="row switch-row tool-row"><span class="ico ico-calculator" aria-hidden="true"></span><input type="checkbox" data-tool="calculator" /><span>Calculator <small class="muted">local arithmetic</small></span></label>
+          <label class="row switch-row tool-row"><span class="ico ico-checklist" aria-hidden="true"></span><input type="checkbox" data-tool="checklist" /><span>Checklist <small class="muted">add items, after you approve each one</small></span></label>
+          <label class="row switch-row tool-row"><span class="ico ico-write" aria-hidden="true"></span><input type="checkbox" data-tool="write" /><span>Write file <small class="muted">save into the folder, after you confirm (needs Files)</small></span></label>
+        </div>
+        <p id="tools-error" class="error" hidden></p>
+        <div class="row end"><button type="button" id="tools-close" class="secondary">Close</button></div>
+      </div>
+    </div>
+    <div id="reminder-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="reminder-title" hidden>
+      <div class="checklist-card">
+        <h3 id="reminder-title" class="row checklist-title"><span class="ico ico-reminder" aria-hidden="true"></span><span id="reminder-name">Reminders</span></h3>
+        <p class="muted small-note">Sends the message to this Cipher bot's chat once, at that local time, while Cipher Bot is open or in the tray. If Cipher Bot isn't running then, the reminder is skipped (not run later).</p>
+        <ul id="reminder-list" class="checklist-list"></ul>
+        <p id="reminder-empty" class="muted">No reminders.</p>
+        <form id="reminder-form" class="reminder-form">
+          <div class="row"><input id="reminder-date" type="date" aria-label="Date" required /><input id="reminder-time" type="time" aria-label="Time" required /></div>
+          <textarea id="reminder-prompt" rows="2" maxlength="2000" placeholder="What should be sent to the bot?" aria-label="Reminder message"></textarea>
+          <div class="row end"><button type="submit">Add reminder</button></div>
+        </form>
+        <p id="reminder-error" class="error" hidden></p>
+        <div class="row end"><button type="button" id="reminder-close" class="secondary">Close</button></div>
+      </div>
+    </div>
+    <div id="undo-toast" class="undo-toast row" role="status" aria-live="polite" hidden>
+      <span id="undo-text">Deleted.</span>
+      <button type="button" id="undo-btn" class="secondary small">Undo</button>
     </div>
     <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="Image" hidden>
       <img id="image-viewer-img" class="image-viewer-img" alt="" />

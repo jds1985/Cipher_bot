@@ -35,7 +35,7 @@ const fn = (name: string) => { const m = new RegExp(`(?:async )?function ${name}
 
 test('version 1.21.0+, schema 10+, WHATS_NEW five lines or fewer, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.22.0');
+  assert.equal(pkg.version, '1.23.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.ok(SCHEMA_VERSION >= 10);

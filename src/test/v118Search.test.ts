@@ -204,7 +204,8 @@ test('3. kill switch: Online off aborts an in-flight search, drops its answer, a
   assert.match(renderer, /api\.onSearchClosed\(onSearchClosed\)/);
   // The tool itself leaves the reply when Online goes off (re-checked every round).
   const engine = read('src/main/chatEngine.ts');
-  assert.match(engine, /const searchOn = \(\): boolean => !deps\.fromRoutine && !!deps\.search && deps\.search\.isOnline\(\);/);
+  assert.match(engine, /case 'web_search': return t\.search && !deps\.fromRoutine && !!deps\.search && deps\.search\.isOnline\(\);/);
+  assert.match(engine, /const searchOn = \(\): boolean => allowed\('web_search'\);/);
   assert.match(engine, /tools: offeredTools\(\),/);
   // Online-off result mid-search.
   let on3 = true;
@@ -271,7 +272,7 @@ test('results persist in the chat (schema v8, idempotent migration); only stored
   assert.equal(db.listMessages(chat.id).length, 2);
   db.close();
   const check = new Database(file);
-  assert.equal(check.pragma('user_version', { simple: true }), 12); // current schema (v12 since v1.22)
+  assert.equal(check.pragma('user_version', { simple: true }), 13); // current schema (v13 since v1.23)
   check.close();
 });
 

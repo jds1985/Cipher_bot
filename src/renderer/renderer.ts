@@ -1,7 +1,7 @@
-import type { Bot, Chat, ChecklistItem, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
+import type { Bot, Chat, ChecklistItem, DiskUsage, Reminder, ToolSwitches, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
-import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId } from './view.js';
+import { decideView, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -79,6 +79,12 @@ const el = {
   checklistModal: $('checklist-modal'), checklistName: $('checklist-name'), checklistList: $('checklist-list'), checklistEmpty: $('checklist-empty'),
   checklistForm: $<HTMLFormElement>('checklist-form'), checklistInput: $<HTMLInputElement>('checklist-input'), checklistError: $('checklist-error'),
   checklistClose: $<HTMLButtonElement>('checklist-close'),
+  toolsModal: $('tools-modal'), toolsName: $('tools-name'), toolsList: $('tools-list'), toolsError: $('tools-error'), toolsClose: $<HTMLButtonElement>('tools-close'),
+  reminderModal: $('reminder-modal'), reminderName: $('reminder-name'), reminderList: $('reminder-list'), reminderEmpty: $('reminder-empty'),
+  reminderForm: $<HTMLFormElement>('reminder-form'), reminderDate: $<HTMLInputElement>('reminder-date'), reminderTime: $<HTMLInputElement>('reminder-time'),
+  reminderPrompt: $<HTMLTextAreaElement>('reminder-prompt'), reminderError: $('reminder-error'), reminderClose: $<HTMLButtonElement>('reminder-close'),
+  undoToast: $('undo-toast'), undoText: $('undo-text'), undoBtn: $<HTMLButtonElement>('undo-btn'),
+  focusToggle: $<HTMLButtonElement>('focus-toggle'), diskList: $('disk-list'), diskRefresh: $<HTMLButtonElement>('disk-refresh'),
   tips: $('tips'), tipIcon: $<HTMLImageElement>('tip-icon'), tipTitle: $('tip-title'), tipBody: $('tip-body'), tipStep: $('tip-step'), tipSkip: $<HTMLButtonElement>('tip-skip'), tipNext: $<HTMLButtonElement>('tip-next'),
   shortcutList: $('shortcut-list'), debugChats: $<HTMLInputElement>('debug-chats'), debugExport: $<HTMLButtonElement>('debug-export'), debugMsg: $('debug-msg'),
 };
@@ -484,6 +490,7 @@ async function deleteSelected(): Promise<void> {
     if (r.canceled) return;
     state.messages = state.messages.filter((m) => !state.selected.has(m.id));
     stopSelecting();
+    if (r.undoId) showUndo(r.undoId, `Deleted ${r.deleted} message${r.deleted === 1 ? '' : 's'}.`);
   } catch (err) {
     showAttachError(plainError(err));
   }
@@ -632,9 +639,9 @@ const MD_OPTS = {
   onCopy: (text: string) => void api.copyText(text).catch(() => undefined),
 };
 
-function bubble(cls: string, text: string, fromRoutine = false, createdAt?: string): HTMLElement {
+function bubble(cls: string, text: string, fromRoutine: boolean | string = false, createdAt?: string): HTMLElement {
   const msg = node('div', `msg ${cls}`);
-  if (fromRoutine) msg.append(node('span', 'routine-tag', 'Routine'));
+  if (fromRoutine) msg.append(node('span', 'routine-tag', typeof fromRoutine === 'string' ? fromRoutine : 'Routine'));
   if (cls === 'assistant') {
     // v1.19: markdown, built as DOM nodes (text only, raw HTML stays text, no images).
     const md = node('div', 'msg-text md');
@@ -735,7 +742,7 @@ function renderQuoteUi(): void {
   el.imageChip.hidden = !state.pendingImage || state.roomId !== null;
   if (state.pendingImage) {
     el.imageChipPreview.src = state.pendingImage.dataUrl;
-    el.imageChipName.textContent = state.pendingImage.relPath;
+    el.imageChipName.textContent = state.pendingImage.relPath.startsWith('pasted:') ? 'Pasted image' : state.pendingImage.relPath;
   } else el.imageChipPreview.removeAttribute('src');
 }
 
@@ -771,7 +778,7 @@ function renderBotChat(): void {
   for (const m of state.messages) {
     const match = !q || m.content.toLowerCase().includes(q);
     let row: HTMLElement | null = null;
-    if (m.role === 'user') row = m.content.startsWith(PAGE_BLOCK_START) ? pageRow(m) : bubble('user', m.content, m.routine, m.createdAt);
+    if (m.role === 'user') row = m.content.startsWith(PAGE_BLOCK_START) ? pageRow(m) : bubble('user', m.content, m.reminder ? 'Reminder' : m.routine, m.createdAt);
     else if (m.role === 'assistant') {
       if (m.content) row = bubble('assistant', m.content, false, m.createdAt);
       if (m.toolCalls?.some(isFileCall)) {
@@ -1205,6 +1212,7 @@ function openSettings(): void {
   for (const p of [el.lockMsg, el.lockError, el.backupMsg, el.backupError, el.restoreError]) p.hidden = true;
   state.settingsOpen = true;
   state.policyOpen = false;
+  void refreshDisk();
   state.editBotId = null;
   state.formOpen = false;
   state.roomFormOpen = false;
@@ -1576,9 +1584,10 @@ async function requestDeleteBot(botId: number | null = state.botId): Promise<voi
     : '';
   openConfirm(
     `Delete ${bot.name}?`,
-    `This permanently deletes this Cipher bot and its chat history.${roomNote}`,
+    `This deletes this Cipher bot and its chat history (you can undo for 10 seconds).${roomNote}`,
     async () => {
       const result = await api.deleteBot(bot.id); // refused (error shown) while the bot is replying
+      if (result.undoId) showUndo(result.undoId, `Deleted ${bot.name}.`);
       await loadBots();
       await loadRooms();
       // Something else stays open if it still exists; otherwise switch to a remaining chat or the empty state.
@@ -1607,9 +1616,10 @@ function requestDeleteRoom(roomId: number): void {
   const name = roomName(room);
   openConfirm(
     `Delete room "${name}"?`,
-    'This permanently deletes this room and its messages. The Cipher bots in it stay, with their own chats.',
+    'This deletes this room and its messages (you can undo for 10 seconds). The Cipher bots in it stay, with their own chats.',
     async () => {
-      await api.deleteRoom(room.id); // refused (error shown) while the room is replying
+      const rr = await api.deleteRoom(room.id); // refused (error shown) while the room is replying
+      if (rr && rr.undoId) showUndo(rr.undoId, `Deleted room "${name}".`);
       await loadRooms();
       if (state.roomId === room.id) {
         state.roomId = null;
@@ -1695,11 +1705,12 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'edit': return openEditBot();
     case 'folder': return chooseFolder();
     case 'second': return toggleSecondFolder();
-    case 'tools': { const bot = currentBot(); if (bot) await setTools(!bot.toolsEnabled); return; }
+    case 'tools': return openTools();
     case 'routine': return openRoutine();
     case 'mute': return toggleMute();
     case 'markdown': return copyMarkdown();
     case 'checklist': return openChecklist();
+    case 'reminder': return openReminders();
     case 'archive': return state.roomId !== null ? archiveItem('room', state.roomId) : state.botId !== null ? archiveItem('bot', state.botId) : undefined;
   }
 }
@@ -1849,9 +1860,10 @@ function requestClearChat(): void {
   if (!bot || state.roomId !== null) return;
   openConfirm(
     `Clear chat with ${bot.name}?`,
-    'This permanently deletes the messages in this chat. The Cipher bot, its settings and its rooms stay.',
+    'This deletes the messages in this chat (you can undo for 10 seconds). The Cipher bot, its settings and its rooms stay.',
     async () => {
       const chat = await api.clearBotChat(bot.id);
+      if (chat.undoId) showUndo(chat.undoId, `Cleared the chat with ${bot.name}.`);
       if (state.botId !== bot.id) return;
       state.chat = chat;
       state.messages = [];
@@ -2084,7 +2096,11 @@ void init();
 
 // ---------- v1.20 wiring ----------
 el.quoteClear.addEventListener('click', () => { state.quote = null; renderQuoteUi(); });
-el.imageClear.addEventListener('click', () => { state.pendingImage = null; renderQuoteUi(); });
+el.imageClear.addEventListener('click', () => {
+  if (state.pendingImage?.relPath.startsWith('pasted:') && state.chat) void api.discardPastedImage(state.chat.id).catch(() => undefined);
+  state.pendingImage = null;
+  renderQuoteUi();
+});
 
 function buildStarterJobs(): void {
   el.starterJobs.replaceChildren(...STARTER_JOBS.map((j) => {
@@ -2271,7 +2287,7 @@ el.findPrev.addEventListener('click', () => stepFind(-1));
 el.findNext.addEventListener('click', () => stepFind(1));
 el.findClose.addEventListener('click', closeFind);
 document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f' && !el.chatView.hidden) { e.preventDefault(); openFind(); }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f' && !el.chatView.hidden) { e.preventDefault(); openFind(); }
 });
 
 /** Checklist for the open bot (user add/check/delete; the bot only adds after main's native confirm). */
@@ -2321,3 +2337,187 @@ api.onChecklist((botId) => {
   const bot = state.bots.find((b) => b.id === botId);
   if (bot) showNotice(`Added an item to ${bot.name}'s checklist.`);
 });
+
+
+// ---------- v1.23: undo the last delete for 10 seconds ----------
+let undoState: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+function hideUndo(): void {
+  if (undoState) clearTimeout(undoState.timer);
+  undoState = null;
+  el.undoToast.hidden = true;
+}
+function showUndo(id: string, text: string): void {
+  hideUndo();
+  el.undoText.textContent = `${text} Undo is available for 10 seconds.`;
+  el.undoToast.hidden = false;
+  undoState = { id, timer: setTimeout(hideUndo, 10_000) };
+}
+el.undoBtn.addEventListener('click', () => {
+  const u = undoState;
+  if (!u) return;
+  hideUndo();
+  void (async () => {
+    try {
+      await api.undoDelete(u.id);
+      await loadBots();
+      await loadRooms();
+      if (state.roomId !== null && currentRoom()) await selectRoom(state.roomId);
+      else if (state.botId !== null && botById(state.botId)) await selectBot(state.botId);
+      else if (activeBots().length) await selectBot(activeBots()[0].id);
+      else { renderRail(); applyView(); }
+    } catch (err) {
+      showNotice(plainError(err));
+    }
+  })();
+});
+
+// ---------- v1.23: paste a screenshot (clipboard image bytes go to main and are checked there) ----------
+el.input.addEventListener('paste', (e: ClipboardEvent) => {
+  const items = e.clipboardData ? [...e.clipboardData.items] : [];
+  const item = items.find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+  if (!item) return; // plain text pastes as usual
+  e.preventDefault();
+  const chat = state.chat;
+  const file = item.getAsFile();
+  if (!chat || state.roomId !== null || !file) { showAttachError('Images can be pasted into a Cipher bot chat.'); return; }
+  void (async () => {
+    try {
+      const r = await api.pasteImage(chat.id, new Uint8Array(await file.arrayBuffer()));
+      if (!r.ok) { showAttachError(r.error); return; }
+      if (state.chat?.id !== chat.id) return;
+      state.pendingImage = { relPath: r.relPath, dataUrl: r.dataUrl };
+      renderQuoteUi();
+    } catch (err) {
+      showAttachError(plainError(err));
+    }
+  })();
+});
+
+// ---------- v1.23: per-bot tool switches (changed only here; main stores and enforces them) ----------
+let toolsBot: number | null = null;
+function renderTools(bot: Bot): void {
+  const t: ToolSwitches = bot.tools ?? { files: bot.toolsEnabled, search: false, calculator: false, checklist: false, write: false };
+  for (const box of el.toolsList.querySelectorAll<HTMLInputElement>('input[data-tool]')) {
+    const k = box.dataset.tool as keyof ToolSwitches;
+    box.checked = t[k];
+  }
+}
+function openTools(): void {
+  const bot = currentBot();
+  if (!bot || state.roomId !== null) return;
+  toolsBot = bot.id;
+  el.toolsName.textContent = `${bot.name}'s tools`;
+  el.toolsError.hidden = true;
+  renderTools(bot);
+  el.toolsModal.hidden = false;
+  el.toolsList.querySelector<HTMLInputElement>('input')?.focus();
+}
+function closeTools(): void { el.toolsModal.hidden = true; toolsBot = null; }
+el.toolsList.addEventListener('change', (e) => {
+  const box = e.target as HTMLInputElement;
+  const id = toolsBot;
+  if (id === null || !box.dataset.tool) return;
+  void (async () => {
+    try {
+      const bot = await api.setToolSwitches(id, { [box.dataset.tool as keyof ToolSwitches]: box.checked });
+      await replaceBot(bot);
+      if (toolsBot === id) renderTools(bot);
+      el.toolsError.hidden = true;
+    } catch (err) {
+      el.toolsError.textContent = plainError(err);
+      el.toolsError.hidden = false;
+    }
+  })();
+});
+el.toolsClose.addEventListener('click', closeTools);
+el.toolsModal.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTools(); } });
+
+// ---------- v1.23: one-time local reminders ----------
+let reminderBot: number | null = null;
+const STATUS_TEXT: Record<Reminder['status'], string> = { pending: 'Scheduled', done: 'Sent', failed: 'Failed', missed: 'Missed (skipped)', skipped: 'Skipped' };
+function renderReminders(list: Reminder[]): void {
+  el.reminderEmpty.hidden = list.length > 0;
+  el.reminderList.replaceChildren(...list.map((r) => {
+    const li = document.createElement('li');
+    li.className = `checklist-item reminder-${r.status}`;
+    const text = document.createElement('span');
+    text.className = 'checklist-text';
+    text.textContent = `${r.at.replace('T', ' ')} · ${STATUS_TEXT[r.status]}: ${r.prompt}`;
+    if (r.note) text.title = r.note;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'secondary small';
+    del.textContent = r.status === 'pending' ? 'Cancel' : 'Remove';
+    del.addEventListener('click', () => { const id = reminderBot; if (id !== null) void reminderCall(() => api.deleteReminder(id, r.id)); });
+    li.append(text, del);
+    return li;
+  }));
+}
+async function reminderCall(fn: () => Promise<Reminder[]>): Promise<boolean> {
+  try {
+    renderReminders(await fn());
+    el.reminderError.hidden = true;
+    return true;
+  } catch (err) {
+    el.reminderError.textContent = plainError(err);
+    el.reminderError.hidden = false;
+    return false;
+  }
+}
+async function openReminders(): Promise<void> {
+  const bot = currentBot();
+  if (!bot || state.roomId !== null) return;
+  reminderBot = bot.id;
+  el.reminderName.textContent = `Reminders for ${bot.name}`;
+  const soon = new Date(Date.now() + 60 * 60_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  el.reminderDate.value = `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}`;
+  el.reminderTime.value = `${pad(soon.getHours())}:00`;
+  el.reminderModal.hidden = false;
+  await reminderCall(() => api.reminders(bot.id));
+  el.reminderPrompt.focus();
+}
+function closeReminders(): void { el.reminderModal.hidden = true; reminderBot = null; }
+el.reminderForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = reminderBot;
+  if (id === null) return;
+  const at = `${el.reminderDate.value}T${el.reminderTime.value}`;
+  void reminderCall(() => api.addReminder(id, at, el.reminderPrompt.value)).then((ok) => { if (ok) el.reminderPrompt.value = ''; });
+});
+el.reminderClose.addEventListener('click', closeReminders);
+el.reminderModal.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeReminders(); } });
+api.onReminders((botId) => { if (reminderBot === botId) void reminderCall(() => api.reminders(botId)); });
+
+// ---------- v1.23: focus mode (dock, search bar and frames hidden; Esc exits) ----------
+function setFocusMode(on: boolean): void {
+  document.documentElement.classList.toggle('focus-mode', on);
+  el.focusToggle.setAttribute('aria-pressed', String(on));
+  el.focusToggle.title = on ? 'Exit focus mode (Esc)' : 'Focus mode (Esc exits)';
+}
+const inFocusMode = (): boolean => document.documentElement.classList.contains('focus-mode');
+el.focusToggle.addEventListener('click', () => setFocusMode(!inFocusMode()));
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f' && !el.chatView.hidden) { e.preventDefault(); setFocusMode(!inFocusMode()); return; }
+  // Esc exits focus mode, unless a dialog or the find bar is using Esc (they stop it first).
+  if (e.key === 'Escape' && inFocusMode() && !e.defaultPrevented) setFocusMode(false);
+});
+
+// ---------- v1.23: Settings → Storage ----------
+function renderDisk(d: DiskUsage): void {
+  const row = (k: string, v: string) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; return [dt, dd]; };
+  el.diskList.replaceChildren(
+    ...row('Chats (cipher.db)', formatSize(d.chats)),
+    ...row('Files (attached folders)', d.folders === 0 ? 'No folders attached'
+      : `${formatSize(d.files ?? 0)}${d.filesCapped ? '+ (stopped counting: very large folder)' : ''} in ${d.folders} folder${d.folders === 1 ? '' : 's'}`),
+    ...row('Backups', d.backups === null ? 'Unknown' : formatSize(d.backups)),
+  );
+  const note = document.createElement('dd');
+  note.className = 'muted';
+  note.textContent = d.backupsNote;
+  el.diskList.append(note);
+}
+async function refreshDisk(): Promise<void> {
+  try { renderDisk(await api.diskUsage()); } catch (err) { el.diskList.replaceChildren(document.createTextNode(plainError(err))); }
+}
+el.diskRefresh.addEventListener('click', () => void refreshDisk());

@@ -5,6 +5,7 @@ import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
 import { CALCULATOR_TOOL, runCalculator } from './calculator';
 import { WRITE_FILE_TOOL } from './fileWrite';
 import { CHECKLIST_TOOL } from './checklist';
+import { isToolName, TOOL_LABELS, toolSwitches, type ToolName } from './toolSwitches';
 import { NOT_CONFIRMED_RESULT, OFF_RESULT, WEB_SEARCH_TOOL, formatResultsForModel, normalizeQuery, type SearchResult } from './webSearch';
 
 /** Maximum model→tool→model round trips per user message. */
@@ -55,6 +56,8 @@ export interface EngineDeps {
   forceToolsOff?: boolean;
   /** Routine turns: the user message is marked as sent by the bot's routine. */
   fromRoutine?: boolean;
+  /** v1.23: a reminder turn (always with fromRoutine): files and calculator follow the switches; nothing else. */
+  reminder?: boolean;
   /** v1.18: web search hooks (1:1 chats on the desktop and, since v1.19, the phone; never routines). */
   search?: SearchHooks;
   /** v1.20: the quoted message's text (snapshot) and a dropped image's folder-relative path for this user message. */
@@ -67,7 +70,7 @@ export interface EngineDeps {
 export function userContentForModel(m: Pick<Message, 'content' | 'quote' | 'image'>): string {
   const parts: string[] = [];
   if (m.quote) parts.push(`Quoting an earlier message:\n${m.quote.split('\n').map((l) => `> ${l}`).join('\n')}`);
-  if (m.image) parts.push(`[The user attached an image: ${m.image.split(/[\\/]/).pop()}]`);
+  if (m.image) parts.push(`[The user attached an image: ${m.image.startsWith('pasted:') ? 'a pasted screenshot' : m.image.split(/[\\/]/).pop()}]`);
   parts.push(m.content);
   return parts.join('\n\n');
 }
@@ -122,21 +125,34 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   if (!bot) throw new Error('Cipher bot not found.');
   const text = userText.trim();
   if (!text) throw new Error('Message is empty.');
-  const toolsOn = bot.toolsEnabled && !deps.forceToolsOff;
-  // v1.22: never for routines or forced-off turns (the phone), only when main passed the hooks (desktop).
-  const actionsOn = !!deps.actions && !deps.fromRoutine && !deps.forceToolsOff;
-  const writeOn = actionsOn && toolsOn && !!bot.folderPath;
+  // v1.23: per-bot tool switches (bot.tools), kept in main and re-read from the database every round and again
+  // right before any tool runs, so turning one off mid-reply takes effect at once. A tool is offered only if allowed()
+  // and a call to it runs only if allowed() at that moment; otherwise the call is refused (even if the model invents it).
+  const liveBot = (): Bot => db.getBot(bot.id) ?? bot;
+  const allowed = (name: ToolName): boolean => {
+    const b = liveBot();
+    const t = toolSwitches(b);
+    const filesOn = t.files && !deps.forceToolsOff;
+    // v1.22: write/checklist only when main passed its native-confirm hooks (desktop 1:1); never routines, reminders or the phone.
+    const actionsOn = !!deps.actions && !deps.fromRoutine && !deps.forceToolsOff;
+    switch (name) {
+      case 'read_file': return filesOn;
+      case 'web_search': return t.search && !deps.fromRoutine && !!deps.search && deps.search.isOnline();
+      // The calculator is local (no network, no files). Routines never get it; reminders do when it's switched on.
+      case 'calculator': return t.calculator && (!deps.fromRoutine || deps.reminder === true);
+      case 'write_file': return t.write && filesOn && !!b.folderPath && actionsOn;
+      case 'checklist_add': return t.checklist && actionsOn;
+    }
+  };
 
-  emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text, routine: deps.fromRoutine === true,
-    quote: deps.userExtras?.quote ?? null, image: deps.userExtras?.image ?? null }) });
+  emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'user', content: text, routine: deps.fromRoutine === true && !deps.reminder,
+    reminder: deps.reminder === true, quote: deps.userExtras?.quote ?? null, image: deps.userExtras?.image ?? null }) });
 
-  // v1.18: web_search is offered only while Online is on, re-checked every round: turning Online off mid-reply
-  // removes it from the rest of the reply.
-  const searchOn = (): boolean => !deps.fromRoutine && !!deps.search && deps.search.isOnline();
+  const searchOn = (): boolean => allowed('web_search');
   const offeredTools = (): unknown[] | undefined => {
-    // The calculator is local (no network, no files): offered in every 1:1 chat turn except routines.
-    const t: unknown[] = [...(toolsOn ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : []), ...(deps.fromRoutine ? [] : [CALCULATOR_TOOL]),
-      ...(writeOn ? [WRITE_FILE_TOOL] : []), ...(actionsOn ? [CHECKLIST_TOOL] : [])];
+    const t: unknown[] = [...(allowed('read_file') ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : []),
+      ...(allowed('calculator') ? [CALCULATOR_TOOL] : []), ...(allowed('write_file') ? [WRITE_FILE_TOOL] : []),
+      ...(allowed('checklist_add') ? [CHECKLIST_TOOL] : [])];
     return t.length ? t : undefined;
   };
 
@@ -149,15 +165,16 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
         options: replyOptions(bot.replyLength),
         host: deps.host ?? OLLAMA_HOST,
         fetchImpl: deps.fetchImpl,
-        messages: buildHistory({ ...bot, toolsEnabled: toolsOn }, db.listMessages(chatId), searchOn(), { write: writeOn, checklist: actionsOn }),
+        messages: buildHistory({ ...liveBot(), toolsEnabled: allowed('read_file') }, db.listMessages(chatId), searchOn(),
+          { write: allowed('write_file'), checklist: allowed('checklist_add') }),
         tools: offeredTools(),
         signal,
         onToken: (t) => { partial += t; emit({ chatId, type: 'token', text: t }); },
       });
       partial = '';
-      // Only calls to tools offered this round count; anything else is ignored (as before v1.19).
-      const offeredNames = new Set(((offeredTools() ?? []) as { function: { name: string } }[]).map((t) => t.function.name));
-      const wantsTools = toolCalls.some((c) => offeredNames.has(c?.function?.name ?? 'read_file'));
+      // Calls to any of Cipher Bot's tools count (offered or not: a call to a switched-off tool gets a refusal below);
+      // calls to names that are not Cipher Bot tools are ignored (as before).
+      const wantsTools = toolCalls.some((c) => isToolName(c?.function?.name ?? 'read_file'));
       if (wantsTools && round >= MAX_TOOL_ROUNDS) {
         const note = content || '(Stopped: your Cipher bot kept trying to read files. Try rephrasing your question.)';
         emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'assistant', content: note }) });
@@ -169,6 +186,16 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       }
       if (!wantsTools) break;
       for (const call of toolCalls) {
+        const callName = call?.function?.name ?? 'read_file';
+        if (!isToolName(callName)) continue;
+        // v1.23: execution-time switch check, for every tool. Nothing runs while its switch is off.
+        if (!allowed(callName)) {
+          const refusal = callName === 'read_file' ? 'Error: File reading is off for this Cipher bot.' : `Error: ${TOOL_LABELS[callName]} is switched off for this Cipher bot. Do not try again.`;
+          emit({ chatId, type: 'tool', name: callName, path: '', ok: false, detail: refusal });
+          const off = db.addMessage({ chatId, role: 'tool', content: refusal, toolName: callName });
+          emit({ chatId, type: 'message', message: off });
+          continue;
+        }
         if (call?.function?.name === 'web_search') {
           const s = await runSearchCall(deps, chatId, call, signal);
           emit({ chatId, type: 'tool', name: 'web_search', path: s.query, ok: s.ok, detail: s.ok ? `${s.search?.results.length ?? 0} results` : s.content });
@@ -187,11 +214,12 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
           const name = call.function.name;
           const args = parseArgs(call.function.arguments);
           let r: { ok: boolean; path?: string; content: string; text?: string };
+          const b = liveBot();
           if (name === 'write_file') {
-            r = writeOn && deps.actions ? await deps.actions.writeFile(chatId, bot, args.path, args.content)
+            r = deps.actions ? await deps.actions.writeFile(chatId, b, args.path, args.content)
               : { ok: false, path: '', content: 'Error: writing files is not available here.' };
           } else {
-            r = actionsOn && deps.actions ? await deps.actions.addChecklist(chatId, bot, args.text)
+            r = deps.actions ? await deps.actions.addChecklist(chatId, b, args.text)
               : { ok: false, content: 'Error: the checklist is not available here.' };
           }
           if (signal.aborted) throw new Error('Stopped.');
@@ -200,12 +228,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
           emit({ chatId, type: 'message', message: actMsg });
           continue;
         }
-        if (!toolsOn) {
-          const off = db.addMessage({ chatId, role: 'tool', content: 'Error: File reading is off for this Cipher bot.', toolName: 'read_file' });
-          emit({ chatId, type: 'message', message: off });
-          continue;
-        }
-        const outcome = await executeToolCall(call, bot.folderPath, bot.secondFolderPath);
+        const fb = liveBot();
+        const outcome = await executeToolCall(call, fb.folderPath, fb.secondFolderPath);
         emit({ chatId, type: 'tool', name: outcome.name, path: outcome.path, ok: outcome.ok, detail: outcome.ok ? `${outcome.content.length} chars` : outcome.content });
         const toolMsg = db.addMessage({ chatId, role: 'tool', content: outcome.content, toolName: outcome.name || 'read_file' });
         emit({ chatId, type: 'message', message: toolMsg });

@@ -73,8 +73,9 @@ test('delete is refused while the bot or room is replying (never stopped to make
 
 test('main wires delete through the guards and a native right-click menu with Delete…', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
-  assert.match(main, /assertBotDeletable\(db, botId, activeTurns\.keys\(\), activeRooms\.keys\(\)\);\s*return db\.deleteBot\(botId\);/);
-  assert.match(main, /assertRoomDeletable\(roomId, activeRooms\.keys\(\)\);\s*db\.deleteRoom\(roomId\);/);
+  // v1.23: deletes are soft for 10 s (undo), then purged for real.
+  assert.match(main, /assertBotDeletable\(db, botId, activeTurns\.keys\(\), activeRooms\.keys\(\)\);\s*const undoId = beginUndo\(\);\s*return \{ \.\.\.db\.softDeleteBot\(botId, undoId\), undoId \};/);
+  assert.match(main, /assertRoomDeletable\(roomId, activeRooms\.keys\(\)\);\s*const undoId = beginUndo\(\);\s*db\.softDeleteRoom\(roomId, undoId\);/);
   assert.match(main, /\bhandle\('menu:item'/);
   assert.match(main, /label: kind === 'room' \? 'Delete room…' : 'Delete Cipher bot…'/);
   // The renderer confirms before calling delete.

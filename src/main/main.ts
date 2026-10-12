@@ -2,8 +2,12 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Noti
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
+import type { ChatEvent, NewBotForm, NewRoomForm, Reminder, RoomEvent, SetupState } from '../shared/types';
 import { CipherDb, isUrlBlocked } from './db';
+import { parseToolUpdate } from './toolSwitches';
+import { ReminderScheduler } from './reminders';
+import { diskUsage } from './diskUsage';
+import crypto from 'node:crypto';
 import { runChatTurn, type ActionHooks } from './chatEngine';
 import { WriteConsent, confirmAndWrite } from './fileWrite';
 import { confirmChecklistAdd } from './checklist';
@@ -28,7 +32,7 @@ import { assertBotDeletable, assertRoomDeletable } from './deleteGuard';
 import { RoutineNotifier, routineOutcome } from './routineNotice';
 import { AppLock, LockStore, lockGuard, lockOnHide } from './lock';
 import { backupFileName, restoreDatabase, validateBackupFile } from './backup';
-import { attachImageFromPath, isImagePath, readImageInFolder, toDataUrl } from './imageAttach';
+import { MAX_IMAGE_BYTES, attachImageFromPath, isImagePath, readImageInFolder, sniffImage, toDataUrl } from './imageAttach';
 import { buildDebugLog, recentLogLines, recordLogLine } from './debugLog';
 import { SCHEMA_VERSION } from './db';
 import { UPDATE_LAST_CHECK_KEY, checkForUpdate, downloadUpdate, isCheckDue, type UpdateInfo } from './updateCheck';
@@ -44,6 +48,7 @@ let db: CipherDb;
 let setup: SetupManager;
 let phone: PhoneServer;
 let routines: RoutineScheduler | null = null;
+let reminders: ReminderScheduler | null = null;
 /** App lock (v1.13). Off unless lock.json exists. While locked, no chat data goes to the window or the phone. */
 let appLock: AppLock;
 const isLocked = (): boolean => appLock?.isLocked() ?? false;
@@ -135,6 +140,7 @@ async function lockApp(win: BrowserWindow): Promise<void> {
   phone?.closeStreams();
   writeConsent.revokeAll(); // v1.22: unused write / checklist tokens die on lock
   checklistConsent.revokeAll();
+  finishUndo(); // v1.23: a pending delete is purged for real on lock (no undo after unlock)
   if (!win.webContents.isDestroyed()) {
     await win.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lock: String(++lockLoads) }, hash: 'nosplash' })
       .catch(() => undefined);
@@ -316,6 +322,12 @@ async function sendExtras(chatId: number, raw: unknown): Promise<{ quote: string
     quote = m.content;
   }
   let image: string | null = null;
+  if (typeof x.image === 'string' && /^pasted:\d+$/.test(x.image)) {
+    // v1.23: a pasted image of this chat that hasn't been sent yet.
+    const p = db.getPastedImage(chatId, Number(x.image.slice(7)));
+    if (!p || p.messageId !== null) throw new Error('The pasted image is gone. Paste it again.');
+    return { quote, image: x.image };
+  }
   if (typeof x.image === 'string' && x.image) {
     const chat = db.getChat(chatId);
     const bot = chat ? db.getBot(chat.botId) : null;
@@ -505,6 +517,56 @@ function runRoutineTurn(botId: number, chatId: number, prompt: string): void {
     });
 }
 
+/**
+ * v1.23: run a one-time reminder like a routine: its prompt goes to the bot's chat marked as a reminder. No web
+ * search, no write-file, no checklist (no actions hooks; fromRoutine); read_file and the calculator only if that
+ * bot's switches allow them. Runs while locked like routines (nothing is shown in the window while locked); the
+ * finished/failed tray notice has the bot's name only and is skipped when the bot is muted.
+ */
+function runReminderTurn(r: Reminder, chatId: number): void {
+  if (activeTurns.has(chatId)) return;
+  const controller = new AbortController();
+  activeTurns.set(chatId, controller);
+  let failed = false;
+  const emit = (ev: ChatEvent) => { if (ev.type === 'error') failed = true; broadcastChat(ev); };
+  void runChatTurn({ db, model: currentModel(), emit, forceToolsOff: false, fromRoutine: true, reminder: true }, chatId, r.prompt, controller.signal)
+    .catch((err: unknown) => { failed = true; broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }); })
+    .finally(() => {
+      activeTurns.delete(chatId);
+      if (failed) db.setReminderStatus(r.id, 'failed', 'The reply failed.');
+      sendToWindow('reminders:changed', r.botId);
+      noteReplyFinished(botOfChat(chatId), controller.signal.aborted);
+      if (!quitting) routineNotifier?.notify(r.botId, routineOutcome({ aborted: controller.signal.aborted, failed }));
+    });
+}
+
+// ---------- v1.23: undo the last delete for 10 seconds (soft delete, then purge for real) ----------
+const UNDO_MS = 10_000;
+let pendingUndo: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+/** Purge the pending delete now (a newer delete, lock, quit). */
+function finishUndo(): void {
+  if (!pendingUndo) return;
+  clearTimeout(pendingUndo.timer);
+  const id = pendingUndo.id;
+  pendingUndo = null;
+  try { db.purgeDeleted(id); } catch { /* purged again at next start */ }
+}
+/** Start a new soft-delete batch; the previous one (if any) is purged first, so only the last delete can be undone. */
+function beginUndo(): string {
+  finishUndo();
+  const id = crypto.randomBytes(12).toString('hex');
+  const timer = setTimeout(() => { if (pendingUndo?.id === id) { pendingUndo = null; db.purgeDeleted(id); } }, UNDO_MS);
+  timer.unref?.();
+  pendingUndo = { id, timer };
+  return id;
+}
+function undoDelete(id: unknown): { restored: number } {
+  if (!pendingUndo || typeof id !== 'string' || pendingUndo.id !== id) throw new Error('Too late to undo: it has been deleted for good.');
+  clearTimeout(pendingUndo.timer);
+  pendingUndo = null;
+  return { restored: db.undoBatch(id) };
+}
+
 /** The bot whose 1:1 chat the window shows (reported by the renderer), for the routine notice. */
 let openBotId: number | null = null;
 /** v1.16: the room the window shows (reported by the renderer), for unread dots. */
@@ -598,12 +660,15 @@ function registerIpc(): void {
     pendingRestore = null;
     if (!source) throw new Error('Choose a backup file first.');
     if (activeTurns.size || activeRooms.size) throw new Error('A reply or routine is still running. Try again when it has finished.');
+    finishUndo(); // v1.23: a pending delete is purged before the database is replaced
     routines?.stop();
+    reminders?.stop();
     phone.stop();
     try {
       await restoreDatabase({ live: db, livePath: dbPath(), source });
     } catch (err) {
       routines?.start();
+      reminders?.start();
       throw err;
     }
     // The live database is closed and replaced: restart Cipher on the restored one.
@@ -679,11 +744,13 @@ function registerIpc(): void {
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
       type: 'warning' as const, buttons: ['Cancel', 'Delete'], defaultId: 0, cancelId: 0, noLink: true,
-      title: 'Delete messages', message: `Delete ${ids.length} message${ids.length === 1 ? '' : 's'}?`, detail: 'This cannot be undone.',
+      title: 'Delete messages', message: `Delete ${ids.length} message${ids.length === 1 ? '' : 's'}?`, detail: 'You can undo this for 10 seconds; then it is deleted for good.',
     };
     const r = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
     if (r.response !== 1) return { deleted: 0, canceled: true };
-    return { deleted: db.deleteMessages(chatId, ids) };
+    const undoId = beginUndo();
+    const deleted = db.softDeleteMessages(chatId, ids, undoId);
+    return { deleted, undoId: deleted ? undoId : undefined };
   });
   handle('search:pending', () => [...pendingSearchAsks].map(([id, a]) => ({ id, chatId: a.chatId, query: a.query })));
   handle('search:last', () => db.getSetting(LAST_SEARCH_KEY));
@@ -745,12 +812,15 @@ function registerIpc(): void {
   handle('bots:delete', (_e, botIdRaw: unknown) => {
     const botId = asId(botIdRaw);
     assertBotDeletable(db, botId, activeTurns.keys(), activeRooms.keys());
-    return db.deleteBot(botId);
+    const undoId = beginUndo();
+    return { ...db.softDeleteBot(botId, undoId), undoId };
   });
   handle('rooms:delete', (_e, roomIdRaw: unknown) => {
     const roomId = asId(roomIdRaw);
     assertRoomDeletable(roomId, activeRooms.keys());
-    db.deleteRoom(roomId);
+    const undoId = beginUndo();
+    db.softDeleteRoom(roomId, undoId);
+    return { undoId };
   });
   // Right-click on a bot or room in the left column: a native context menu with "Delete…".
   handle('menu:item', (e, kind: unknown) => new Promise<'delete' | 'archive' | null>((resolve) => {
@@ -796,6 +866,33 @@ function registerIpc(): void {
     if (typeof filePath !== 'string' || !filePath) return { ok: false as const, error: 'Only files from this computer can be attached.' };
     return attachFromPath(bot, filePath);
   });
+  // ---- v1.23 ----
+  // Tool switches: only this desktop handler changes them (the phone has no route; a bot's reply can't reach it).
+  handle('bots:setToolSwitches', (_e, botId: unknown, update: unknown) => db.setToolSwitches(asId(botId), parseToolUpdate(update)));
+  handle('undo:delete', (_e, id: unknown) => undoDelete(id));
+  // A pasted screenshot: bytes from the clipboard, checked here like a dropped image (real PNG/JPEG/GIF/WebP, 5 MB),
+  // kept in cipher.db (never written into the bot's folder) and shown only as a data: URL built from those bytes.
+  handle('image:pasted', (_e, chatIdRaw: unknown, raw: unknown) => {
+    const chatId = asId(chatIdRaw);
+    const chat = db.getChat(chatId);
+    if (!chat || !db.getBot(chat.botId)) throw new Error('Chat not found.');
+    if (!(raw instanceof Uint8Array)) return { ok: false as const, error: 'Only images can be pasted.' };
+    if (raw.byteLength > MAX_IMAGE_BYTES) return { ok: false as const, error: 'That image is larger than 5 MB.' };
+    const bytes = Buffer.from(raw);
+    const mime = sniffImage(bytes);
+    if (!mime) return { ok: false as const, error: 'Only PNG, JPEG, GIF and WebP images can be pasted.' };
+    db.purgeUnsentPastedImages(chatId); // one unsent paste per chat
+    const id = db.addPastedImage(chatId, mime, bytes);
+    return { ok: true as const, relPath: `pasted:${id}`, dataUrl: toDataUrl(mime, bytes) };
+  });
+  handle('image:discardPasted', (_e, chatIdRaw: unknown) => { db.purgeUnsentPastedImages(asId(chatIdRaw)); });
+  handle('reminders:list', (_e, botId: unknown) => db.listReminders(asId(botId)));
+  handle('reminders:add', (_e, botId: unknown, at: unknown, prompt: unknown) => { db.addReminder(asId(botId), at, prompt); return db.listReminders(asId(botId)); });
+  handle('reminders:delete', (_e, botId: unknown, id: unknown) => db.deleteReminder(asId(botId), asId(id)));
+  handle('disk:usage', () => diskUsage({
+    dbPath: dbPath(),
+    folders: db.listBots().flatMap((b) => [b.folderPath, b.secondFolderPath]).filter((f): f is string => !!f),
+  }));
   // v1.22: one tap saves a message's text into its bot's memory note (refused clearly when the note is full).
   handle('memory:remember', (_e, chatIdRaw: unknown, idRaw: unknown) => {
     const chatId = asId(chatIdRaw);
@@ -825,7 +922,9 @@ function registerIpc(): void {
   handle('chats:clearForBot', (_e, botIdRaw: unknown) => {
     const botId = asId(botIdRaw);
     if (activeTurns.has(db.getBotChat(botId).id)) throw new Error('This chat is still replying.');
-    return db.clearBotChat(botId);
+    const undoId = beginUndo();
+    db.softClearBotChat(botId, undoId);
+    return { ...db.getBotChat(botId), undoId };
   });
   handle('clipboard:writeText', (_e, text: unknown) => {
     if (typeof text !== 'string') throw new Error('Nothing to copy.');
@@ -921,6 +1020,11 @@ function registerIpc(): void {
     const chat = db.getChat(chatId);
     const bot = chat ? db.getBot(chat.botId) : null;
     if (!m?.image || !bot) return null;
+    if (m.image.startsWith('pasted:')) {
+      const p = db.getPastedImage(chatId, Number(m.image.slice(7)));
+      const mime = p ? sniffImage(p.bytes) : null;
+      return p && mime ? toDataUrl(mime, p.bytes) : null;
+    }
     try {
       const img = await readImageInFolder(bot.folderPath, m.image);
       return toDataUrl(img.mime, img.bytes);
@@ -1029,6 +1133,9 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     db = new CipherDb(dbPath());
+    // v1.23: anything soft-deleted when Cipher Bot last closed, and pastes never sent, are purged for real now.
+    db.purgeDeleted(null);
+    db.purgeUnsentPastedImages();
     appLock = new AppLock(new LockStore(app.getPath('userData')));
     // Online defaults off: do not seed '1'. Absence means off.
     lockDownNetwork();
@@ -1085,6 +1192,20 @@ if (!app.requestSingleInstanceLock()) {
       run: (botId, chatId, prompt) => runRoutineTurn(botId, chatId, prompt),
     });
     routines.start();
+    // v1.23: one-time reminders (main-process timer; missed ones are skipped, never caught up).
+    reminders = new ReminderScheduler({
+      listPending: () => db.listReminders().filter((x) => x.status === 'pending'),
+      bot: (botId) => { const b = db.getBot(botId); return b ? { archived: b.archived } : null; },
+      chatIdForBot: (botId) => db.getBotChat(botId).id,
+      isBusy: (chatId) => activeTurns.has(chatId),
+      setStatus: (id, status, note) => {
+        db.setReminderStatus(id, status, note);
+        const r = db.listReminders().find((x) => x.id === id);
+        if (r) sendToWindow('reminders:changed', r.botId);
+      },
+      run: (r, chatId) => runReminderTurn(r, chatId),
+    });
+    reminders.start();
     // v1.20: update check timer. Nothing goes out unless Online is on (checked when it fires and again before sending).
     setTimeout(() => void maybeCheckForUpdate(), 30_000);
     updateTimer = setInterval(() => void maybeCheckForUpdate(), UPDATE_TIMER_MS);
@@ -1102,7 +1223,9 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('will-quit', () => {
+    finishUndo(); // v1.23: a pending delete is purged for real before quitting
     routines?.stop();
+    reminders?.stop();
     if (updateTimer) clearInterval(updateTimer);
     killUpdate();
     for (const c of activeTurns.values()) c.abort();

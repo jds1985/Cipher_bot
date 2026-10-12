@@ -191,7 +191,7 @@ export function writeDialogText(botName: string, plan: WritePlan, content: strin
   if (plan.exists) {
     return {
       message: `${botName} wants to REPLACE an existing file.`,
-      detail: `${plan.target}\n\nThis file already exists and would be replaced (${size}). Or save as a new file:\n${plan.alternative}\n\nContent:\n${preview}`,
+      detail: `${plan.target}\n\nWarning: this file already exists. Replace file will OVERWRITE it; its current contents will be lost (new content: ${size}). Or save as a new file:\n${plan.alternative}\n\nContent:\n${preview}`,
       buttons: ['Cancel', 'Replace file', 'Save as new name'],
     };
   }

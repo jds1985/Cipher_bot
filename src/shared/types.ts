@@ -18,6 +18,8 @@ export interface Bot {
   archived: boolean;
   /** v1.21: reply length. */
   replyLength: 'short' | 'normal' | 'long';
+  /** v1.23: per-bot tool switches (files = toolsEnabled). Changed only from the desktop's bot settings. */
+  tools?: ToolSwitches;
   createdAt: string;
   /**
    * Icon shape key from Liz's v1.5 set (hex, circle, square, diamond, triangle, shield, octagon, capsule,
@@ -58,8 +60,25 @@ export interface Message {
   quote: string | null;
   /** v1.20: pinned to the top of its chat. */
   pinned: boolean;
-  /** v1.20: a dropped image (path relative to the bot's read folder), or null. */
+  /** v1.20: a dropped image (path relative to the bot's read folder), or "pasted:<id>" (v1.23, bytes in cipher.db), or null. */
   image: string | null;
+  /** v1.23: a user message sent by a one-time reminder. */
+  reminder?: boolean;
+}
+
+export interface ToolSwitches { files: boolean; search: boolean; calculator: boolean; checklist: boolean; write: boolean }
+
+/** v1.23: a one-time local reminder. at = local "YYYY-MM-DDTHH:MM". */
+export interface Reminder {
+  id: number; botId: number; at: string; prompt: string;
+  status: 'pending' | 'done' | 'failed' | 'missed' | 'skipped';
+  note: string | null; createdAt: string;
+}
+
+/** v1.23: Settings → Storage. Sizes in bytes; null = unknown. */
+export interface DiskUsage {
+  chats: number; files: number | null; filesCapped: boolean; folders: number;
+  backups: number | null; backupsNote: string;
 }
 
 /** A bot's daily routine: a saved prompt sent to its chat at a local time (at most one per bot). */
@@ -213,9 +232,9 @@ export interface CipherApi {
   setBotSecondFolder(botId: number, folderPath: string | null): Promise<Bot>;
   setBotTools(botId: number, enabled: boolean): Promise<Bot>;
   /** Delete a Cipher bot after the UI confirm step. Cascades chats; removes from rooms. */
-  deleteBot(botId: number): Promise<{ deletedRoomIds: number[] }>;
+  deleteBot(botId: number): Promise<{ deletedRoomIds: number[]; undoId?: string }>;
   /** Delete a room and its messages after the UI confirm step (refused while it's replying). Bots stay. */
-  deleteRoom(roomId: number): Promise<void>;
+  deleteRoom(roomId: number): Promise<{ undoId?: string } | void>;
   /** Right-click on a bot or room in the left column: native menu; resolves 'delete' or null. */
   showItemMenu(kind: 'bot' | 'room'): Promise<'delete' | 'archive' | null>;
   pickFolder(): Promise<string | null>;
@@ -246,7 +265,7 @@ export interface CipherApi {
   openBotChat(botId: number): Promise<Chat>;
   listMessages(chatId: number): Promise<Message[]>;
   /** Delete the messages of the bot's one chat (after the UI confirm step). The bot and its rooms stay. */
-  clearBotChat(botId: number): Promise<Chat>;
+  clearBotChat(botId: number): Promise<Chat & { undoId?: string }>;
   /** The bot's routine, or null if it has none. */
   getRoutine(botId: number): Promise<Routine | null>;
   /** Save the bot's routine (validated in main). */
@@ -344,7 +363,17 @@ export interface CipherApi {
   /** v1.20: save a redacted debug log; chat content only when includeChats is true. */
   exportDebugLog(includeChats: boolean): Promise<{ ok: true; path: string } | { ok: false; canceled?: true; error?: string }>;
   /** v1.19: delete chosen messages of one chat (main asks once). */
-  deleteMessages(chatId: number, ids: number[]): Promise<{ deleted: number; canceled?: boolean }>;
+  deleteMessages(chatId: number, ids: number[]): Promise<{ deleted: number; canceled?: boolean; undoId?: string }>;
+  // ---- v1.23 ----
+  setToolSwitches(botId: number, update: Partial<ToolSwitches>): Promise<Bot>;
+  undoDelete(undoId: string): Promise<{ restored: number }>;
+  pasteImage(chatId: number, bytes: Uint8Array): Promise<{ ok: true; relPath: string; dataUrl: string } | { ok: false; error: string }>;
+  discardPastedImage(chatId: number): Promise<void>;
+  reminders(botId: number): Promise<Reminder[]>;
+  addReminder(botId: number, at: string, prompt: string): Promise<Reminder[]>;
+  deleteReminder(botId: number, id: number): Promise<Reminder[]>;
+  onReminders(cb: (botId: number) => void): () => void;
+  diskUsage(): Promise<DiskUsage>;
   /** Online switch: default off; persists. v1.18: when on, web search works (after the user presses Search). */
   getOnline(): Promise<boolean>;
   setOnline(on: boolean): Promise<boolean>;
