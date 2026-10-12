@@ -330,7 +330,7 @@ button.plus-item:disabled { background: transparent; }
 .setup-brand { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-weight: 700; font-size: 18px; color: var(--text); }
 .setup-logo { display: block; width: 56px; height: 56px; }
 .about-card { text-align: center; }
-.about-card .about-logo { display: block; width: 128px; height: 128px; margin: 4px auto 8px; }
+.about-card .about-logo { display: block; width: 128px; height: 128px; margin: 4px auto 8px; border-radius: 22px; }
 .about-card h2 { margin: 0 0 6px; }
 .row.center { justify-content: center; }
 
