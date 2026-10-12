@@ -4,7 +4,7 @@ import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIc
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 /** Longest optional room name. */
 export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
@@ -16,7 +16,7 @@ interface BotRow {
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
-interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number }
+interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null }
 interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
 interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
@@ -31,8 +31,21 @@ const toChat = (r: ChatRow): Chat => ({
 const toMessage = (r: MessageRow): Message => ({
   id: r.id, chatId: r.chat_id, role: r.role, content: r.content,
   toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls) as ToolCall[]) : null,
-  toolName: r.tool_name, createdAt: r.created_at, routine: r.routine === 1,
+  toolName: r.tool_name, createdAt: r.created_at, routine: r.routine === 1, search: parseSearch(r.search_results ?? null),
 });
+/** v1.18: a stored web-search result set ({ query, results }), or null when absent or unreadable. */
+function parseSearch(raw: string | null): Message['search'] {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { query?: unknown; results?: unknown };
+    if (typeof v.query !== 'string' || !Array.isArray(v.results)) return null;
+    const results = v.results.filter((r): r is { title: string; url: string; snippet: string } =>
+      !!r && typeof r.title === 'string' && typeof r.url === 'string' && typeof r.snippet === 'string');
+    return { query: v.query, results };
+  } catch {
+    return null;
+  }
+}
 const toRoutine = (r: RoutineRow): Routine => ({
   botId: r.bot_id, prompt: r.prompt, time: r.time, enabled: r.enabled === 1, lastRunDate: r.last_run_date,
 });
@@ -56,6 +69,8 @@ export interface NewMessage {
   toolName?: string | null;
   /** A user message sent by the bot's routine. */
   routine?: boolean;
+  /** v1.18: a web_search tool message's results (query, titles, links, snippets), kept in the chat. */
+  search?: Message['search'];
 }
 
 /** Local SQLite store for bots, chats, messages and rooms. */
@@ -161,6 +176,8 @@ export class CipherDb {
     // v7 (idempotent; nothing is deleted): unread dots for bots and rooms with a reply the user hasn't opened yet.
     this.addColumnIfMissing('bots', 'unread', 'unread INTEGER NOT NULL DEFAULT 0');
     this.addColumnIfMissing('rooms', 'unread', 'unread INTEGER NOT NULL DEFAULT 0');
+    // v8 (idempotent; nothing is deleted): web search results kept with their tool message.
+    this.addColumnIfMissing('messages', 'search_results', 'search_results TEXT');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -218,6 +235,12 @@ export class CipherDb {
   }
 
   // ---- settings ----
+  /** v1.18: true if this exact link is one of the stored web search results (only those can be opened). */
+  isStoredResultUrl(url: string): boolean {
+    const rows = this.db.prepare("SELECT search_results FROM messages WHERE search_results IS NOT NULL AND instr(search_results, ?) > 0").all(JSON.stringify(url).slice(1, -1)) as { search_results: string }[];
+    return rows.some((r) => parseSearch(r.search_results)?.results.some((x) => x.url === url) ?? false);
+  }
+
   getSetting(key: string): string | null {
     const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
     return r ? r.value : null;
@@ -373,9 +396,9 @@ export class CipherDb {
   addMessage(m: NewMessage): Message {
     const tx = this.db.transaction((): number => {
       const info = this.db
-        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine) VALUES (?, ?, ?, ?, ?, ?)')
+        .prepare('INSERT INTO messages (chat_id, role, content, tool_calls, tool_name, routine, search_results) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(m.chatId, m.role, m.content, m.toolCalls && m.toolCalls.length ? JSON.stringify(m.toolCalls) : null, m.toolName ?? null,
-          m.routine && m.role === 'user' ? 1 : 0);
+          m.routine && m.role === 'user' ? 1 : 0, m.search && m.role === 'tool' ? JSON.stringify(m.search) : null);
       this.db.prepare("UPDATE chats SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(m.chatId);
       // Title a fresh chat after the first user message.
       if (m.role === 'user') {

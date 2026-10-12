@@ -148,10 +148,12 @@
               <p id="restore-error" class="error" hidden></p>
             </div>
             <div class="settings-block">
-              <label class="row switch-row" title="When off, Cipher Bot does not open internet addresses. Local Ollama and Phone link (LAN) still work.">
+              <label class="row switch-row" title="When off, Cipher Bot sends nothing to the internet. Local Ollama and Phone link (LAN) still work.">
                 <input type="checkbox" id="online-switch" />
-                <span><strong>Online</strong><span class="muted switch-hint"> Off by default. Turning it on enables nothing new yet (no email, search, or schedules).</span></span>
+                <span><strong>Online</strong><span class="muted switch-hint"> Off by default. When on, a Cipher bot can search the web, but only after you press Search on the query it shows. No email, no logins.</span></span>
               </label>
+              <p class="online-state"><img id="online-on-icon" class="online-on-icon" src="assets/cipher-online-on.svg" alt="" width="20" height="20" hidden /><span id="online-state"></span></p>
+              <p class="muted">Last search: <span id="last-search">never</span></p>
             </div>
             <div class="settings-block">
               <h3>Phone link</h3>
