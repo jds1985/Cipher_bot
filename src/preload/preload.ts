@@ -81,6 +81,11 @@ const api: CipherApi = {
   lastSearch: () => ipcRenderer.invoke('search:last'),
   openLink: (url, confirm) => ipcRenderer.invoke('link:open', url, confirm === true),
   openPage: (chatId, url) => ipcRenderer.invoke('page:open', chatId, url),
+  onSearchSent: (cb) => {
+    const listener = (_e: IpcRendererEvent, a: { at: string }) => cb(a);
+    ipcRenderer.on('search:sent', listener);
+    return () => ipcRenderer.removeListener('search:sent', listener);
+  },
   searchHistory: () => ipcRenderer.invoke('search:history'),
   clearSearchHistory: () => ipcRenderer.invoke('search:clearHistory'),
   setBotMemory: (botId, note) => ipcRenderer.invoke('bots:setMemory', botId, note),

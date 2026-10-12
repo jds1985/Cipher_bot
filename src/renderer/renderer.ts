@@ -508,6 +508,12 @@ function searchResultRow(m: Message): HTMLElement {
   return card;
 }
 
+/** v1.19: reload Last search and the history from main (on Settings open and whenever a search is sent). */
+function refreshSearchInfo(): void {
+  void api.lastSearch().then((t) => { state.lastSearch = t; if (state.settingsOpen) renderSettings(); }).catch(() => undefined);
+  void api.searchHistory().then(renderSearchHistory).catch(() => undefined);
+}
+
 /** v1.19: Settings → Search history (local, newest first). */
 function renderSearchHistory(list: { id: number; query: string; searchedAt: string }[]): void {
   el.searchHistory.replaceChildren(...list.slice(0, 50).map((h) => {
@@ -1038,8 +1044,7 @@ function closeForms(): void {
 
 function openSettings(): void {
   state.aboutOpen = false;
-  void api.lastSearch().then((t) => { state.lastSearch = t; if (state.settingsOpen) renderSettings(); }).catch(() => undefined);
-  void api.searchHistory().then(renderSearchHistory).catch(() => undefined);
+  refreshSearchInfo(); // reloaded every time Settings opens, so Last search can't go stale
   void api.getLockState().then((ls) => { state.lock = ls; if (state.settingsOpen) renderLockSettings(); });
   for (const p of [el.lockMsg, el.lockError, el.backupMsg, el.backupError, el.restoreError]) p.hidden = true;
   state.settingsOpen = true;
@@ -1692,6 +1697,7 @@ el.onlineSwitch.addEventListener('change', async () => {
   renderSettings();
 });
 api.onSearchAsk(onSearchAsk);
+api.onSearchSent(() => refreshSearchInfo());
 el.searchHistoryClear.addEventListener('click', () => void api.clearSearchHistory().then(renderSearchHistory).catch(() => undefined));
 el.selectCancel.addEventListener('click', stopSelecting);
 el.selectDelete.addEventListener('click', () => void deleteSelected());

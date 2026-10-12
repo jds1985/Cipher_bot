@@ -270,6 +270,8 @@ export interface CipherApi {
   openLink(url: string, confirm?: boolean): Promise<void>;
   /** v1.19: open a saved search result's page as text in this chat (main asks first, showing the URL). */
   openPage(chatId: number, url: string): Promise<{ ok: true; message: Message } | { ok: false; canceled: true }>;
+  /** v1.19: a search was just sent (its time only); Settings reloads Last search and history. */
+  onSearchSent(cb: (e: { at: string }) => void): () => void;
   /** v1.19: local search history, newest first. */
   searchHistory(): Promise<{ id: number; query: string; searchedAt: string }[]>;
   clearSearchHistory(): Promise<{ id: number; query: string; searchedAt: string }[]>;

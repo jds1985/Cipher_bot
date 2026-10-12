@@ -344,7 +344,12 @@ const searchHooks: SearchHooks = {
       return await webSearch(query, {
         isOnline: () => isOnline() && !isLocked(),
         consumeConsent: (q) => searchConsent.consume(token, chatId, q),
-        onSend: () => { const at = new Date().toISOString(); db.setSetting(LAST_SEARCH_KEY, at); db.addSearchHistory(query, at); },
+        onSend: () => {
+          const at = new Date().toISOString();
+          db.setSetting(LAST_SEARCH_KEY, at);
+          db.addSearchHistory(query, at);
+          sendToWindow('search:sent', { at }); // v1.19: Settings refreshes Last search and history (time only here)
+        },
         signal: controller.signal,
       });
     } finally {

@@ -59,7 +59,7 @@ test('1. address checks: loopback, private, link-local, CGNAT, multicast and IPv
     '224.0.0.1', '255.255.255.255', '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', 'not-an-ip']) {
     assert.equal(isBlockedAddress(ip), true, ip);
   }
-  for (const ip of ['93.184.216.34', '1.1.1.1', '172.32.0.1', '2606:4700:4700::1111']) assert.equal(isBlockedAddress(ip), false, ip);
+  for (const ip of ['93.184.216.34', '1.1.1.1', '172.32.0.1', '2606:4700:4700::1111', '2001:4860:4860::8888', '2003::1']) assert.equal(isBlockedAddress(ip), false, ip);
   for (const u of ['file:///etc/passwd', 'ftp://x.test/', 'javascript:alert(1)', 'https://u:p@x.test/', 'nope', 'http://127.0.0.1/', 'http://[::1]:8080/',
     'http://10.1.2.3/', 'http://169.254.169.254/latest/meta-data', 'http://localhost/', 'http://printer.local/', 'http://0x7f000001/', 'http://2130706433/']) assert.throws(() => assertPageUrl(u), Error, u);
   assert.equal(assertPageUrl('https://example.com/a').hostname, 'example.com');
@@ -393,4 +393,43 @@ test('policy and what\'s new describe v1.19 truthfully', () => {
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(pkg.build.productName, 'Cipher');
   assert.doesNotMatch(read('src/renderer/index.html') + renderer + read('src/renderer/policy.ts'), /\bGrok\b/);
+});
+
+test('IPv6 6to4 (2002::/16) is refused, including one wrapping a private IPv4', () => {
+  for (const ip of ['2002::1', '2002:c0a8:0101::1', '2002:7f00:1::', '2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff']) assert.equal(isBlockedAddress(ip), true, ip);
+  assert.throws(() => assertPageUrl('http://[2002:c0a8:101::1]/'), /private network/);
+});
+
+test('IPv6 Teredo (2001::/32) is refused in every spelling; neighbours in 2001::/16 are not', () => {
+  for (const ip of ['2001::1', '2001:0:4136:e378:8000:63bf:3fff:fdd2', '2001:0000:abcd::1']) assert.equal(isBlockedAddress(ip), true, ip);
+  for (const ip of ['2001:1::1', '2001:4860::8888']) assert.equal(isBlockedAddress(ip), false, ip);
+  assert.throws(() => assertPageUrl('http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/'), /private network/);
+});
+
+test('Settings: Last search and history reload on every open and whenever a search is sent (no stale time)', () => {
+  const open = /function openSettings\(\): void \{[\s\S]*?\n\}/.exec(renderer)![0];
+  assert.match(open, /refreshSearchInfo\(\);/);
+  const refresh = /function refreshSearchInfo\(\): void \{[\s\S]*?\n\}/.exec(renderer)![0];
+  assert.match(refresh, /api\.lastSearch\(\)\.then\(\(t\) => \{ state\.lastSearch = t; if \(state\.settingsOpen\) renderSettings\(\); \}\)/);
+  assert.match(refresh, /api\.searchHistory\(\)\.then\(renderSearchHistory\)/);
+  assert.match(renderer, /api\.onSearchSent\(\(\) => refreshSearchInfo\(\)\);/);
+  // Main announces each search right when it is sent (the same moment it stores the time), with the time only.
+  assert.match(main, /db\.setSetting\(LAST_SEARCH_KEY, at\);\s*db\.addSearchHistory\(query, at\);\s*sendToWindow\('search:sent', \{ at \}\);/);
+  assert.match(read('src/preload/preload.ts'), /ipcRenderer\.on\('search:sent', listener\)/);
+  // The setting and the newest history row are written with the same timestamp, so they always agree.
+  const db = new CipherDb(tmpDb());
+  const at = '2026-10-12T16:20:00.000Z';
+  db.setSetting('last_search_at', at);
+  db.addSearchHistory('q', at);
+  assert.equal(db.listSearchHistory()[0].searchedAt, db.getSetting('last_search_at'));
+  db.close();
+});
+
+test('v1.19 icons are drawn at about 18-20px (CSS only; the artwork fills ~78% of its box)', () => {
+  const css = read('src/renderer/styles.css');
+  const px = (re: RegExp) => Number(re.exec(css)![1]);
+  const box = px(/\.memory-title \.memory-icon, \.history-title \.history-icon \{ width: (\d+)px; height: \1px;/);
+  const copy = px(/\.md-copy img \{ width: (\d+)px; height: \1px; \}/);
+  for (const b of [box, copy]) { const drawn = b * 200 / 256; assert.ok(drawn >= 18 && drawn <= 20.5, `${b}px box draws ${drawn.toFixed(1)}px`); }
+  for (const f of ['cipher-search-history', 'cipher-memory', 'cipher-copy-code']) assert.match(read(`src/renderer/assets/${f}.svg`), /viewBox="0 0 256 256"[\s\S]*M128 28 214 78v100l-86 50-86-50V78z/);
 });

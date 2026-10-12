@@ -388,10 +388,10 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .md .md-list li { margin: 2px 0; }
 .md code { font-family: ui-monospace, monospace; font-size: .92em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; }
 .md .md-code { position: relative; margin: 6px 0 8px; }
-.md .md-code pre { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 40px 10px 12px; overflow-x: auto; white-space: pre; }
+.md .md-code pre { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 44px 10px 12px; overflow-x: auto; white-space: pre; }
 .md .md-code pre code { border: 0; padding: 0; background: none; }
-.md-copy { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; background: var(--panel2); border-radius: 8px; }
-.md-copy img { width: 16px; height: 16px; }
+.md-copy { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; background: var(--panel2); border-radius: 8px; }
+.md-copy img { width: 24px; height: 24px; }
 .md-link { font-weight: 500; }
 .msg.page-card { align-self: stretch; max-width: 78%; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; white-space: normal; }
 .page-card summary { cursor: pointer; color: var(--muted); word-break: break-all; }
@@ -399,7 +399,9 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .page-open { font-size: 12px; font-weight: 500; margin-top: 2px; }
 .memory-wrap textarea { width: 100%; }
 .memory-title, .history-title { display: flex; align-items: center; gap: 8px; }
-.memory-icon, .history-icon { width: 20px; height: 20px; flex: none; }
+/* Liz's v1.19 artwork fills ~78% of its 256 box (hexagon 28..228), so a 26px box draws the icon at ~20px
+   (24px → ~19px for copy code). Sizes here override the HTML width/height attributes. */
+.memory-title .memory-icon, .history-title .history-icon { width: 26px; height: 26px; flex: none; }
 .memory-hint { font-size: 12px; }
 .search-history { margin: 6px 0 10px; padding-left: 20px; max-height: 180px; overflow: auto; }
 .search-history li { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }

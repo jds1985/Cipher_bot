@@ -276,7 +276,7 @@ test('results persist in the chat (schema v8, idempotent migration); only stored
 });
 
 test('5. Settings: Online state and last search time; the settings key holds only the time (history is its own table, v1.19)', () => {
-  assert.match(main, /onSend: \(\) => \{ const at = new Date\(\)\.toISOString\(\); db\.setSetting\(LAST_SEARCH_KEY, at\); db\.addSearchHistory\(query, at\); \}/);
+  assert.match(main, /onSend: \(\) => \{\s*const at = new Date\(\)\.toISOString\(\);\s*db\.setSetting\(LAST_SEARCH_KEY, at\);\s*db\.addSearchHistory\(query, at\);/);
   const settingWrites = main.match(/setSetting\(LAST_SEARCH_KEY[^\n]*/g)!;
   assert.equal(settingWrites.length, 1);
   assert.doesNotMatch(settingWrites[0].replace(/db\.addSearchHistory\(query, at\)/, ''), /query/);

@@ -27,7 +27,12 @@ export function isBlockedAddress(ip: string): boolean {
     if (mapped) return isBlockedAddress(mapped[1]);
     if (s === '::' || s === '::1') return true;
     if (/^f[cd]/.test(s) || /^fe[89ab]/.test(s) || /^ff/.test(s)) return true;
-    if (s.startsWith('::ffff:') || s.startsWith('64:ff9b:') || s.startsWith('2001:db8')) return true;
+    if (s.startsWith('::ffff:') || s.startsWith('64:ff9b:')) return true;
+    // First two 16-bit groups, expanded (handles "2001::", "2001:0:", "2001:0000:").
+    const groups = s.split('::')[0].split(':').concat(['0', '0']).slice(0, 2).map((g) => parseInt(g || '0', 16));
+    if (groups[0] === 0x2002) return true; // 6to4 (2002::/16): wraps an IPv4 address, may reach a private one
+    if (groups[0] === 0x2001 && groups[1] === 0x0000) return true; // Teredo (2001::/32): tunnels to IPv4
+    if (groups[0] === 0x2001 && groups[1] === 0x0db8) return true; // documentation
     return false;
   }
   return true;
