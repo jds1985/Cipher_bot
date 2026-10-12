@@ -323,3 +323,13 @@ button.plus-item:disabled { background: transparent; }
 .settings-block > .row:not(.end) { margin-top: 4px; }
 .settings-block p.error, .settings-block p.muted { margin: 8px 0 0; }
 .settings-block h3 + p.muted { margin-top: 0; }
+
+/* ---------- v1.16: unread dot, setup brand, About ---------- */
+.unread-dot { position: absolute; top: 4px; right: 4px; width: 10px; height: 10px; border-radius: 50%;
+  background: #5b8cff; box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
+.setup-brand { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-weight: 700; font-size: 18px; color: var(--text); }
+.setup-logo { display: block; width: 56px; height: 56px; }
+.about-card { text-align: center; }
+.about-card .about-logo { display: block; width: 128px; height: 128px; margin: 4px auto 8px; }
+.about-card h2 { margin: 0 0 6px; }
+.row.center { justify-content: center; }

@@ -53,6 +53,9 @@ const el = {
   lockOffForm: $<HTMLFormElement>('lock-off-form'), lockOffCurrent: $<HTMLInputElement>('lock-off-current'),
   backupBtn: $<HTMLButtonElement>('backup-btn'), backupMsg: $('backup-msg'), backupError: $('backup-error'),
   restoreBtn: $<HTMLButtonElement>('restore-btn'), restoreError: $('restore-error'),
+  soundSwitch: $<HTMLInputElement>('sound-switch'), settingsVersion: $('settings-version'),
+  openAbout: $<HTMLButtonElement>('open-about'), aboutView: $('about-view'), aboutVersion: $('about-version'),
+  aboutPolicy: $<HTMLButtonElement>('about-policy'), aboutClose: $<HTMLButtonElement>('about-close'),
 };
 
 const CHAT_PLACEHOLDER = el.input.placeholder;
@@ -79,6 +82,12 @@ const state = {
   settingsOpen: false,
   /** Policy screen (opened from Settings). */
   policyOpen: false,
+  /** v1.16: About screen (opened from Settings). */
+  aboutOpen: false,
+  /** v1.16: the app version from main (app.getVersion()); '' until loaded. */
+  version: '',
+  /** v1.16: optional send sound (off by default). */
+  sendSound: false,
   /** The open bot's daily routine, or null if it has none. */
   routine: null as Routine | null,
   /** Bot ids currently streaming a reply (working-dot). */
@@ -149,7 +158,7 @@ function roomMark(r: Room): HTMLElement {
 function applyView(): void {
   const view = decideView({
     botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen,
-    settingsOpen: state.settingsOpen, policyOpen: state.policyOpen, setup: state.setup,
+    settingsOpen: state.settingsOpen, policyOpen: state.policyOpen, aboutOpen: state.aboutOpen, setup: state.setup,
   });
   // The edit modal reuses the create form, shown over the chat.
   const editing = state.editBotId !== null && view === 'chat';
@@ -158,6 +167,7 @@ function applyView(): void {
   el.roomFormView.hidden = view !== 'room-form';
   el.settingsView.hidden = view !== 'settings';
   el.policyView.hidden = view !== 'policy';
+  el.aboutView.hidden = view !== 'about';
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
   if (view !== 'chat') closePlusMenu();
@@ -166,7 +176,16 @@ function applyView(): void {
   if (view === 'chat') renderChat();
   if (view === 'settings') renderSettings();
   if (view === 'policy') renderPolicy();
+  if (view === 'about') renderAbout();
   reportOpenBot(view === 'chat' && state.roomId === null ? state.botId : null);
+  reportOpenRoom(view === 'chat' ? state.roomId : null);
+}
+
+let reportedOpenRoom: number | null | undefined;
+function reportOpenRoom(roomId: number | null): void {
+  if (roomId === reportedOpenRoom) return;
+  reportedOpenRoom = roomId;
+  api.reportOpenRoom(roomId);
 }
 
 /** Main skips the routine notice when that bot's chat is already open in the focused window. */
@@ -220,13 +239,14 @@ function nameMatches(hay: string, q: string): boolean {
 }
 
 function renderRail(): void {
-  const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen && !state.policyOpen;
+  const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen && !state.policyOpen && !state.aboutOpen;
   const q = state.searchQuery.trim().toLowerCase();
   el.botList.replaceChildren(...state.bots.map((b) => {
     const working = state.speakingBots.has(b.id);
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
     btn.append(botIcon(b, 42));
+    addUnreadDot(btn, b.unread && !(showingChat && b.id === state.botId));
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
@@ -235,10 +255,27 @@ function renderRail(): void {
     const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'room', r.id));
     btn.append(roomMark(r));
+    addUnreadDot(btn, r.unread && !(showingChat && r.id === state.roomId));
     if (!nameMatches(roomName(r), q) && !nameMatches(r.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
-  el.openSettings.classList.toggle('active', state.settingsOpen || state.policyOpen);
+  el.openSettings.classList.toggle('active', state.settingsOpen || state.policyOpen || state.aboutOpen);
+}
+
+/** v1.16: a small accent dot on a bot or room with a reply the user hasn't opened yet. */
+function addUnreadDot(btn: HTMLButtonElement, unread: boolean): void {
+  if (!unread) return;
+  btn.classList.add('unread');
+  btn.append(node('span', 'unread-dot'));
+  btn.setAttribute('aria-label', `${btn.getAttribute('aria-label') ?? ''} (new reply)`);
+}
+
+/** v1.16: opening a bot or room clears its dot, here and in the database. */
+function clearUnread(kind: 'bot' | 'room', id: number): void {
+  const item = kind === 'bot' ? state.bots.find((b) => b.id === id) : state.rooms.find((r) => r.id === id);
+  if (!item?.unread) return;
+  item.unread = false;
+  void api.markRead(kind, id).catch(() => undefined);
 }
 
 async function loadBots(): Promise<void> {
@@ -262,7 +299,9 @@ async function selectBot(botId: number): Promise<void> {
   state.roomId = null;
   state.pendingAttach = null;
   clearAttachError();
+  state.aboutOpen = false;
   state.botId = botId;
+  clearUnread('bot', botId);
   state.chat = await api.openBotChat(botId);
   state.messages = await api.listMessages(state.chat.id);
   state.routine = await api.getRoutine(botId);
@@ -285,7 +324,9 @@ async function selectRoom(roomId: number): Promise<void> {
   state.chat = null;
   state.pendingAttach = null;
   clearAttachError();
+  state.aboutOpen = false;
   state.roomId = roomId;
+  clearUnread('room', roomId);
   state.roomMessages = await api.listRoomMessages(roomId);
   state.error = null;
   renderRail();
@@ -476,6 +517,7 @@ async function send(): Promise<void> {
     renderChat();
     try {
       await api.sendRoomMessage(roomId, text);
+      playSendSound();
     } catch (e) {
       state.roomLive.delete(roomId);
       state.error = plainError(e);
@@ -499,6 +541,7 @@ async function send(): Promise<void> {
   renderChat();
   try {
     await api.sendMessage(chat.id, outgoing);
+    playSendSound();
   } catch (e) {
     state.busy.delete(chat.id);
     if (state.botId != null) { state.speakingBots.delete(state.botId); renderRail(); }
@@ -766,6 +809,7 @@ async function submitRoomForm(e: Event): Promise<void> {
 function closeForms(): void {
   state.formOpen = false;
   state.policyOpen = false;
+  state.aboutOpen = false;
   state.editBotId = null;
   state.roomFormOpen = false;
   state.settingsOpen = false;
@@ -774,6 +818,7 @@ function closeForms(): void {
 }
 
 function openSettings(): void {
+  state.aboutOpen = false;
   void api.getLockState().then((ls) => { state.lock = ls; if (state.settingsOpen) renderLockSettings(); });
   for (const p of [el.lockMsg, el.lockError, el.backupMsg, el.backupError, el.restoreError]) p.hidden = true;
   state.settingsOpen = true;
@@ -788,6 +833,8 @@ function openSettings(): void {
 function renderSettings(): void {
   renderLockSettings();
   el.onlineSwitch.checked = state.online;
+  el.soundSwitch.checked = state.sendSound;
+  el.settingsVersion.textContent = state.version;
   const ph = state.phone;
   el.phoneStart.hidden = ph.running;
   el.phoneStop.hidden = !ph.running;
@@ -982,6 +1029,7 @@ function renderPolicy(): void {
 
 function openPolicy(): void {
   state.policyOpen = true;
+  state.aboutOpen = false;
   state.settingsOpen = false;
   state.formOpen = false;
   state.roomFormOpen = false;
@@ -994,6 +1042,31 @@ function openPolicy(): void {
 function closePolicy(): void {
   state.policyOpen = false;
   openSettings();
+}
+
+// ---------- About (v1.16): icon, name, version from main, and the in-app Policy screen ----------
+function renderAbout(): void {
+  el.aboutVersion.textContent = state.version;
+}
+
+function openAbout(): void {
+  state.aboutOpen = true;
+  state.settingsOpen = false;
+  state.policyOpen = false;
+  state.formOpen = false;
+  state.roomFormOpen = false;
+  state.editBotId = null;
+  renderRail();
+  applyView();
+}
+
+// ---------- send sound (v1.16): bundled assets/send.wav, only when the Settings switch is on ----------
+let sendAudio: HTMLAudioElement | null = null;
+function playSendSound(): void {
+  if (!state.sendSound) return;
+  sendAudio ??= new Audio('assets/send.wav');
+  sendAudio.currentTime = 0;
+  void sendAudio.play().catch(() => undefined);
 }
 
 // ---------- routine (one per bot; runs in main while Cipher is open or in the tray) ----------
@@ -1326,6 +1399,13 @@ el.openSettings.addEventListener('click', openSettings);
 el.settingsClose.addEventListener('click', closeForms);
 el.openPolicy.addEventListener('click', openPolicy);
 el.policyClose.addEventListener('click', closePolicy);
+el.openAbout.addEventListener('click', openAbout);
+el.aboutPolicy.addEventListener('click', openPolicy);
+el.aboutClose.addEventListener('click', openSettings);
+el.soundSwitch.addEventListener('change', () => {
+  void api.setSendSound(el.soundSwitch.checked).then((on) => { state.sendSound = on; el.soundSwitch.checked = on; });
+});
+api.onUnreadChanged(() => { void loadBots(); void loadRooms(); });
 el.routineCancel.addEventListener('click', closeRoutine);
 el.routineForm.addEventListener('submit', (e) => void submitRoutine(e));
 el.routineModal.addEventListener('click', (e) => { if (e.target === el.routineModal) closeRoutine(); });
@@ -1418,6 +1498,8 @@ async function loadAppData(): Promise<void> {
   try {
     state.setup = await api.getSetup();
     state.online = await api.getOnline();
+    state.version = await api.getVersion();
+    state.sendSound = await api.getSendSound();
     state.phone = await api.getPhoneLink();
     await loadBots();
     await loadRooms();

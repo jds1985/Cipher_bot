@@ -4,7 +4,7 @@ import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIc
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 /** Longest optional room name. */
 export const MAX_ROOM_NAME = 80;
 const DEFAULT_CHAT_TITLE = 'New chat';
@@ -12,17 +12,18 @@ const DEFAULT_CHAT_TITLE = 'New chat';
 interface BotRow {
   id: number; name: string; system_prompt: string; tools_enabled: number; folder_path: string | null; created_at: string;
   second_folder_path?: string | null;
+  unread?: number;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
 interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number }
 interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
-interface RoomRow { id: number; name: string; created_at: string; updated_at: string }
+interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -157,10 +158,13 @@ export class CipherDb {
     this.addColumnIfMissing('messages', 'routine', 'routine INTEGER NOT NULL DEFAULT 0');
     // v6 (idempotent; nothing is deleted): an optional second local folder per bot, separate from folder_path.
     this.addColumnIfMissing('bots', 'second_folder_path', 'second_folder_path TEXT');
+    // v7 (idempotent; nothing is deleted): unread dots for bots and rooms with a reply the user hasn't opened yet.
+    this.addColumnIfMissing('bots', 'unread', 'unread INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('rooms', 'unread', 'unread INTEGER NOT NULL DEFAULT 0');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
-  private addColumnIfMissing(table: 'bots' | 'chats' | 'messages', column: string, definition: string): void {
+  private addColumnIfMissing(table: 'bots' | 'chats' | 'messages' | 'rooms', column: string, definition: string): void {
     const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
   }
@@ -270,6 +274,11 @@ export class CipherDb {
     const bot = this.getBot(id);
     if (!bot) throw new Error('Cipher bot not found.');
     return bot;
+  }
+
+  /** v1.16: set or clear a bot's or room's unread dot. Unknown ids are ignored. */
+  setUnread(kind: 'bot' | 'room', id: number, unread: boolean): void {
+    this.db.prepare(`UPDATE ${kind === 'bot' ? 'bots' : 'rooms'} SET unread = ? WHERE id = ?`).run(unread ? 1 : 0, id);
   }
 
   /** The bot's second local folder (v1.15), separate from its read folder. null removes it. */
@@ -416,7 +425,7 @@ export class CipherDb {
   }
 
   private toRoom(r: RoomRow): Room {
-    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at };
+    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at, unread: r.unread === 1 };
   }
 
   listRooms(): Room[] {

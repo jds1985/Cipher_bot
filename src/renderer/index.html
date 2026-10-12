@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>Cipher Bot</title>
     <link rel="stylesheet" href="styles.css" />
@@ -171,9 +171,20 @@
               </div>
             </div>
             <div class="settings-block">
+              <label class="row switch-row">
+                <input type="checkbox" id="sound-switch" />
+                <span><strong>Send sound</strong><span class="muted switch-hint"> Off by default. Plays a short sound on this computer when you send a message.</span></span>
+              </label>
+            </div>
+            <div class="settings-block">
               <h3>Policy</h3>
               <p class="muted">What stays on this computer, and the exceptions.</p>
               <div class="row"><button type="button" id="open-policy" class="secondary" title="What stays on this computer, and the exceptions">Policy</button></div>
+            </div>
+            <div class="settings-block">
+              <h3>About</h3>
+              <p class="muted">Cipher Bot <span id="settings-version" class="app-version"></span></p>
+              <div class="row"><button type="button" id="open-about" class="secondary">About</button></div>
             </div>
             <div class="row end">
               <button type="button" id="settings-close" class="secondary">Close</button>
@@ -190,8 +201,21 @@
             </div>
           </div>
         </section>
+        <section id="about-view" class="view" hidden>
+          <div class="card about-card">
+            <img class="about-logo" src="assets/icon.png" alt="" width="128" height="128" />
+            <h2>Cipher Bot</h2>
+            <p class="muted">Version <span id="about-version" class="app-version"></span></p>
+            <p class="muted">Your Cipher bots run on this computer.</p>
+            <div class="row center">
+              <button type="button" id="about-policy" class="secondary">Policy</button>
+              <button type="button" id="about-close" class="secondary">Back to Settings</button>
+            </div>
+          </div>
+        </section>
         <section id="setup-view" class="view" hidden>
           <div class="card setup-card">
+            <div class="setup-brand"><img class="setup-logo" src="assets/icon.png" alt="" width="56" height="56" /><span>Cipher Bot</span></div>
             <h2>Setting up your Cipher bot</h2>
             <p id="setup-text" class="muted"></p>
             <progress id="setup-progress" max="100" hidden></progress>

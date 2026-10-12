@@ -8,6 +8,8 @@ export interface Bot {
   folderPath: string | null;
   /** v1.15: an optional second local folder, separate from folderPath. Read the same way, only with Read files on. */
   secondFolderPath: string | null;
+  /** v1.16: a reply arrived while this bot's chat wasn't open (local only; cleared on open). */
+  unread: boolean;
   createdAt: string;
   /**
    * Icon shape key from Liz's v1.5 set (hex, circle, square, diamond, triangle, shield, octagon, capsule,
@@ -82,6 +84,8 @@ export interface Room {
   memberIds: number[];
   createdAt: string;
   updatedAt: string;
+  /** v1.16: a reply arrived while this room wasn't open (local only; cleared on open). */
+  unread: boolean;
 }
 
 export interface RoomMessage {
@@ -228,6 +232,17 @@ export interface CipherApi {
   onSetupState(cb: (s: SetupState) => void): () => void;
   /** Tell main which bot's 1:1 chat is on screen (null: a room, another screen, or nothing), for the routine notice. */
   reportOpenBot(botId: number | null): void;
+  /** v1.16: tell main which room is on screen (null: none), so a finished reply there leaves no unread dot. */
+  reportOpenRoom(roomId: number | null): void;
+  /** v1.16: clear a bot's or room's unread dot (when the user opens it). */
+  markRead(kind: 'bot' | 'room', id: number): Promise<void>;
+  /** v1.16: main changed an unread dot; reload the lists. */
+  onUnreadChanged(cb: () => void): () => void;
+  /** v1.16: the app version, from app.getVersion() in main. */
+  getVersion(): Promise<string>;
+  /** v1.16: optional send sound; off by default. */
+  getSendSound(): Promise<boolean>;
+  setSendSound(on: boolean): Promise<boolean>;
   /** Clicking a routine notice asks the window to open that bot's chat. */
   onOpenBot(cb: (botId: number) => void): () => void;
   /** Online switch: default off; persists; enables nothing new in v1.6 when on. */

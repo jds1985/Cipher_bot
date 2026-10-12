@@ -58,7 +58,7 @@ function setup(opts: { tools?: boolean } = {}) {
 }
 
 const fakeBot = (id: number, name: string): Bot =>
-  ({ id, name, systemPrompt: '', toolsEnabled: false, folderPath: null, secondFolderPath: null, createdAt: '', shape: 'hex', color: 'blue' });
+  ({ id, name, systemPrompt: '', toolsEnabled: false, folderPath: null, secondFolderPath: null, unread: false, createdAt: '', shape: 'hex', color: 'blue' });
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

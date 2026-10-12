@@ -5,6 +5,7 @@ import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '
 import { CipherDb } from './db';
 import { runChatTurn } from './chatEngine';
 import { runRoomTurn } from './roomEngine';
+import { SEND_SOUND_SETTING_KEY, parseSendSound, shouldMarkUnread } from './unread';
 import { formToProfile, toNewBot } from './createBot';
 import { botChatExportLines, exportFileName, formatChatExport, roomExportLines } from './exportChat';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
@@ -51,6 +52,21 @@ function broadcastChat(ev: ChatEvent): void {
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('chat:event', ev);
 }
 
+/** v1.16: after a reply finishes, leave an unread dot on that bot or room unless it's open in the visible, unlocked window. */
+function noteReplyFinished(target: { kind: 'bot' | 'room'; id: number } | null, aborted: boolean): void {
+  if (!target || quitting) return;
+  const win = BrowserWindow.getAllWindows()[0];
+  const view = { visible: !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(), locked: isLocked(), openBotId, openRoomId };
+  if (!shouldMarkUnread(target, view, aborted)) return;
+  db.setUnread(target.kind, target.id, true);
+  if (isLocked()) return; // nothing about it goes to the window while locked
+  for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('unread:changed');
+}
+const botOfChat = (chatId: number): { kind: 'bot'; id: number } | null => {
+  const chat = db.getChat(chatId);
+  return chat ? { kind: 'bot', id: chat.botId } : null;
+};
+
 function broadcastRoom(ev: RoomEvent): void {
   if (isLocked()) return;
   for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('room:event', ev);
@@ -94,6 +110,7 @@ let lockLoads = 0;
 async function lockApp(win: BrowserWindow): Promise<void> {
   appLock.lock();
   openBotId = null;
+  openRoomId = null;
   phone?.closeStreams();
   if (!win.webContents.isDestroyed()) {
     await win.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lock: String(++lockLoads) }, hash: 'nosplash' })
@@ -253,12 +270,15 @@ function runRoutineTurn(botId: number, chatId: number, prompt: string): void {
     .catch((err: unknown) => { failed = true; broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }); })
     .finally(() => {
       activeTurns.delete(chatId);
+      noteReplyFinished(botOfChat(chatId), controller.signal.aborted);
       if (!quitting) routineNotifier?.notify(botId, routineOutcome({ aborted: controller.signal.aborted, failed }));
     });
 }
 
 /** The bot whose 1:1 chat the window shows (reported by the renderer), for the routine notice. */
 let openBotId: number | null = null;
+/** v1.16: the room the window shows (reported by the renderer), for unread dots. */
+let openRoomId: number | null = null;
 
 /** Open a bot's chat in the window (clicking a routine notice). Waits for the page if the window was just created. */
 async function openBotChatInWindow(botId: number): Promise<void> {
@@ -386,6 +406,18 @@ function registerIpc(): void {
   });
 
   ipcMain.on('ui:openBot', (_e, botId: unknown) => { if (isLocked()) return; openBotId = Number.isSafeInteger(botId) && (botId as number) > 0 ? (botId as number) : null; });
+  ipcMain.on('ui:openRoom', (_e, roomId: unknown) => { if (isLocked()) return; openRoomId = Number.isSafeInteger(roomId) && (roomId as number) > 0 ? (roomId as number) : null; });
+  handle('unread:clear', (_e, kind: unknown, id: unknown) => {
+    if (kind !== 'bot' && kind !== 'room') throw new Error('Invalid kind.');
+    db.setUnread(kind, asId(id), false);
+  });
+  // v1.16: the one source of the version shown in Settings and About.
+  handle('app:version', () => app.getVersion());
+  handle('sound:get', () => parseSendSound(db.getSetting(SEND_SOUND_SETTING_KEY)));
+  handle('sound:set', (_e, on: unknown) => {
+    db.setSetting(SEND_SOUND_SETTING_KEY, on === true ? '1' : '0');
+    return parseSendSound(db.getSetting(SEND_SOUND_SETTING_KEY));
+  });
   handle('bots:list', () => db.listBots());
   handle('bots:create', (_e, input: NewBotForm) => db.createBot(toNewBot(input)));
   handle('bots:update', (_e, botId: unknown, input: unknown) =>
@@ -501,7 +533,7 @@ function registerIpc(): void {
     activeTurns.set(chatId, controller);
     void beginChatTurn(chatId, text, broadcastChat, controller.signal, false)
       .catch((err: unknown) => broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
-      .finally(() => activeTurns.delete(chatId));
+      .finally(() => { activeTurns.delete(chatId); noteReplyFinished(botOfChat(chatId), controller.signal.aborted); });
   });
   handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
 
@@ -521,7 +553,7 @@ function registerIpc(): void {
     activeRooms.set(roomId, controller);
     void runRoomTurn({ db, model: currentModel(), emit: broadcastRoom }, roomId, text, controller.signal)
       .catch((err: unknown) => broadcastRoom({ roomId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
-      .finally(() => activeRooms.delete(roomId));
+      .finally(() => { activeRooms.delete(roomId); noteReplyFinished({ kind: 'room', id: roomId }, controller.signal.aborted); });
   });
   handle('room:stop', (_e, roomId: unknown) => { activeRooms.get(asId(roomId))?.abort(); });
 }
@@ -563,6 +595,7 @@ if (!app.requestSingleInstanceLock()) {
           .finally(() => {
             signal.removeEventListener('abort', onAbort);
             activeTurns.delete(chatId);
+            noteReplyFinished(botOfChat(chatId), controller.signal.aborted);
           });
       },
       stopChat: (chatId) => { activeTurns.get(chatId)?.abort(); },
@@ -577,6 +610,7 @@ if (!app.requestSingleInstanceLock()) {
           .finally(() => {
             signal.removeEventListener('abort', onAbort);
             activeRooms.delete(roomId);
+            noteReplyFinished({ kind: 'room', id: roomId }, controller.signal.aborted);
           });
       },
       stopRoom: (roomId) => { activeRooms.get(roomId)?.abort(); },
