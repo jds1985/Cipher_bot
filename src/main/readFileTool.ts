@@ -18,8 +18,8 @@ export const READ_FILE_TOOL = {
       properties: {
         path: { type: 'string', description: 'File path relative to the shared folder.' },
         folder: {
-          type: 'string', enum: ['main', 'second'],
-          description: 'Which shared folder to read from: "main" (default) or "second" (the second folder, if the user attached one).',
+          type: 'string', enum: ['main', 'second', 'shared'],
+          description: 'Which folder to read from: "main" (default), "second" (the bot\'s second folder, if attached) or "shared" (the folder shared with all bots, if set).',
         },
       },
       required: ['path'],
@@ -122,7 +122,7 @@ export interface ToolOutcome {
 }
 
 /** Execute a single tool call requested by the model. Never throws. */
-export async function executeToolCall(call: ToolCall, folder: string | null, secondFolder: string | null = null): Promise<ToolOutcome> {
+export async function executeToolCall(call: ToolCall, folder: string | null, secondFolder: string | null = null, sharedFolder: string | null = null): Promise<ToolOutcome> {
   const name = call?.function?.name ?? '';
   let args: unknown = call?.function?.arguments ?? {};
   if (typeof args === 'string') {
@@ -135,10 +135,14 @@ export async function executeToolCall(call: ToolCall, folder: string | null, sec
   }
   try {
     // v1.15: folder "second" reads the bot's second folder through the same sandbox; anything else is the read folder.
-    const useSecond = (args as { folder?: unknown })?.folder === 'second';
+    // v1.24: folder "shared" reads the app-wide shared folder through the very same sandbox (realpath, must stay
+    // inside, symlinks resolved, read-only: there is no write path to it). Only reached when Files is on.
+    const which = (args as { folder?: unknown })?.folder;
+    const useSecond = which === 'second', useShared = which === 'shared';
     if (useSecond && !secondFolder) throw new ToolError('No second folder has been attached to this bot.');
-    const r = await readFileInFolder(useSecond ? secondFolder : folder, requested);
-    return { name, path: useSecond ? `second: ${r.relPath}` : r.relPath, ok: true, content: r.content };
+    if (useShared && !sharedFolder) throw new ToolError('No shared folder has been set in Settings.');
+    const r = await readFileInFolder(useShared ? sharedFolder : useSecond ? secondFolder : folder, requested);
+    return { name, path: useShared ? `shared: ${r.relPath}` : useSecond ? `second: ${r.relPath}` : r.relPath, ok: true, content: r.content };
   } catch (e) {
     const msg = e instanceof ToolError ? e.message : 'Could not read the file.';
     return { name, path: shownPath, ok: false, content: `Error: ${msg}` };

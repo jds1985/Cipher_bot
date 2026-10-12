@@ -20,6 +20,9 @@ export interface Bot {
   replyLength: 'short' | 'normal' | 'long';
   /** v1.23: per-bot tool switches (files = toolsEnabled). Changed only from the desktop's bot settings. */
   tools?: ToolSwitches;
+  /** v1.24: tags (lowercase, up to 5) and dock folder name ('' = none). */
+  tags?: string[];
+  group?: string;
   createdAt: string;
   /**
    * Icon shape key from Liz's v1.5 set (hex, circle, square, diamond, triangle, shield, octagon, capsule,
@@ -64,7 +67,14 @@ export interface Message {
   image: string | null;
   /** v1.23: a user message sent by a one-time reminder. */
   reminder?: boolean;
+  /** v1.24: the user's reaction (one of five), local only. */
+  reaction?: string | null;
+  /** v1.24: edited by the user (old versions in message_edits). */
+  edited?: boolean;
 }
+
+export interface MessageEdit { id: number; messageId: number; oldText: string; editedAt: string }
+export interface BotActivity { lastReplyAt: string | null; lastTool: string | null; lastToolAt: string | null }
 
 export interface ToolSwitches { files: boolean; search: boolean; calculator: boolean; checklist: boolean; write: boolean }
 
@@ -395,6 +405,31 @@ export interface CipherApi {
   pickRestore(): Promise<RestorePickResult>;
   /** Restore, step 2 (after the confirm): copy of the current DB, replace it, then Cipher restarts. */
   confirmRestore(): Promise<void>;
+  // ---- v1.24 ----
+  getSharedFolder(): Promise<string | null>;
+  pickSharedFolder(): Promise<string | null>;
+  clearSharedFolder(): Promise<null>;
+  getLockTimeout(): Promise<'1' | '5' | '15' | 'never'>;
+  setLockTimeout(v: '1' | '5' | '15' | 'never'): Promise<'1' | '5' | '15' | 'never'>;
+  getShowTps(): Promise<boolean>;
+  setShowTps(on: boolean): Promise<boolean>;
+  getFont(): Promise<'system' | 'sans' | 'serif' | 'mono'>;
+  setFont(v: 'system' | 'sans' | 'serif' | 'mono'): Promise<'system' | 'sans' | 'serif' | 'mono'>;
+  reactMessage(chatId: number, id: number, reaction: string | null): Promise<Message>;
+  editMessage(chatId: number, id: number, text: string): Promise<Message>;
+  listMessageEdits(chatId: number, id: number): Promise<MessageEdit[]>;
+  botActivity(botId: number): Promise<BotActivity>;
+  setBotTags(botId: number, tags: string[]): Promise<Bot>;
+  setBotGroup(botId: number, group: string): Promise<Bot>;
+  getDockGroupsCollapsed(): Promise<string[]>;
+  setDockGroupsCollapsed(list: string[]): Promise<string[]>;
+  importReminder(botId: number, line: string): Promise<Reminder[]>;
+  summarizeFolder(chatId: number): Promise<{ ok: true } | { ok: false; canceled: true }>;
+  getBackupSchedule(): Promise<BackupScheduleState>;
+  setBackupSchedule(v: 'off' | 'daily' | 'weekly'): Promise<BackupScheduleState>;
+  pickBackupFolder(): Promise<BackupScheduleState>;
+  exportSettings(includeMemory: boolean): Promise<{ ok: true; path: string } | { ok: false; canceled: true }>;
+  importSettings(includeMemory: boolean): Promise<{ ok: true; applied: number; memory: number } | { ok: false; canceled: true }>;
 }
 
 export interface LockState {
@@ -422,3 +457,6 @@ export interface UpdateState {
   error: string | null;
   savedTo: string | null;
 }
+
+
+export interface BackupScheduleState { schedule: 'off' | 'daily' | 'weekly'; folder: string | null; last: string | null }

@@ -163,7 +163,7 @@ test('1. main: page:open only for stored result links, asks first (URL shown), t
   assert.match(/function killSearch\(\): void \{[\s\S]*?\n\}/.exec(main)![0], /pageConsent\.revokeAll\(\);/);
   assert.equal(UNLOCKED_CHANNELS.has('page:open'), false);
   // Only main fetches: the renderer still cannot connect, CSP unchanged.
-  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.doesNotMatch(renderer + md, /\bfetch\(|XMLHttpRequest|WebSocket/);
   const mainDir = path.join(root, 'src/main');
   for (const f of fs.readdirSync(mainDir)) {
@@ -210,7 +210,7 @@ function fileHas(file: string, needle: string): boolean {
 test('4. memory note: stored in cipher.db (v9 migration), in the system prompt every chat, capped, and really deleted on clear', () => {
   const file = tmpDb();
   const db = new CipherDb(file);
-  assert.equal(SCHEMA_VERSION, 13);
+  assert.equal(SCHEMA_VERSION, 14);
   const bot = db.createBot({ name: 'Ada', systemPrompt: 'Be brief.', toolsEnabled: false, folderPath: null });
   assert.equal(bot.memoryNote, '');
   const withNote = db.setBotMemory(bot.id, '  I live in Zanzibar-Quokka-77.  ');
@@ -244,7 +244,7 @@ test('4. migration v8 → v9: memory_note and search_history added, data kept, i
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 13);
+  assert.equal(chk.pragma('user_version', { simple: true }), 14);
   chk.close();
 });
 
@@ -390,7 +390,7 @@ test('policy and what\'s new describe v1.19 truthfully', () => {
   const { WHATS_NEW } = require('../renderer/whatsNew.js') as { WHATS_NEW: readonly string[] };
   assert.ok(WHATS_NEW.length <= 5);
   const pkg = JSON.parse(read('package.json')) as { name: string; productName: string; version: string; build: { productName: string } };
-  assert.equal(pkg.version, '1.23.0');
+  assert.equal(pkg.version, '1.24.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(pkg.build.productName, 'Cipher');

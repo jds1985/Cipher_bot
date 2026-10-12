@@ -35,7 +35,7 @@ const fn = (name: string) => { const m = new RegExp(`(?:async )?function ${name}
 
 test('version 1.21.0+, schema 10+, WHATS_NEW five lines or fewer, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.23.0');
+  assert.equal(pkg.version, '1.24.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.ok(SCHEMA_VERSION >= 10);
@@ -44,7 +44,7 @@ test('version 1.21.0+, schema 10+, WHATS_NEW five lines or fewer, names unchange
 });
 
 test('CSP unchanged and strict; markdown still shows no images; images come only from data: URLs', () => {
-  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   const blocks = JSON.stringify(parseBlocks('![x](https://example.com/a.png) and <img src="https://e.com/b.png">'));
   assert.doesNotMatch(blocks, /"image"|"img"/);
   assert.match(renderer, /\/\^data:image\\\/\(png\|jpeg\|gif\|webp\);base64,\/\.test\(url\)/);

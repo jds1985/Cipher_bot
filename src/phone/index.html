@@ -32,6 +32,15 @@
       <button type="button" id="locked-retry">Try again</button>
     </section>
 
+    <section id="unlock-view" class="panel" hidden>
+      <h2>Cipher Bot is locked</h2>
+      <p class="muted">Enter the passphrase. This phone answers a one-time challenge from the desktop, which checks the answer; the passphrase itself is never sent.</p>
+      <form id="unlock-form">
+        <input id="unlock-pass" type="password" autocomplete="current-password" maxlength="1024" aria-label="Passphrase" />
+        <p id="unlock-error" class="error" hidden></p>
+        <button type="submit" id="unlock-btn">Unlock</button>
+      </form>
+    </section>
     <section id="list-view" class="panel" hidden>
       <h1>Chats</h1>
       <h2 class="section">Cipher bots</h2>
@@ -54,6 +63,7 @@
       </form>
     </section>
 
+    <script src="kdf.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

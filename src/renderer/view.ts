@@ -71,7 +71,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive' | 'checklist' | 'reminder';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive' | 'checklist' | 'reminder' | 'summarize';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -108,6 +108,11 @@ export function plusMenuItems(input:
     {
       id: 'second', label: input.secondFolderPath ? 'Remove second folder' : 'Attach second folder…', disabled: !input.toolsEnabled,
       hint: input.toolsEnabled ? (input.secondFolderPath ?? 'No second folder') : 'Turn on Read files first',
+    },
+    // v1.24: summarize the bot's folder (asks first in main; needs the Files switch and a folder).
+    {
+      id: 'summarize', label: 'Summarize folder…', disabled: !input.toolsEnabled || !input.folderPath || input.busy,
+      hint: !input.toolsEnabled ? 'Turn on Read files first' : !input.folderPath ? 'Choose a folder first' : 'Asks before reading',
     },
     // v1.23: the five per-bot tool switches (files, search, calculator, checklist, write file) in one dialog.
     { id: 'tools', label: 'Tools…', disabled: false },
@@ -186,4 +191,55 @@ export function formatSize(n: number): string {
   let v = n / 1024, i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+// ---------- v1.24 ----------
+/** Five local reactions, each with Liz's icon (CSS class ico-react-<id>). Kept only in cipher.db. */
+export const REACTION_CHOICES = [
+  { id: 'like', label: 'Like' }, { id: 'heart', label: 'Love' }, { id: 'laugh', label: 'Funny' },
+  { id: 'check', label: 'Done' }, { id: 'star', label: 'Star' },
+] as const;
+
+/** Auto-title from the job: the first few words of its first sentence, capitalized, at most 40 characters. */
+export function autoTitle(job: string): string {
+  const first = job.trim().split(/[.!?\n]/)[0]?.trim() ?? '';
+  const cleaned = first.replace(/^(you are|you're|be|act as|help me|help|please|i want you to|your job is to)\s+/i, '').replace(/^(a|an|the|my)\s+/i, '');
+  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
+  if (!words) return '';
+  const t = words.length > 40 ? words.slice(0, 40).trim() : words;
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Tokens per second, one decimal; null when there is too little to measure. */
+export function tokensPerSecond(tokens: number, ms: number): string | null {
+  if (tokens < 2 || ms < 200) return null;
+  return `${(tokens / (ms / 1000)).toFixed(1)} tokens/s`;
+}
+
+/** Every tag used by the given bots, sorted, case-insensitively unique. */
+export function allTags(bots: { tags?: string[] }[]): string[] {
+  const m = new Map<string, string>();
+  for (const b of bots) for (const t of b.tags ?? []) if (!m.has(t.toLowerCase())) m.set(t.toLowerCase(), t);
+  return [...m.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** The dock in sections: bots with no folder first, then one section per folder (name order). A tag filter hides others. */
+export function dockSections<T extends { tags?: string[]; group?: string }>(bots: T[], tag: string, collapsed: string[]):
+  { group: string; collapsed: boolean; bots: T[] }[] {
+  const shown = tag ? bots.filter((b) => (b.tags ?? []).some((t) => t.toLowerCase() === tag.toLowerCase())) : bots;
+  const loose = shown.filter((b) => !b.group);
+  const names = [...new Set(shown.map((b) => b.group).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b));
+  return [
+    ...(loose.length ? [{ group: '', collapsed: false, bots: loose }] : []),
+    ...names.map((g) => ({ group: g, collapsed: collapsed.includes(g), bots: shown.filter((b) => b.group === g) })),
+  ];
+}
+
+/** "Last reply 4:45 PM · last tool read_file" (12-hour, like the rest of the app). '' when nothing yet. */
+export function formatActivity(a: { lastReplyAt: string | null; lastTool: string | null } | null): string {
+  if (!a) return '';
+  const parts: string[] = [];
+  if (a.lastReplyAt) parts.push(`Last reply ${formatMessageTime(a.lastReplyAt)}`);
+  if (a.lastTool) parts.push(`last tool ${a.lastTool.replace(/_/g, ' ')}`);
+  return parts.join(' · ');
 }

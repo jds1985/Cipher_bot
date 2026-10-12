@@ -67,16 +67,16 @@ function hooks(hits: string[]): { actions: ActionHooks; search: SearchHooks } {
   };
 }
 
-test('version 1.23.0, schema 13, WHATS_NEW five lines of 90 chars or fewer, CSP and names unchanged', () => {
+test('version 1.24.0, schema 14, WHATS_NEW five lines of 90 chars or fewer, CSP and names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.23.0');
+  assert.equal(pkg.version, '1.24.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 13);
+  assert.equal(SCHEMA_VERSION, 14);
   assert.ok(WHATS_NEW.length >= 1 && WHATS_NEW.length <= 5);
   for (const l of WHATS_NEW) assert.ok(l.length <= 90, l);
   assert.doesNotMatch(WHATS_NEW.join(' '), /grok/i);
-  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"/);
   assert.deepEqual(Object.keys(pkg.dependencies ?? {}).sort(), ['better-sqlite3', 'pdfjs-dist', 'qrcode'], 'no new runtime dependency (docx uses node:zlib)');
 });
 
@@ -99,7 +99,7 @@ test('migration v12 → v13: every existing bot has every switch off except file
   const again = new CipherDb(file);
   assert.equal(again.getBot(a.id)!.tools!.calculator, true, 'reopening does not reset switches');
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 13);
+  assert.equal(chk.pragma('user_version', { simple: true }), 14);
   chk.close();
   again.close();
   assert.deepEqual({ ...DEFAULT_TOOL_SWITCHES }, { files: true, search: false, calculator: false, checklist: false, write: false });
@@ -182,7 +182,7 @@ test('reminders run like routines: no write/checklist/search, the bot switches s
   assert.deepEqual(off[0], [], 'switched off: nothing offered');
   // main: reminder turns get no hooks for actions or search; notice skips muted bots; lock purge/order unchanged
   const fn = main.slice(main.indexOf('function runReminderTurn'), main.indexOf('// ---------- v1.23: undo'));
-  assert.match(fn, /runChatTurn\(\{ db, model: currentModel\(\), emit, forceToolsOff: false, fromRoutine: true, reminder: true \}/);
+  assert.match(fn, /runChatTurn\(\{ db, model: currentModel\(\), emit, forceToolsOff: false, fromRoutine: true, reminder: true, sharedFolder \}/);
   assert.doesNotMatch(fn, /actions|search:/);
   assert.match(fn, /routineNotifier\?\.notify\(r\.botId/);
   assert.match(main, /isMuted: \(botId\) => db\.isMuted\('bot', botId\)/);

@@ -7,9 +7,11 @@ import { normalizeSite } from './blockedSites';
 export { isUrlBlocked, normalizeSite } from './blockedSites';
 
 import { CHECKLIST_MAX_ITEMS, normalizeItem } from './checklist';
-import type { ChecklistItem, Reminder, ToolSwitches } from '../shared/types';
+import type { BotActivity, ChecklistItem, MessageEdit, Reminder, ToolSwitches } from '../shared/types';
+import { normalizeGroup, normalizeTags, parseReaction } from './botMeta';
+export const MESSAGE_EDITS_MAX = 50;
 import { REMINDERS_MAX, validateReminder } from './reminders';
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 /** v1.21: reply lengths a bot can have. */
 export const REPLY_LENGTHS = ['short', 'normal', 'long'] as const;
 export type ReplyLength = (typeof REPLY_LENGTHS)[number];
@@ -30,11 +32,12 @@ interface BotRow {
   muted?: number;
   archived?: number;
   reply_length?: string | null;
+  tags?: string | null; dock_group?: string | null;
   tool_search?: number; tool_calc?: number; tool_checklist?: number; tool_write?: number;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
-interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null; reminder?: number }
+interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null; reminder?: number; reaction?: string | null; edited?: number }
 interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
 interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number; muted?: number; archived?: number }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
@@ -43,6 +46,7 @@ const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
   folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', muted: r.muted === 1, archived: r.archived === 1, replyLength: parseReplyLength(r.reply_length),
   tools: { files: r.tools_enabled === 1, search: r.tool_search === 1, calculator: r.tool_calc === 1, checklist: r.tool_checklist === 1, write: r.tool_write === 1 },
+  tags: r.tags ? r.tags.split(',').filter(Boolean) : [], group: r.dock_group ?? '',
   createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
 export const parseReplyLength = (v: unknown): ReplyLength => (REPLY_LENGTHS as readonly unknown[]).includes(v) ? (v as ReplyLength) : 'normal';
@@ -54,7 +58,7 @@ const toMessage = (r: MessageRow): Message => ({
   id: r.id, chatId: r.chat_id, role: r.role, content: r.content,
   toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls) as ToolCall[]) : null,
   toolName: r.tool_name, createdAt: r.created_at, routine: r.routine === 1, search: parseSearch(r.search_results ?? null),
-  quote: r.quote_text ?? null, pinned: r.pinned === 1, image: r.image_path ?? null, reminder: r.reminder === 1,
+  quote: r.quote_text ?? null, pinned: r.pinned === 1, image: r.image_path ?? null, reminder: r.reminder === 1, reaction: r.reaction ?? null, edited: r.edited === 1,
 });
 /** v1.18: a stored web-search result set ({ query, results }), or null when absent or unreadable. */
 function parseSearch(raw: string | null): Message['search'] {
@@ -227,6 +231,13 @@ export class CipherDb {
     this.addColumnIfMissing('rooms', 'archived', 'archived INTEGER NOT NULL DEFAULT 0');
     this.addColumnIfMissing('bots', 'reply_length', "reply_length TEXT NOT NULL DEFAULT 'normal'");
     this.db.exec('CREATE TABLE IF NOT EXISTS blocked_sites (site TEXT PRIMARY KEY, added_at TEXT NOT NULL)');
+    // v14 (idempotent): bot tags and dock folder, message reactions and edit history.
+    this.addColumnIfMissing('bots', 'tags', "tags TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing('bots', 'dock_group', "dock_group TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing('messages', 'reaction', 'reaction TEXT');
+    this.addColumnIfMissing('messages', 'edited', 'edited INTEGER NOT NULL DEFAULT 0');
+    this.db.exec('CREATE TABLE IF NOT EXISTS message_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE, ' +
+      'old_text TEXT NOT NULL, edited_at TEXT NOT NULL)');
     // v13 (idempotent): per-bot tool switches (every existing bot: all off except files, which keeps its value),
     // soft delete for undo, reminders, pasted images, reminder messages.
     this.addColumnIfMissing('bots', 'tool_search', 'tool_search INTEGER NOT NULL DEFAULT 0');
@@ -365,6 +376,64 @@ export class CipherDb {
         : `The memory note is almost full: ${free} of ${MEMORY_NOTE_MAX} characters left, and this message has ${add.length}. Edit the note to make room.`);
     }
     return this.setBotMemory(id, next);
+  }
+
+  // ---- v1.24 ----
+  setBotTags(id: number, raw: unknown): Bot {
+    if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    this.db.prepare('UPDATE bots SET tags = ? WHERE id = ?').run(normalizeTags(raw).join(','), id);
+    return this.getBot(id)!;
+  }
+
+  setBotGroup(id: number, raw: unknown): Bot {
+    if (!this.getBot(id)) throw new Error('Cipher bot not found.');
+    this.db.prepare('UPDATE bots SET dock_group = ? WHERE id = ?').run(normalizeGroup(raw), id);
+    return this.getBot(id)!;
+  }
+
+  /** One reaction per message (null clears). Local only. */
+  setReaction(chatId: number, messageId: number, raw: unknown): Message {
+    const reaction = parseReaction(raw);
+    const r = this.db.prepare('UPDATE messages SET reaction = ? WHERE id = ? AND chat_id = ? AND deleted_batch IS NULL').run(reaction, messageId, chatId);
+    if (!r.changes) throw new Error('That message is gone.');
+    return this.getMessage(chatId, messageId)!;
+  }
+
+  /** Edit the text of one of the user's own messages; the old text is kept in message_edits. */
+  editMessage(chatId: number, messageId: number, raw: unknown): Message {
+    const m = this.getMessage(chatId, messageId);
+    if (!m) throw new Error('That message is gone.');
+    if (m.role !== 'user') throw new Error('Only your own messages can be edited.');
+    if (typeof raw !== 'string' || !raw.trim()) throw new Error('A message cannot be empty.');
+    const text = raw.replace(/\r\n?/g, '\n').trim().slice(0, 100_000);
+    if (text === m.content) return m;
+    const n = (this.db.prepare('SELECT COUNT(*) AS n FROM message_edits WHERE message_id = ?').get(messageId) as { n: number }).n;
+    if (n >= MESSAGE_EDITS_MAX) throw new Error(`A message can be edited up to ${MESSAGE_EDITS_MAX} times.`);
+    this.db.transaction(() => {
+      this.db.prepare('INSERT INTO message_edits (message_id, old_text, edited_at) VALUES (?, ?, ?)').run(messageId, m.content, new Date().toISOString());
+      this.db.prepare('UPDATE messages SET content = ?, edited = 1 WHERE id = ?').run(text, messageId);
+    })();
+    return this.getMessage(chatId, messageId)!;
+  }
+
+  listMessageEdits(chatId: number, messageId: number): MessageEdit[] {
+    if (!this.getMessage(chatId, messageId)) return [];
+    return (this.db.prepare('SELECT id, message_id, old_text, edited_at FROM message_edits WHERE message_id = ? ORDER BY id').all(messageId) as
+      { id: number; message_id: number; old_text: string; edited_at: string }[])
+      .map((r) => ({ id: r.id, messageId: r.message_id, oldText: r.old_text, editedAt: r.edited_at }));
+  }
+
+  /** Last reply time and last tool used in a bot's chat. */
+  botActivity(botId: number): BotActivity {
+    const chat = this.getBotChat(botId);
+    const reply = this.db.prepare("SELECT created_at FROM messages WHERE chat_id = ? AND role = 'assistant' AND deleted_batch IS NULL ORDER BY id DESC LIMIT 1").get(chat.id) as { created_at: string } | undefined;
+    const tool = this.db.prepare("SELECT tool_name, created_at FROM messages WHERE chat_id = ? AND role = 'tool' AND deleted_batch IS NULL ORDER BY id DESC LIMIT 1").get(chat.id) as { tool_name: string | null; created_at: string } | undefined;
+    return { lastReplyAt: reply?.created_at ?? null, lastTool: tool?.tool_name ?? null, lastToolAt: tool?.created_at ?? null };
+  }
+
+  /** Memory notes by bot name (Settings export, only when the user opts in). */
+  memoryNotes(): { bot: string; note: string }[] {
+    return this.listBots().filter((b) => b.memoryNote.trim()).map((b) => ({ bot: b.name, note: b.memoryNote }));
   }
 
   // ---- v1.23: tool switches ----

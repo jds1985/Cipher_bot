@@ -17,6 +17,9 @@ const TOOL_HINT =
 const SECOND_FOLDER_HINT =
   'The user also attached a second folder. To read from it, call read_file with folder set to "second".';
 
+const SHARED_FOLDER_HINT =
+  'The user also has a shared folder for all Cipher bots. To read from it, call read_file with folder set to "shared". It is read-only.';
+
 const SEARCH_HINT =
   'You can also use web_search when the user needs current information from the web. The user sees your exact query and ' +
   'must press Search first. If the result is "User did not confirm the search", do not search again for it: answer ' +
@@ -56,6 +59,8 @@ export interface EngineDeps {
   forceToolsOff?: boolean;
   /** Routine turns: the user message is marked as sent by the bot's routine. */
   fromRoutine?: boolean;
+  /** v1.24: the app-wide shared folder (main's setting, read live), or null. Read only with the Files switch on. */
+  sharedFolder?: () => string | null;
   /** v1.23: a reminder turn (always with fromRoutine): files and calculator follow the switches; nothing else. */
   reminder?: boolean;
   /** v1.18: web search hooks (1:1 chats on the desktop and, since v1.19, the phone; never routines). */
@@ -94,9 +99,9 @@ export function memoryBlock(note: string | undefined | null): string {
 }
 
 /** Convert stored messages into Ollama's chat format. */
-export function buildHistory(bot: Bot, messages: Message[], searchOn = false, actions: { write?: boolean; checklist?: boolean } = {}): OllamaMessage[] {
+export function buildHistory(bot: Bot, messages: Message[], searchOn = false, actions: { write?: boolean; checklist?: boolean; shared?: boolean } = {}): OllamaMessage[] {
   const out: OllamaMessage[] = [];
-  const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '',
+  const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '', bot.toolsEnabled && actions.shared ? SHARED_FOLDER_HINT : '',
     searchOn ? SEARCH_HINT : '', actions.write ? WRITE_HINT : '', actions.checklist ? CHECKLIST_HINT : '', REPLY_LENGTH_HINT[bot.replyLength ?? 'normal'], memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
   if (system) out.push({ role: 'system', content: system });
   for (const m of messages) {
@@ -166,7 +171,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
         host: deps.host ?? OLLAMA_HOST,
         fetchImpl: deps.fetchImpl,
         messages: buildHistory({ ...liveBot(), toolsEnabled: allowed('read_file') }, db.listMessages(chatId), searchOn(),
-          { write: allowed('write_file'), checklist: allowed('checklist_add') }),
+          { write: allowed('write_file'), checklist: allowed('checklist_add'), shared: !!deps.sharedFolder?.() }),
         tools: offeredTools(),
         signal,
         onToken: (t) => { partial += t; emit({ chatId, type: 'token', text: t }); },
@@ -229,7 +234,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
           continue;
         }
         const fb = liveBot();
-        const outcome = await executeToolCall(call, fb.folderPath, fb.secondFolderPath);
+        // v1.24: the shared folder is read live from main's setting, right now, after allowed('read_file') passed above.
+        const outcome = await executeToolCall(call, fb.folderPath, fb.secondFolderPath, deps.sharedFolder?.() ?? null);
         emit({ chatId, type: 'tool', name: outcome.name, path: outcome.path, ok: outcome.ok, detail: outcome.ok ? `${outcome.content.length} chars` : outcome.content });
         const toolMsg = db.addMessage({ chatId, role: 'tool', content: outcome.content, toolName: outcome.name || 'read_file' });
         emit({ chatId, type: 'message', message: toolMsg });

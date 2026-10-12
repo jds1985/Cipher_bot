@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>Cipher Bot</title>
     <link rel="stylesheet" href="styles.css" />
@@ -32,6 +32,9 @@
         <button type="button" id="dock-toggle" class="dock-toggle" aria-expanded="true" aria-controls="sidebar" aria-label="Collapse the bot dock" title="Collapse the bot dock">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+        <label class="tag-filter-wrap" title="Show only bots with this tag"><span class="ico ico-tags" aria-hidden="true"></span><span class="sr-only">Filter by tag</span>
+          <select id="tag-filter" aria-label="Filter bots by tag"><option value="">All</option></select>
+        </label>
         <div id="bot-list" class="rail-list" role="group" aria-label="Cipher bots"></div>
         <button type="button" id="new-bot" class="rail-btn rail-add" title="Create a Cipher bot" aria-label="Create a Cipher bot">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -64,6 +67,14 @@
             </label>
             <label>Job
               <textarea id="bot-job" rows="5" placeholder="What should this Cipher bot do? e.g. Help me plan my week and keep answers short."></textarea>
+            </label>
+            <p class="muted auto-title-hint">The name fills in from the job until you type one. You can always change it.</p>
+            <label><span class="row"><span class="ico ico-tags" aria-hidden="true"></span>Tags</span>
+              <input id="bot-tags" maxlength="120" placeholder="e.g. work, writing (up to 5, comma separated)" />
+            </label>
+            <label><span class="row"><span class="ico ico-dock-folders" aria-hidden="true"></span>Dock folder</span>
+              <input id="bot-group" maxlength="30" list="bot-group-list" placeholder="e.g. Work (leave empty for none)" />
+              <datalist id="bot-group-list"></datalist>
             </label>
             <label id="reply-length-wrap" class="reply-length-wrap" hidden>Reply length
               <select id="reply-length">
@@ -145,6 +156,12 @@
                 </label>
                 <div class="row end"><button type="submit" id="lock-off-btn" class="secondary danger">Turn off lock</button></div>
               </form>
+              <label id="lock-timeout-wrap" class="row">Lock after
+                <select id="lock-timeout" aria-label="Lock after idle time">
+                  <option value="1">1 minute</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="never">Never</option>
+                </select>
+                <span class="muted">of no keyboard or mouse use</span>
+              </label>
               <p id="lock-msg" class="muted" hidden></p>
               <p id="lock-error" class="error" hidden></p>
             </div>
@@ -154,6 +171,22 @@
               <div class="row"><button type="button" id="backup-btn" class="secondary">Back up…</button></div>
               <p id="backup-msg" class="muted" hidden></p>
               <p id="backup-error" class="error" hidden></p>
+            </div>
+            <div class="settings-block">
+              <h3>Scheduled backup</h3>
+              <p class="muted">Saves a backup on its own, daily or weekly, into a folder you choose on this computer. Old backups are kept; nothing is sent anywhere. Backups never include the lock.</p>
+              <div class="row">
+                <select id="backup-schedule" aria-label="Backup schedule"><option value="off">Off</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+                <button type="button" id="backup-folder-btn" class="secondary">Choose folder…</button>
+              </div>
+              <p id="backup-sched-msg" class="muted"></p>
+              <p id="backup-sched-error" class="error" hidden></p>
+            </div>
+            <div class="settings-block">
+              <h3 class="row"><span class="ico ico-shared-folder" aria-hidden="true"></span>Shared folder</h3>
+              <p class="muted">One folder every Cipher bot can read (never write), separate from each bot's own folder. A bot reads it only when its Files switch is on.</p>
+              <p id="shared-folder-path" class="muted path-line">None</p>
+              <div class="row"><button type="button" id="shared-folder-pick" class="secondary">Choose…</button><button type="button" id="shared-folder-clear" class="secondary">Remove</button></div>
             </div>
             <div class="settings-block">
               <h3>Restore</h3>
@@ -234,6 +267,30 @@
                 <input type="checkbox" id="sound-switch" />
                 <span><strong>Send sound</strong><span class="muted switch-hint"> Off by default. Plays a short sound on this computer when you send a message.</span></span>
               </label>
+            </div>
+            <div class="settings-block">
+              <label class="row switch-row">
+                <input type="checkbox" id="tps-switch" />
+                <span><strong>Tokens per second</strong><span class="muted switch-hint"> Off by default. Shows how fast a reply was written, under the reply.</span></span>
+              </label>
+            </div>
+            <div class="settings-block">
+              <h3>Font</h3>
+              <select id="font-select" aria-label="Font">
+                <option value="system">System (default)</option>
+                <option value="sans">DejaVu Sans</option>
+                <option value="serif">DejaVu Serif</option>
+                <option value="mono">DejaVu Sans Mono</option>
+              </select>
+              <p class="muted">Fonts are bundled with Cipher Bot. Nothing is downloaded.</p>
+            </div>
+            <div class="settings-block">
+              <h3>Settings file</h3>
+              <p class="muted">Export or import your preferences (accent, font, lock timeout, switches) as a small file. Never chats or the lock. Memory notes only if you tick the box.</p>
+              <label class="row switch-row"><input type="checkbox" id="settings-memory" /><span>Include memory notes</span></label>
+              <div class="row"><button type="button" id="settings-export" class="secondary">Export settings…</button><button type="button" id="settings-import" class="secondary">Import settings…</button></div>
+              <p id="settings-file-msg" class="muted" hidden></p>
+              <p id="settings-file-error" class="error" hidden></p>
             </div>
             <div class="settings-block">
               <h3>Accent color</h3>
@@ -325,7 +382,7 @@
           <header id="chat-header">
             <span id="chat-icon" class="header-icon"></span>
             <div class="title-block">
-              <strong id="chat-bot-name"></strong>
+              <strong id="chat-bot-name"></strong><span id="chat-activity" class="activity-line" aria-live="off"></span>
             </div>
           </header>
           <div id="find-bar" class="find-bar row" role="search" hidden>
@@ -403,6 +460,13 @@
         <div class="row end"><button type="button" id="tools-close" class="secondary">Close</button></div>
       </div>
     </div>
+    <div id="edits-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="edits-title" hidden>
+      <div class="checklist-card">
+        <h3 id="edits-title">Edit history</h3>
+        <ol id="edits-list" class="edits-list"></ol>
+        <div class="row end"><button type="button" id="edits-close" class="secondary">Close</button></div>
+      </div>
+    </div>
     <div id="reminder-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="reminder-title" hidden>
       <div class="checklist-card">
         <h3 id="reminder-title" class="row checklist-title"><span class="ico ico-reminder" aria-hidden="true"></span><span id="reminder-name">Reminders</span></h3>
@@ -413,6 +477,12 @@
           <div class="row"><input id="reminder-date" type="date" aria-label="Date" required /><input id="reminder-time" type="time" aria-label="Time" required /></div>
           <textarea id="reminder-prompt" rows="2" maxlength="2000" placeholder="What should be sent to the bot?" aria-label="Reminder message"></textarea>
           <div class="row end"><button type="submit">Add reminder</button></div>
+        </form>
+        <form id="reminder-import-form" class="reminder-form">
+          <label>Or paste one line: date, time, message
+            <input id="reminder-line" maxlength="2100" placeholder="2026-10-14 9:30 AM Call the plumber" />
+          </label>
+          <div class="row end"><button type="submit" class="secondary">Import line</button></div>
         </form>
         <p id="reminder-error" class="error" hidden></p>
         <div class="row end"><button type="button" id="reminder-close" class="secondary">Close</button></div>
