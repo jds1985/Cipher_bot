@@ -3,8 +3,14 @@ import type { Bot, Chat, Message, NewBot, Role, Room, RoomMessage, Routine, Tool
 import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIcon, DEFAULT_BOT_COLOR } from './botIcons';
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
+import { normalizeSite } from './blockedSites';
+export { isUrlBlocked, normalizeSite } from './blockedSites';
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
+/** v1.21: reply lengths a bot can have. */
+export const REPLY_LENGTHS = ['short', 'normal', 'long'] as const;
+export type ReplyLength = (typeof REPLY_LENGTHS)[number];
+export const BLOCKED_SITES_MAX = 500;
 /** v1.20: longest quoted text kept with a reply. */
 export const QUOTE_MAX = 500;
 export const MEMORY_NOTE_MAX = 2000;
@@ -19,18 +25,22 @@ interface BotRow {
   unread?: number;
   memory_note?: string | null;
   muted?: number;
+  archived?: number;
+  reply_length?: string | null;
   icon: string | null; shape: string | null; color: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
 interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null }
 interface RoutineRow { bot_id: number; prompt: string; time: string; enabled: number; last_run_date: string | null }
-interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number; muted?: number }
+interface RoomRow { id: number; name: string; created_at: string; updated_at: string; unread?: number; muted?: number; archived?: number }
 interface RoomMessageRow { id: number; room_id: number; role: 'user' | 'assistant'; bot_id: number | null; content: string; created_at: string }
 
 const toBot = (r: BotRow): Bot => ({
   id: r.id, name: r.name, systemPrompt: r.system_prompt, toolsEnabled: r.tools_enabled === 1,
-  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', muted: r.muted === 1, createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  folderPath: r.folder_path, secondFolderPath: r.second_folder_path ?? null, unread: r.unread === 1, memoryNote: r.memory_note ?? '', muted: r.muted === 1, archived: r.archived === 1, replyLength: parseReplyLength(r.reply_length), createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
 });
+export const parseReplyLength = (v: unknown): ReplyLength => (REPLY_LENGTHS as readonly unknown[]).includes(v) ? (v as ReplyLength) : 'normal';
+
 const toChat = (r: ChatRow): Chat => ({
   id: r.id, botId: r.bot_id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
 });
@@ -199,6 +209,11 @@ export class CipherDb {
     this.addColumnIfMissing('messages', 'image_path', 'image_path TEXT');
     this.addColumnIfMissing('bots', 'muted', 'muted INTEGER NOT NULL DEFAULT 0');
     this.addColumnIfMissing('rooms', 'muted', 'muted INTEGER NOT NULL DEFAULT 0');
+    // v11 (idempotent): archive, reply length, blocked sites.
+    this.addColumnIfMissing('bots', 'archived', 'archived INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('rooms', 'archived', 'archived INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('bots', 'reply_length', "reply_length TEXT NOT NULL DEFAULT 'normal'");
+    this.db.exec('CREATE TABLE IF NOT EXISTS blocked_sites (site TEXT PRIMARY KEY, added_at TEXT NOT NULL)');
     this.db.exec('CREATE TABLE IF NOT EXISTS search_history (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, searched_at TEXT NOT NULL)');
     if (version < SCHEMA_VERSION) this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
@@ -507,6 +522,42 @@ export class CipherDb {
   }
 
   // ---- routines (v1.9) ----
+  /** v1.21: routines of bots that are not archived (an archived bot's routine is paused, not deleted). */
+  listActiveRoutines(): Routine[] {
+    return (this.db.prepare('SELECT r.* FROM routines r JOIN bots b ON b.id = r.bot_id WHERE b.archived = 0 ORDER BY r.bot_id').all() as RoutineRow[]).map(toRoutine);
+  }
+
+  /** v1.21: archive or restore a bot or room. Nothing is deleted. */
+  setArchived(kind: 'bot' | 'room', id: number, archived: boolean): void {
+    const r = this.db.prepare(`UPDATE ${kind === 'bot' ? 'bots' : 'rooms'} SET archived = ? WHERE id = ?`).run(archived ? 1 : 0, id);
+    if (!r.changes) throw new Error(kind === 'bot' ? 'Cipher bot not found.' : 'Room not found.');
+  }
+
+  setReplyLength(id: number, value: unknown): Bot {
+    if (!(REPLY_LENGTHS as readonly unknown[]).includes(value)) throw new Error('Reply length must be short, normal or long.');
+    this.db.prepare('UPDATE bots SET reply_length = ? WHERE id = ?').run(value, id);
+    const b = this.getBot(id);
+    if (!b) throw new Error('Cipher bot not found.');
+    return b;
+  }
+
+  listBlockedSites(): string[] {
+    return (this.db.prepare('SELECT site FROM blocked_sites ORDER BY site').all() as { site: string }[]).map((r) => r.site);
+  }
+
+  addBlockedSite(input: unknown): string[] {
+    const site = normalizeSite(input);
+    if (!site) throw new Error('Enter a site like example.com.');
+    if (this.listBlockedSites().length >= BLOCKED_SITES_MAX) throw new Error('The blocked-sites list is full.');
+    this.db.prepare('INSERT OR IGNORE INTO blocked_sites (site, added_at) VALUES (?, ?)').run(site, new Date().toISOString());
+    return this.listBlockedSites();
+  }
+
+  removeBlockedSite(site: unknown): string[] {
+    this.db.prepare('DELETE FROM blocked_sites WHERE site = ?').run(String(site));
+    return this.listBlockedSites();
+  }
+
   listRoutines(): Routine[] {
     return (this.db.prepare('SELECT * FROM routines ORDER BY bot_id').all() as RoutineRow[]).map(toRoutine);
   }
@@ -543,7 +594,7 @@ export class CipherDb {
   }
 
   private toRoom(r: RoomRow): Room {
-    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at, unread: r.unread === 1, muted: r.muted === 1 };
+    return { id: r.id, name: r.name, memberIds: this.roomMemberIds(r.id), createdAt: r.created_at, updatedAt: r.updated_at, unread: r.unread === 1, muted: r.muted === 1, archived: r.archived === 1 };
   }
 
   listRooms(): Room[] {

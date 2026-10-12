@@ -13,6 +13,7 @@
 //
 // Streaming, friendly errors and Stop reuse the single-chat code path (streamChat in ollama.ts, the same
 // event/abort pattern as runChatTurn in chatEngine.ts).
+import { replyOptions } from './chatEngine';
 import type { Bot, RoomEvent, RoomMessage } from '../shared/types';
 import type { EngineDeps } from './chatEngine';
 import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
@@ -105,6 +106,7 @@ export async function runRoomTurn(deps: RoomEngineDeps, roomId: number, userText
       // Deliberately no `tools`: file reading is off in rooms, regardless of the bot's own setting.
       const { content } = await streamChat({
         model: deps.model,
+        options: replyOptions(bot.replyLength),
         host: deps.host ?? OLLAMA_HOST,
         fetchImpl: deps.fetchImpl,
         messages: buildRoomHistory(bot, members, db.listRoomMessages(roomId)),

@@ -14,7 +14,7 @@ const block = (start: string, end: string): string => {
 };
 
 test('tray menu has "Show Cipher Bot" and a real Quit; close hides only while not quitting and the tray exists', () => {
-  const tray = block('function createTray', '/** Folders the user picked');
+  const tray = block('// ---------- v1.21: always on top', '/** Folders the user picked');
   assert.match(tray, /label: 'Show Cipher Bot'/);
   assert.match(tray, /label: 'Quit Cipher Bot', click: \(\) => \{ quitting = true; app\.quit\(\); \}/);
   assert.match(tray, /catch \{\s*tray = null;/, 'no tray → normal close-to-quit');

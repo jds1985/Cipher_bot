@@ -1,7 +1,7 @@
 import type { Bot, Chat, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
-import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, type PlusItem, type PlusItemId } from './view.js';
+import { decideView, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, type PlusItem, type PlusItemId } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -69,6 +69,11 @@ const el = {
   quoteChip: $('quote-chip'), quoteChipText: $('quote-chip-text'), quoteClear: $<HTMLButtonElement>('quote-clear'),
   imageChip: $('image-chip'), imageChipPreview: $<HTMLImageElement>('image-chip-preview'), imageChipName: $('image-chip-name'), imageClear: $<HTMLButtonElement>('image-clear'),
   updateLast: $('update-last'), updateStatus: $('update-status'), updateDownload: $<HTMLButtonElement>('update-download'), updateShow: $<HTMLButtonElement>('update-show'),
+  alwaysOnTop: $<HTMLButtonElement>('always-on-top'), replyLengthWrap: $('reply-length-wrap'), replyLength: $<HTMLSelectElement>('reply-length'),
+  siteForm: $<HTMLFormElement>('site-form'), siteInput: $<HTMLInputElement>('site-input'), siteError: $('site-error'), siteList: $('site-list'), siteEmpty: $('site-empty'),
+  archivedList: $('archived-list'), archivedEmpty: $('archived-empty'),
+  imageViewer: $('image-viewer'), imageViewerImg: $<HTMLImageElement>('image-viewer-img'), imageViewerName: $('image-viewer-name'), imageViewerClose: $<HTMLButtonElement>('image-viewer-close'),
+  tips: $('tips'), tipIcon: $<HTMLImageElement>('tip-icon'), tipTitle: $('tip-title'), tipBody: $('tip-body'), tipStep: $('tip-step'), tipSkip: $<HTMLButtonElement>('tip-skip'), tipNext: $<HTMLButtonElement>('tip-next'),
   shortcutList: $('shortcut-list'), debugChats: $<HTMLInputElement>('debug-chats'), debugExport: $<HTMLButtonElement>('debug-export'), debugMsg: $('debug-msg'),
 };
 
@@ -132,6 +137,9 @@ const state = {
   lock: { enabled: true, locked: true } as LockState,
 };
 
+/** v1.21: bots and rooms not archived (the dock, pickers and defaults use these). */
+const activeBots = () => state.bots.filter((b) => !b.archived);
+const activeRooms = () => state.rooms.filter((r) => !r.archived);
 const currentBot = () => state.bots.find((b) => b.id === state.botId) ?? null;
 const currentRoom = () => state.rooms.find((r) => r.id === state.roomId) ?? null;
 const botById = (id: number | null) => state.bots.find((b) => b.id === id) ?? null;
@@ -186,7 +194,7 @@ function roomMark(r: Room): HTMLElement {
 /** Decide what the main area shows (see view.ts). */
 function applyView(): void {
   const view = decideView({
-    botCount: state.bots.length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen,
+    botCount: activeBots().length, formOpen: state.formOpen, roomFormOpen: state.roomFormOpen,
     settingsOpen: state.settingsOpen, policyOpen: state.policyOpen, aboutOpen: state.aboutOpen, setup: state.setup,
   });
   // The edit modal reuses the create form, shown over the chat.
@@ -200,7 +208,7 @@ function applyView(): void {
   el.setupView.hidden = view !== 'setup';
   el.chatView.hidden = view !== 'chat';
   if (view !== 'chat') closePlusMenu();
-  el.botCancel.hidden = state.bots.length === 0 && !editing; // nothing to go back to on first run
+  el.botCancel.hidden = activeBots().length === 0 && !editing; // nothing to go back to on first run
   if (view === 'setup') renderSetup();
   if (view === 'chat') renderChat();
   if (view === 'settings') renderSettings();
@@ -278,7 +286,7 @@ function nameMatches(hay: string, q: string): boolean {
 function renderRail(): void {
   const showingChat = !state.formOpen && !state.roomFormOpen && !state.settingsOpen && !state.policyOpen && !state.aboutOpen;
   const q = state.searchQuery.trim().toLowerCase();
-  el.botList.replaceChildren(...state.bots.map((b) => {
+  el.botList.replaceChildren(...activeBots().map((b) => {
     const working = state.speakingBots.has(b.id);
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
@@ -288,7 +296,7 @@ function renderRail(): void {
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
     return btn;
   }));
-  el.roomList.replaceChildren(...state.rooms.map((r) => {
+  el.roomList.replaceChildren(...activeRooms().map((r) => {
     const label = `Room: ${roomName(r)}`;
     const btn = railButton('room', label, showingChat && r.id === state.roomId, () => void selectRoom(r.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'room', r.id));
@@ -659,6 +667,9 @@ function decorateMessage(row: HTMLElement, m: Message, chatId: number): void {
     const img = document.createElement('img');
     img.className = 'msg-image'; img.alt = m.image.split(/[\\/]/).pop() ?? 'Image';
     const cached = state.images.get(m.id);
+    img.tabIndex = 0; img.title = 'View larger';
+    img.addEventListener('click', () => openImageViewer(img));
+    img.addEventListener('keydown', (e) => { if (e.key === 'Enter') openImageViewer(img); });
     if (cached) img.src = cached;
     else if (cached === null) { row.append(node('span', 'muted image-missing', `Image not available: ${img.alt}`)); }
     if (cached !== null) {
@@ -1043,6 +1054,7 @@ function setBotFormMode(editName: string | null): void {
   el.botFormArt.hidden = editName !== null;
   el.botMemoryWrap.hidden = editName === null; // v1.19: memory note is edited in the bot's settings
   el.starterJobs.hidden = editName !== null; // v1.20: starter jobs only when creating
+  el.replyLengthWrap.hidden = editName === null; // v1.21: reply length in the bot's settings
 }
 
 function openBotForm(): void {
@@ -1067,6 +1079,7 @@ function openEditBot(): void {
   el.botName.value = bot.name;
   el.botJob.value = bot.systemPrompt;
   el.botMemory.value = bot.memoryNote;
+  el.replyLength.value = bot.replyLength;
   // A bad stored shape/color shows (and saves) as the default, same as everywhere else.
   const shape = shapeOf(bot.shape);
   const color = colorOf(bot.color);
@@ -1094,6 +1107,7 @@ async function submitBotForm(e: Event): Promise<void> {
     try {
       let updated = await api.updateBot(state.editBotId, form);
       if (el.botMemory.value.trim() !== updated.memoryNote) updated = await api.setBotMemory(updated.id, el.botMemory.value);
+      if (el.replyLength.value !== updated.replyLength) updated = await api.setReplyLength(updated.id, el.replyLength.value as Bot['replyLength']);
       state.editBotId = null;
       applyView();
       await replaceBot(updated); // the left column and the chat header update right away
@@ -1118,7 +1132,7 @@ async function submitBotForm(e: Event): Promise<void> {
 function openRoomForm(): void {
   el.roomForm.reset();
   el.roomFormError.hidden = true;
-  el.roomMembers.replaceChildren(...state.bots.map((b) => {
+  el.roomMembers.replaceChildren(...activeBots().map((b) => {
     const label = node('label', 'row member-opt') as HTMLLabelElement;
     const box = document.createElement('input');
     box.type = 'checkbox';
@@ -1126,7 +1140,7 @@ function openRoomForm(): void {
     label.append(box, botIcon(b, 30), node('span', 'name', b.name));
     return label;
   }));
-  const tooFew = state.bots.length < 2;
+  const tooFew = activeBots().length < 2;
   el.roomCreate.disabled = tooFew;
   if (tooFew) {
     el.roomFormError.textContent = 'Create at least two Cipher bots first.';
@@ -1558,7 +1572,7 @@ async function requestDeleteBot(botId: number | null = state.botId): Promise<voi
       const stillOpen = (state.botId !== null && state.botId !== bot.id && botById(state.botId))
         || (state.roomId !== null && !result.deletedRoomIds.includes(state.roomId) && currentRoom());
       if (stillOpen) { renderRail(); applyView(); }
-      else if (state.bots.length) { state.pendingAttach = null; await selectBot(state.bots[0].id); }
+      else if (activeBots().length) { state.pendingAttach = null; await selectBot(activeBots()[0].id); }
       else {
         state.pendingAttach = null;
         state.roomId = null;
@@ -1587,7 +1601,7 @@ function requestDeleteRoom(roomId: number): void {
       if (state.roomId === room.id) {
         state.roomId = null;
         state.roomMessages = [];
-        if (state.bots.length) await selectBot(state.bots[0].id);
+        if (activeBots().length) await selectBot(activeBots()[0].id);
         else { renderRail(); applyView(); }
       } else {
         renderRail();
@@ -1600,7 +1614,9 @@ function requestDeleteRoom(roomId: number): void {
 // ---------- right-click a bot or room in the left column: native menu with Delete… ----------
 async function onItemContextMenu(e: MouseEvent, kind: 'bot' | 'room', id: number): Promise<void> {
   e.preventDefault();
-  if ((await api.showItemMenu(kind)) !== 'delete') return;
+  const choice = await api.showItemMenu(kind);
+  if (choice === 'archive') { void archiveItem(kind, id); return; }
+  if (choice !== 'delete') return;
   if (kind === 'bot') void requestDeleteBot(id);
   else requestDeleteRoom(id);
 }
@@ -1669,7 +1685,104 @@ async function runPlusItem(id: PlusItemId): Promise<void> {
     case 'tools': { const bot = currentBot(); if (bot) await setTools(!bot.toolsEnabled); return; }
     case 'routine': return openRoutine();
     case 'mute': return toggleMute();
+    case 'markdown': return copyMarkdown();
+    case 'archive': return state.roomId !== null ? archiveItem('room', state.roomId) : state.botId !== null ? archiveItem('bot', state.botId) : undefined;
   }
+}
+
+// ---------- v1.21: archive, copy as Markdown, image viewer, blocked sites, always on top, tips ----------
+async function archiveItem(kind: 'bot' | 'room', id: number, archived = true): Promise<void> {
+  try {
+    const r = await api.setArchived(kind, id, archived);
+    state.bots = r.bots; state.rooms = r.rooms;
+    const wasOpen = archived && ((kind === 'bot' && state.botId === id && state.roomId === null) || (kind === 'room' && state.roomId === id));
+    if (wasOpen) {
+      state.roomId = null; state.botId = null; state.chat = null; state.messages = [];
+      const next = activeBots()[0];
+      if (next) await selectBot(next.id);
+      else { state.formOpen = !state.settingsOpen; renderRail(); applyView(); }
+    } else { renderRail(); applyView(); }
+    renderArchived();
+  } catch (err) { state.error = plainError(err); renderChat(); }
+}
+
+function renderArchived(): void {
+  const items = [...state.bots.filter((b) => b.archived).map((b) => ({ kind: 'bot' as const, id: b.id, name: b.name })),
+    ...state.rooms.filter((r) => r.archived).map((r) => ({ kind: 'room' as const, id: r.id, name: `Room: ${roomName(r)}` }))];
+  el.archivedEmpty.hidden = items.length > 0;
+  el.archivedList.replaceChildren(...items.map((it) => {
+    const li = node('li', 'row archived-item');
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'secondary small'; btn.textContent = 'Restore';
+    btn.setAttribute('aria-label', `Restore ${it.name}`);
+    btn.addEventListener('click', () => void archiveItem(it.kind, it.id, false));
+    li.append(node('span', 'archived-name', it.name), btn);
+    return li;
+  }));
+}
+
+async function copyMarkdown(): Promise<void> {
+  const bot = currentBot();
+  if (!bot) return;
+  try {
+    const r = await api.copyChatMarkdown(bot.id);
+    showAttachError(`Copied the chat as Markdown (${r.chars} characters).`);
+    el.attachError.classList.add('ok');
+    window.setTimeout(() => { el.attachError.classList.remove('ok'); clearAttachError(); }, 2500);
+  } catch (err) { showAttachError(plainError(err)); }
+}
+
+/** The larger view shows the same data: URL the bubble already has (never a file or web address). */
+function openImageViewer(img: HTMLImageElement): void {
+  const src = img.getAttribute('src') ?? '';
+  if (!/^data:image\/(png|jpeg|gif|webp);base64,/.test(src)) return;
+  el.imageViewerImg.src = src;
+  el.imageViewerImg.alt = img.alt;
+  el.imageViewerName.textContent = img.alt;
+  el.imageViewer.hidden = false;
+  el.imageViewerClose.focus();
+}
+function closeImageViewer(): void {
+  el.imageViewer.hidden = true;
+  el.imageViewerImg.removeAttribute('src');
+}
+
+function renderSites(list: string[]): void {
+  el.siteEmpty.hidden = list.length > 0;
+  el.siteList.replaceChildren(...list.map((site) => {
+    const li = node('li', 'row site-item');
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'secondary small'; btn.textContent = 'Remove'; btn.setAttribute('aria-label', `Unblock ${site}`);
+    btn.addEventListener('click', () => void api.removeBlockedSite(site).then(renderSites));
+    li.append(node('span', 'site-name', site), btn);
+    return li;
+  }));
+}
+
+function renderAlwaysOnTop(on: boolean): void {
+  el.alwaysOnTop.classList.toggle('on', on);
+  el.alwaysOnTop.setAttribute('aria-pressed', String(on));
+  el.alwaysOnTop.title = on ? 'Always on top: on' : 'Always on top: off';
+}
+
+let tipIndex = 0;
+function showTip(i: number): void {
+  tipIndex = i;
+  const t = TIPS[i];
+  el.tipIcon.src = t.icon;
+  el.tipTitle.textContent = t.title;
+  el.tipBody.textContent = t.body;
+  el.tipStep.textContent = `${i + 1} of ${TIPS.length}`;
+  el.tipNext.textContent = i === TIPS.length - 1 ? 'Done' : 'Next';
+  el.tips.hidden = false;
+  el.tipNext.focus();
+}
+function finishTips(): void {
+  el.tips.hidden = true;
+  void api.tipsDone();
+}
+async function maybeShowTips(): Promise<void> {
+  if (await api.tipsPending().catch(() => false)) showTip(0);
 }
 
 /** v1.20: mute the open bot or room (no tray notice while muted). */
@@ -1929,7 +2042,9 @@ async function loadAppData(): Promise<void> {
     state.phone = await api.getPhoneLink();
     await loadBots();
     await loadRooms();
-    const first = state.bots.find((b) => b.id === pendingOpenBot) ?? state.bots[0];
+    void api.getAlwaysOnTop().then(renderAlwaysOnTop).catch(() => undefined);
+    void maybeShowTips();
+    const first = activeBots().find((b) => b.id === pendingOpenBot) ?? activeBots()[0];
     if (first) await selectBot(first.id);
     else applyView();
   } finally {
@@ -2005,3 +2120,22 @@ el.debugExport.addEventListener('click', async () => {
     else if (r.error) { el.debugMsg.textContent = r.error; el.debugMsg.hidden = false; }
   } catch (err) { el.debugMsg.textContent = plainError(err); el.debugMsg.hidden = false; }
 });
+
+// ---------- v1.21 wiring ----------
+el.imageViewerClose.addEventListener('click', closeImageViewer);
+el.imageViewer.addEventListener('click', (e) => { if (e.target === el.imageViewer) closeImageViewer(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !el.imageViewer.hidden) { e.preventDefault(); closeImageViewer(); }
+  else if (e.key === 'Escape' && !el.tips.hidden) { e.preventDefault(); finishTips(); }
+});
+el.siteForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  el.siteError.hidden = true;
+  void api.addBlockedSite(el.siteInput.value).then((list) => { el.siteInput.value = ''; renderSites(list); })
+    .catch((err) => { el.siteError.textContent = plainError(err); el.siteError.hidden = false; });
+});
+el.openSettings.addEventListener('click', () => { void api.blockedSites().then(renderSites).catch(() => undefined); renderArchived(); });
+el.alwaysOnTop.addEventListener('click', () => void api.setAlwaysOnTop(!el.alwaysOnTop.classList.contains('on')).then(renderAlwaysOnTop).catch(() => undefined));
+api.onAlwaysOnTop(renderAlwaysOnTop);
+el.tipNext.addEventListener('click', () => { if (tipIndex >= TIPS.length - 1) finishTips(); else showTip(tipIndex + 1); });
+el.tipSkip.addEventListener('click', finishTips);

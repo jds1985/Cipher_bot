@@ -1,7 +1,7 @@
 {
   "name": "cipher",
   "productName": "Cipher",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "description": "Cipher bots: a local-first desktop app. Your Cipher bots run on your own computer with a local model. Web search only when Online is on and you press Search.",
   "main": "dist/main/main.js",
   "private": true,
@@ -30,6 +30,10 @@
       "dist/**/*",
       "dist/phone/**/*",
       "!dist/test/**",
+      "!node_modules/@napi-rs/**",
+      "!node_modules/pdfjs-dist/{build,web,image_decoders,cmaps,standard_fonts,wasm,iccs,types}/**",
+      "!node_modules/pdfjs-dist/legacy/{web,image_decoders}/**",
+      "!node_modules/pdfjs-dist/**/*.map",
       "package.json"
     ],
     "directories": {
@@ -81,6 +85,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "pdfjs-dist": "6.4.299",
     "qrcode": "^1.5.4"
   }
 }

@@ -271,7 +271,7 @@ test('results persist in the chat (schema v8, idempotent migration); only stored
   assert.equal(db.listMessages(chat.id).length, 2);
   db.close();
   const check = new Database(file);
-  assert.equal(check.pragma('user_version', { simple: true }), 10);
+  assert.equal(check.pragma('user_version', { simple: true }), 11); // current schema (v11 since v1.21)
   check.close();
 });
 

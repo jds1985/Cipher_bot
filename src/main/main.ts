@@ -3,13 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import type { ChatEvent, NewBotForm, NewRoomForm, RoomEvent, SetupState } from '../shared/types';
-import { CipherDb } from './db';
+import { CipherDb, isUrlBlocked } from './db';
 import { runChatTurn } from './chatEngine';
 import { runRoomTurn } from './roomEngine';
 import { SEND_SOUND_SETTING_KEY, parseSendSound, shouldMarkUnread } from './unread';
 import { DEFAULT_SIZE, MIN_SIZE, SAVE_DEBOUNCE_MS, debounce, loadWindowState, saveWindowState } from './windowBounds';
 import { UI_PREFS, isUiPrefName, readUiPrefs } from './uiPrefs';
 import { formToProfile, toNewBot } from './createBot';
+import { chatMarkdown } from './chatMarkdown';
 import { botChatExportLines, exportFileName, formatChatExport, roomExportLines } from './exportChat';
 import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
 import { SetupManager } from './setup';
@@ -141,6 +142,26 @@ async function lockApp(win: BrowserWindow): Promise<void> {
  * Hiding/showing never touches the phone link or the Online setting. If the tray can't be created,
  * tray stays null and closing the window quits as before.
  */
+// ---------- v1.21: always on top (title-bar button and tray menu; saved locally) ----------
+const ALWAYS_ON_TOP_KEY = 'always_on_top';
+const isAlwaysOnTop = (): boolean => db?.getSetting(ALWAYS_ON_TOP_KEY) === '1';
+function setAlwaysOnTop(on: boolean): boolean {
+  db.setSetting(ALWAYS_ON_TOP_KEY, on ? '1' : '0');
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.setAlwaysOnTop(on);
+  rebuildTrayMenu();
+  if (!isLocked()) for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send('window:alwaysOnTop', on);
+  return on;
+}
+function rebuildTrayMenu(): void {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Cipher Bot', click: () => void showWindow() },
+    { label: 'Always on top', type: 'checkbox', checked: isAlwaysOnTop(), click: (item) => { setAlwaysOnTop(item.checked); } },
+    { type: 'separator' },
+    { label: 'Quit Cipher Bot', click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+
 function createTray(): void {
   try {
     const size = process.platform === 'linux' ? 22 : 16;
@@ -148,11 +169,7 @@ function createTray(): void {
     if (icon.isEmpty()) return;
     tray = new Tray(icon.resize({ width: size, height: size, quality: 'best' }));
     tray.setToolTip('Cipher Bot');
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Show Cipher Bot', click: () => void showWindow() },
-      { type: 'separator' },
-      { label: 'Quit Cipher Bot', click: () => { quitting = true; app.quit(); } },
-    ]));
+    rebuildTrayMenu();
     tray.on('click', () => void showWindow());
   } catch {
     tray = null;
@@ -209,6 +226,7 @@ function createWindow(): BrowserWindow {
     },
   });
   win.removeMenu();
+  if (isAlwaysOnTop()) win.setAlwaysOnTop(true); // v1.21: saved choice
   if (saved?.maximized) win.maximize();
   // Save size/position/maximized (debounced). The normal bounds are kept while maximized, so un-maximizing restores them.
   const saveBounds = debounce(() => {
@@ -276,6 +294,9 @@ function chatExport(kind: unknown, id: number): { name: string; text: string } {
   const lines = botChatExportLines(bot, db.listMessages(chat.id));
   return { name: bot.name, text: formatChatExport({ kind: 'bot', name: bot.name, exportedAt, lines }) };
 }
+
+/** v1.21: settings key for "first-run tips seen". */
+const TIPS_SEEN_KEY = 'tips_seen';
 
 /** Longest text the copy button will put on the clipboard. */
 const MAX_COPY_CHARS = 2_000_000;
@@ -413,7 +434,9 @@ const searchHooks: SearchHooks = {
     signal.addEventListener('abort', onAbort, { once: true });
     activeSearches.add(controller);
     try {
-      return await webSearch(query, {
+      // v1.21: results from blocked sites are dropped before they are saved or shown.
+      const blocked = db.listBlockedSites();
+      return (await webSearch(query, {
         isOnline: () => isOnline() && !isLocked(),
         consumeConsent: (q) => searchConsent.consume(token, chatId, q),
         onSend: () => {
@@ -423,7 +446,7 @@ const searchHooks: SearchHooks = {
           sendToWindow('search:sent', { at }); // v1.19: Settings refreshes Last search and history (time only here)
         },
         signal: controller.signal,
-      });
+      })).filter((r) => !isUrlBlocked(r.url, blocked));
     } finally {
       activeSearches.delete(controller);
       signal.removeEventListener('abort', onAbort);
@@ -587,6 +610,7 @@ function registerIpc(): void {
     if (typeof url !== 'string') throw new Error('Invalid link.');
     assertLinkOpenAllowed(isOnline(), url);
     if (!db.isStoredResultUrl(url)) throw new Error('Only links from search results can be opened.');
+    if (isUrlBlocked(url, db.listBlockedSites())) throw new Error('That site is on your blocked-sites list.');
     const target = new URL(url).toString();
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
@@ -604,6 +628,7 @@ function registerIpc(): void {
       const page = await fetchPageText(target, {
         isOnline: () => isOnline() && !isLocked(),
         consumeConsent: (u) => pageConsent.consume(token, chatId, u),
+        isBlocked: (u) => isUrlBlocked(u, db.listBlockedSites()),
         signal: controller.signal,
       });
       const message = db.addMessage({ chatId, role: 'user', content: formatPageBlock(page) });
@@ -637,6 +662,7 @@ function registerIpc(): void {
     if (typeof url !== 'string') throw new Error('Invalid link.');
     assertLinkOpenAllowed(isOnline(), url);
     if (!db.isStoredResultUrl(url)) throw new Error('Only links from search results can be opened.');
+    if (isUrlBlocked(url, db.listBlockedSites())) throw new Error('That site is on your blocked-sites list.');
     if (confirm === true) {
       const win = BrowserWindow.fromWebContents(e.sender);
       const opts = { type: 'question' as const, buttons: ['Cancel', 'Open in browser'], defaultId: 1, cancelId: 0, noLink: true,
@@ -696,9 +722,10 @@ function registerIpc(): void {
     db.deleteRoom(roomId);
   });
   // Right-click on a bot or room in the left column: a native context menu with "Delete…".
-  handle('menu:item', (e, kind: unknown) => new Promise<'delete' | null>((resolve) => {
+  handle('menu:item', (e, kind: unknown) => new Promise<'delete' | 'archive' | null>((resolve) => {
     if (kind !== 'bot' && kind !== 'room') { resolve(null); return; }
     const menu = Menu.buildFromTemplate([
+      { label: kind === 'room' ? 'Archive room' : 'Archive Cipher bot', click: () => resolve('archive') },
       { label: kind === 'room' ? 'Delete room…' : 'Delete Cipher bot…', click: () => resolve('delete') },
     ]);
     const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
@@ -795,6 +822,31 @@ function registerIpc(): void {
   // ---- v1.20: quote, pin, mute, dropped images ----
   handle('messages:pin', (_e, chatIdRaw: unknown, idRaw: unknown, on: unknown) => db.setPinned(asId(chatIdRaw), asId(idRaw), on === true));
   handle('messages:pinned', (_e, chatIdRaw: unknown) => db.listPinned(asId(chatIdRaw)));
+  // ---- v1.21: archive, reply length, blocked sites, always on top, first-run tips ----
+  handle('archive:set', (_e, kind: unknown, idRaw: unknown, on: unknown) => {
+    if (kind !== 'bot' && kind !== 'room') throw new Error('Unknown kind.');
+    const id = asId(idRaw);
+    if (on === true && kind === 'bot' && activeTurns.has(db.getBotChat(id).id)) throw new Error('This chat is still replying.');
+    if (on === true && kind === 'room' && activeRooms.has(id)) throw new Error('This room is still replying.');
+    db.setArchived(kind, id, on === true);
+    return { bots: db.listBots(), rooms: db.listRooms() };
+  });
+  handle('bots:setReplyLength', (_e, idRaw: unknown, value: unknown) => db.setReplyLength(asId(idRaw), value));
+  handle('sites:list', () => db.listBlockedSites());
+  handle('sites:add', (_e, site: unknown) => db.addBlockedSite(site));
+  handle('sites:remove', (_e, site: unknown) => db.removeBlockedSite(site));
+  handle('window:getAlwaysOnTop', () => isAlwaysOnTop());
+  handle('window:setAlwaysOnTop', (_e, on: unknown) => setAlwaysOnTop(on === true));
+  handle('tips:get', () => db.getSetting(TIPS_SEEN_KEY) !== '1');
+  handle('tips:done', () => { db.setSetting(TIPS_SEEN_KEY, '1'); });
+  handle('chat:markdown', (_e, botIdRaw: unknown) => {
+    const bot = db.getBot(asId(botIdRaw));
+    if (!bot) throw new Error('Cipher bot not found.');
+    const text = chatMarkdown(bot.name, db.listMessages(db.getBotChat(bot.id).id));
+    if (text.length > MAX_COPY_CHARS) throw new Error('This chat is too long to copy.');
+    clipboard.writeText(text);
+    return { chars: text.length };
+  });
   handle('mute:set', (_e, kind: unknown, idRaw: unknown, on: unknown) => {
     if (kind !== 'bot' && kind !== 'room') throw new Error('Unknown kind.');
     db.setMuted(kind, asId(idRaw), on === true);
@@ -968,7 +1020,7 @@ if (!app.requestSingleInstanceLock()) {
     routineNotifier = createRoutineNotifier();
     // Daily routines: a main-process timer, only while Cipher runs (window open or in the tray). No OS scheduler.
     routines = new RoutineScheduler({
-      listRoutines: () => db.listRoutines(),
+      listRoutines: () => db.listActiveRoutines(), // v1.21: an archived bot's routine is paused
       chatIdForBot: (botId) => db.getBotChat(botId).id,
       isBusy: (chatId) => activeTurns.has(chatId),
       markRun: (botId, dateKey) => db.markRoutineRun(botId, dateKey),

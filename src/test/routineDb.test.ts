@@ -29,7 +29,7 @@ test('migration v4 → v5: adds the routines table and messages.routine; keeps e
 
   const db = new CipherDb(file);
   raw = new Database(file, { readonly: true });
-  assert.equal(raw.pragma('user_version', { simple: true }), 10);
+  assert.equal(raw.pragma('user_version', { simple: true }), 11); // current schema (v11 since v1.21)
   const tables = (raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name);
   assert.ok(tables.includes('routines'));
   const cols = (raw.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map((c) => c.name);

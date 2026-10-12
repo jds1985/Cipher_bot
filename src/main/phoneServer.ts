@@ -438,12 +438,12 @@ export class PhoneServer {
     const { db } = this.deps;
 
     if (method === 'GET' && url.pathname === '/api/bots') {
-      const bots = db.listBots().map((b) => ({ id: b.id, name: b.name, shape: b.shape, color: b.color }));
+      const bots = db.listBots().filter((b) => !b.archived).map((b) => ({ id: b.id, name: b.name, shape: b.shape, color: b.color }));
       return json(res, 200, { bots });
     }
 
     if (method === 'GET' && url.pathname === '/api/rooms') {
-      const rooms = db.listRooms().map((r) => ({
+      const rooms = db.listRooms().filter((r) => !r.archived).map((r) => ({
         id: r.id,
         name: r.name,
         memberIds: r.memberIds,
@@ -453,6 +453,12 @@ export class PhoneServer {
         }).filter(Boolean),
       }));
       return json(res, 200, { rooms });
+    }
+
+    // v1.21: archived bots and rooms are not on the phone (hidden from the lists, every route refused).
+    const one = /^\/api\/(bots|rooms)\/(\d+)\//.exec(url.pathname);
+    if (one && (one[1] === 'bots' ? db.getBot(Number(one[2]))?.archived : db.getRoom(Number(one[2]))?.archived)) {
+      return json(res, 404, { error: 'This is archived on the desktop.' });
     }
 
     const botChat = /^\/api\/bots\/(\d+)\/chat$/.exec(url.pathname);
