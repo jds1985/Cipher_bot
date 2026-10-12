@@ -43,7 +43,7 @@ export interface SetupCopy {
 export function setupCopy(st: SetupState): SetupCopy {
   if (st.phase === 'downloading') {
     return {
-      text: 'Cipher is downloading what your Cipher bot needs to think. This happens once and can take a few minutes.',
+      text: 'Cipher Bot is downloading what your Cipher bot needs to think. This happens once and can take a few minutes.',
       detail: st.total > 0 ? `${Math.floor(st.percent ?? 0)}% · ${formatBytes(st.completed)} of ${formatBytes(st.total)}` : 'Starting…',
       showProgress: true,
       showGetEngine: false,

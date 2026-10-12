@@ -148,7 +148,7 @@ export class AttemptThrottle {
 
 export type UnlockResult = { ok: true } | { ok: false; error: string; waitMs: number };
 
-export const LOCKED_MESSAGE = 'Cipher is locked.';
+export const LOCKED_MESSAGE = 'Cipher Bot is locked.';
 
 /**
  * The app lock state. Off when there is no lock file. When on, Cipher starts locked, and main locks it again

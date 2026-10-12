@@ -107,11 +107,11 @@ test('restore forces Online off and drops any lock-like setting from the restore
   restored.close();
 });
 
-test('restore validation: rejects a non-SQLite file, a foreign database, a newer schema, and Cipher\'s own file', async () => {
+test('restore validation: rejects a non-SQLite file, a foreign database, a newer schema, and Cipher Bot\'s own file', async () => {
   const dir = tmpDir();
   const text = path.join(dir, 'notes.db');
   fs.writeFileSync(text, 'just some text, not a database');
-  assert.deepEqual(validateBackupFile(text), { ok: false, error: 'That file is not a Cipher backup (not an SQLite database).' });
+  assert.deepEqual(validateBackupFile(text), { ok: false, error: 'That file is not a Cipher Bot backup (not an SQLite database).' });
   assert.equal(validateBackupFile(path.join(dir, 'missing.db')).ok, false);
 
   const foreign = path.join(dir, 'foreign.db');
@@ -121,7 +121,7 @@ test('restore validation: rejects a non-SQLite file, a foreign database, a newer
   f.close();
   const fr = validateBackupFile(foreign);
   assert.equal(fr.ok, false);
-  assert.match(fr.ok ? '' : fr.error, /Cipher's tables are missing/);
+  assert.match(fr.ok ? '' : fr.error, /Cipher Bot's tables are missing/);
 
   const newer = path.join(dir, 'newer.db');
   seed(newer).close();
@@ -130,7 +130,7 @@ test('restore validation: rejects a non-SQLite file, a foreign database, a newer
   n.close();
   const nr = validateBackupFile(newer);
   assert.equal(nr.ok, false);
-  assert.match(nr.ok ? '' : nr.error, /newer version of Cipher/);
+  assert.match(nr.ok ? '' : nr.error, /newer version of Cipher Bot/);
 
   // A rejected file never replaces anything, and no pre-restore copy is made.
   const livePath = path.join(dir, 'cipher.db');

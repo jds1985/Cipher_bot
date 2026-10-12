@@ -60,13 +60,13 @@ test('scheduler: runs once at the chosen minute even with several ticks; next da
   assert.equal(h.runs.length, 2);
 });
 
-test('scheduler: no catch-up when Cipher starts after the time; disabled routines never run', () => {
+test('scheduler: no catch-up when Cipher Bot starts after the time; disabled routines never run', () => {
   const routines: Routine[] = [
     { botId: 1, prompt: 'A', time: '08:30', enabled: true, lastRunDate: null },
     { botId: 2, prompt: 'B', time: '09:00', enabled: false, lastRunDate: null },
   ];
   const h = harness(routines);
-  // Cipher "starts" at 08:45 and keeps ticking for the rest of the day.
+  // Cipher Bot "starts" at 08:45 and keeps ticking for the rest of the day.
   for (let m = 45; m < 24 * 60; m += 7) { h.setNow(at(7, Math.floor(m / 60), m % 60)); h.s.tick(); }
   assert.equal(h.runs.length, 0);
   assert.equal(routines[0].lastRunDate, null, 'a skipped day is not recorded as run');

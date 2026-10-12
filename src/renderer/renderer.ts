@@ -856,7 +856,7 @@ async function submitLockSet(e: Event): Promise<void> {
   try {
     state.lock = await api.enableLock(pass, confirm);
     renderLockSettings();
-    lockFeedback('The lock is on. Cipher will lock when its window is closed to the tray or next time it starts.', null);
+    lockFeedback('The lock is on. Cipher Bot will lock when its window is closed to the tray or next time it starts.', null);
   } catch (err) {
     lockFeedback(null, plainError(err));
   }
@@ -919,7 +919,7 @@ async function restoreNow(): Promise<void> {
     `Restore from "${r.file}"?`,
     `This replaces all your current Cipher bots, chats, rooms and routines with the ones in this backup ` +
       `(${n(r.bots, 'Cipher bot', 'Cipher bots')}, ${n(r.rooms, 'room', 'rooms')}). ` +
-      'Before replacing, Cipher saves a copy of the current database next to it (cipher.db.before-restore-<date>-<time>), then restarts. ' +
+      'Before replacing, Cipher Bot saves a copy of the current database next to it (cipher.db.before-restore-<date>-<time>), then restarts. ' +
       'The lock on this computer stays as it is, and Online is turned off.',
     async () => {
       try { await api.confirmRestore(); } catch (err) { showError(plainError(err)); }

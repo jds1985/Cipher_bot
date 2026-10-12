@@ -62,7 +62,7 @@ export interface PhoneServerDeps {
 
 /** HTTP status and message the phone API returns for every request while Cipher is locked on the desktop. */
 export const PHONE_LOCKED_STATUS = 423;
-export const PHONE_LOCKED_MESSAGE = 'Cipher is locked on the desktop.';
+export const PHONE_LOCKED_MESSAGE = 'Cipher Bot is locked on the desktop.';
 
 interface PairingState {
   code: string;

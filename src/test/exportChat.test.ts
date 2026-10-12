@@ -23,7 +23,7 @@ test('1:1 export: header with bot name and export date, then [time] Speaker: tex
   ];
   const text = formatChatExport({ kind: 'bot', name: 'Planner', exportedAt: new Date(2026, 9, 7, 10, 30), lines: botChatExportLines({ name: 'Planner' }, msgs) });
   assert.equal(text, [
-    'Cipher chat export',
+    'Cipher Bot chat export',
     'Cipher bot: Planner',
     'Exported: 2026-10-07 10:30',
     '',
@@ -46,7 +46,7 @@ test('room export: room name in the header, each reply under its bot\'s name (de
   const names = new Map([[7, 'Scout']]);
   const text = formatChatExport({ kind: 'room', name: 'Team', exportedAt: new Date(2026, 9, 7, 11, 0), lines: roomExportLines(msgs, (id) => (id === null ? null : names.get(id) ?? null)) });
   assert.equal(text, [
-    'Cipher chat export', 'Room: Team', 'Exported: 2026-10-07 11:00', '',
+    'Cipher Bot chat export', 'Room: Team', 'Exported: 2026-10-07 11:00', '',
     '[2026-10-07 08:00] You: Plan Friday',
     '[2026-10-07 08:01] Scout: Sure.',
     '[2026-10-07 08:02] Cipher bot: Old reply',

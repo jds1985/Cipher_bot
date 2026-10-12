@@ -24,7 +24,7 @@ export function exportTime(value: string | Date): string {
  */
 export function formatChatExport(opts: { kind: 'bot' | 'room'; name: string; exportedAt: Date; lines: readonly ExportLine[] }): string {
   const out = [
-    'Cipher chat export',
+    'Cipher Bot chat export',
     opts.kind === 'room' ? `Room: ${opts.name}` : `Cipher bot: ${opts.name}`,
     `Exported: ${exportTime(opts.exportedAt)}`,
     '',

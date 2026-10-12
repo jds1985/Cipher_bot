@@ -112,11 +112,11 @@ function createTray(): void {
     const icon = nativeImage.createFromPath(appIconPath());
     if (icon.isEmpty()) return;
     tray = new Tray(icon.resize({ width: size, height: size, quality: 'best' }));
-    tray.setToolTip('Cipher');
+    tray.setToolTip('Cipher Bot');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Show Cipher', click: () => void showWindow() },
+      { label: 'Show Cipher Bot', click: () => void showWindow() },
       { type: 'separator' },
-      { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+      { label: 'Quit Cipher Bot', click: () => { quitting = true; app.quit(); } },
     ]));
     tray.on('click', () => void showWindow());
   } catch {
@@ -156,7 +156,7 @@ function createWindow(): BrowserWindow {
     minWidth: 760,
     minHeight: 480,
     resizable: true,
-    title: 'Cipher',
+    title: 'Cipher Bot',
     backgroundColor: FRAME_BG,
     // Cipher-colored frame: hide the system title bar and let Electron draw the min/max/close controls
     // (Window Controls Overlay, supported on Windows and Linux; macOS keeps its traffic lights).
@@ -312,13 +312,13 @@ function registerIpc(): void {
   handle('data:backup', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
-      title: 'Back up Cipher',
+      title: 'Back up Cipher Bot',
       defaultPath: path.join(app.getPath('documents'), backupFileName(new Date())),
-      filters: [{ name: 'Cipher backup', extensions: ['db'] }],
+      filters: [{ name: 'Cipher Bot backup', extensions: ['db'] }],
     };
     const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
     if (r.canceled || !r.filePath) return { ok: false as const, canceled: true as const };
-    if (path.resolve(r.filePath) === path.resolve(dbPath())) return { ok: false as const, error: 'Choose a different file than Cipher\'s own database.' };
+    if (path.resolve(r.filePath) === path.resolve(dbPath())) return { ok: false as const, error: 'Choose a different file than Cipher Bot\'s own database.' };
     try {
       await db.backup(r.filePath);
       return { ok: true as const, path: r.filePath };
@@ -330,9 +330,9 @@ function registerIpc(): void {
     pendingRestore = null;
     const win = BrowserWindow.fromWebContents(e.sender);
     const opts = {
-      title: 'Restore Cipher from a backup',
+      title: 'Restore Cipher Bot from a backup',
       defaultPath: app.getPath('documents'),
-      filters: [{ name: 'Cipher backup', extensions: ['db'] }, { name: 'All files', extensions: ['*'] }],
+      filters: [{ name: 'Cipher Bot backup', extensions: ['db'] }, { name: 'All files', extensions: ['*'] }],
       properties: ['openFile' as const],
     };
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);

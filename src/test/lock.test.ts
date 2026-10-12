@@ -193,7 +193,7 @@ test('re-showing a hidden window shows the lock screen (safety net: locks if som
   assert.match(main, /async function lockApp\(win: BrowserWindow\): Promise<void> \{\s*appLock\.lock\(\);\s*openBotId = null;\s*phone\?\.closeStreams\(\);/);
   // a fresh document each time (a hash-only change would keep the old page and its chat data in memory)
   assert.match(main, /loadFile\([^)]*index\.html'\), \{ query: \{ lock: String\(\+\+lockLoads\) \}, hash: 'nosplash' \}\)/);
-  assert.match(main, /label: 'Show Cipher', click: \(\) => void showWindow\(\)/);
+  assert.match(main, /label: 'Show Cipher Bot', click: \(\) => void showWindow\(\)/);
   assert.match(main, /app\.on\('second-instance', \(\) => \{\s*if \(app\.isReady\(\)\) void showWindow\(\);/);
   // The renderer starts on the lock screen (in the HTML, not hidden) and loads data only after the check.
   const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
@@ -244,7 +244,7 @@ test('phone link refuses everything while locked (pairing, status, chats, sends,
     const token = (JSON.parse(pair.text) as { token: string }).token;
     assert.equal((await req(base, '/api/bots', { token })).status, 200);
 
-    // An open event stream is ended when Cipher locks.
+    // An open event stream is ended when Cipher Bot locks.
     const ac = new AbortController();
     const stream = await fetch(`${base}/api/bots/${bot.id}/events?token=${token}`, { signal: ac.signal });
     assert.equal(stream.status, 200);
@@ -268,7 +268,7 @@ test('phone link refuses everything while locked (pairing, status, chats, sends,
       assert.equal((JSON.parse(r.text) as { error: string }).error, PHONE_LOCKED_MESSAGE);
       assert.ok(!r.text.includes('very private') && !r.text.includes('Ada'), 'no chat data');
     }
-    assert.equal(PHONE_LOCKED_MESSAGE, 'Cipher is locked on the desktop.');
+    assert.equal(PHONE_LOCKED_MESSAGE, 'Cipher Bot is locked on the desktop.');
     assert.equal(sent.length, 0, 'nothing sent while locked');
     assert.equal(server.status().pairingCode, fresh, 'the code was not consumed while locked');
     // The static page still loads (no data in it) so the phone can show the locked message.
@@ -359,8 +359,8 @@ test('hide to the tray with the lock off: nothing locks and the phone keeps work
   }
 });
 
-test('phone UI shows "Cipher is locked on the desktop" on a 423', () => {
+test('phone UI shows "Cipher Bot is locked on the desktop" on a 423', () => {
   const app = src('phone/app.js');
   assert.match(app, /if \(res\.status === 423\) \{ closeEvents\(\); setBusy\(false\); show\('locked'\);/);
-  assert.match(src('phone/index.html'), /<section id="locked-view" class="panel" hidden>\s*<h1>Cipher is locked on the desktop<\/h1>/);
+  assert.match(src('phone/index.html'), /<section id="locked-view" class="panel" hidden>\s*<h1>Cipher Bot is locked on the desktop<\/h1>/);
 });

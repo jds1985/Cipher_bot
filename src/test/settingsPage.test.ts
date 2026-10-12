@@ -21,7 +21,7 @@ test('Settings page has Lock, Backup, Restore and Policy sections, and keeps Onl
   }
   assert.match(settings, /id="open-policy"/);
   assert.match(settings, /The backup is not encrypted: anyone who can open the file can read your chats\. It does not include the lock\./);
-  assert.match(settings, /Cipher first keeps a copy of the current database next to it, then restarts\. The lock on this computer stays as it is, and Online is turned off\./);
+  assert.match(settings, /Cipher Bot first keeps a copy of the current database next to it, then restarts\. The lock on this computer stays as it is, and Online is turned off\./);
   assert.match(settings, /The lock does not encrypt your chats, and there is no recovery if you forget the passphrase\./);
   // Passphrase fields are password inputs, at least 8 characters for new ones.
   for (const id of ['lock-set-new', 'lock-set-confirm', 'lock-change-new', 'lock-change-confirm']) {

@@ -80,7 +80,7 @@ test('splash: every launch for about a second, nothing persisted; only a real pr
   assert.match(main, /app\.on\('activate', \(\) => void showWindow\(\)\)/);
   // The splash doesn't hold back setup/model check (they start in main right away) and makes no requests.
   assert.match(main, /createTray\(\);\s*void setup\.run\(true\);/);
-  assert.match(html, /<div id="splash" aria-hidden="true"><img src="assets\/splash\.png" alt="Cipher" \/><\/div>/);
+  assert.match(html, /<div id="splash" aria-hidden="true"><img src="assets\/splash\.png" alt="Cipher Bot" \/><\/div>/);
   const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
   assert.match(css, /#nosplash:target ~ #splash \{ display: none !important; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*#splash \{ transition: none;/);

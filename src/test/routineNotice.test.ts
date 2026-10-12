@@ -26,9 +26,9 @@ test('outcome: finished, failed, or none when the turn was stopped (Stop or quit
   assert.equal(routineOutcome({ aborted: true, failed: true }), null);
 });
 
-test('text: title "Cipher", body names the bot and finished/failed only', () => {
-  assert.deepEqual(routineNoticeContent('finished', 'Planner Pro'), { title: 'Cipher', body: 'Routine finished: Planner Pro' });
-  assert.deepEqual(routineNoticeContent('failed', 'Planner Pro'), { title: 'Cipher', body: 'Routine failed: Planner Pro' });
+test('text: title "Cipher Bot", body names the bot and finished/failed only', () => {
+  assert.deepEqual(routineNoticeContent('finished', 'Planner Pro'), { title: 'Cipher Bot', body: 'Routine finished: Planner Pro' });
+  assert.deepEqual(routineNoticeContent('failed', 'Planner Pro'), { title: 'Cipher Bot', body: 'Routine failed: Planner Pro' });
   assert.equal(routineNoticeContent('finished', null).body, 'Routine finished: Cipher bot');
   assert.equal(routineNoticeContent('finished', '  Multi\n line  ').body, 'Routine finished: Multi line');
   assert.ok(routineNoticeContent('finished', 'x'.repeat(200)).body.length <= 'Routine finished: '.length + 60);
@@ -62,7 +62,7 @@ test('notifier: shows the notice while hidden; clicking it opens that bot\'s cha
   const { notifier, created, opened } = setup();
   assert.equal(notifier.notify(7, 'finished'), true);
   assert.equal(created.length, 1);
-  assert.deepEqual(created[0].opts, { title: 'Cipher', body: 'Routine finished: Planner Pro' });
+  assert.deepEqual(created[0].opts, { title: 'Cipher Bot', body: 'Routine finished: Planner Pro' });
   assert.equal(created[0].shownCount, 1);
   assert.equal(notifier.liveCount, 1, 'kept referenced so the click still works');
   created[0].fire('click');

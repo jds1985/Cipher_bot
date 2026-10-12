@@ -302,11 +302,20 @@ button.plus-item:disabled { background: transparent; }
   position: fixed; inset: var(--titlebar-h) 0 0 0; z-index: 90; display: flex; align-items: center; justify-content: center;
   background: var(--bg);
 }
-.lock-card { width: min(420px, 92%); margin: 0; text-align: left; }
-.lock-card .lock-art { display: block; margin: 0 auto 12px; }
-.lock-card h2 { text-align: center; }
-.lock-card .lock-note { font-size: 12px; margin: 14px 0 0; }
-.lock-card .error { margin: 0 0 4px; }
+/* v1.14: the app icon, large and centered (up to 80% of the window, never stretched), with the passphrase panel
+   centered on top of it and the forgotten-passphrase note small at the bottom. No animation. */
+.lock-screen { flex-direction: column; overflow: hidden; }
+.lock-stage { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; display: grid; place-items: center; overflow: hidden; }
+.lock-logo { grid-area: 1 / 1; width: min(80vw, 80vh); height: min(80vw, 80vh); max-width: 100%; max-height: 100%;
+  object-fit: contain; pointer-events: none; user-select: none; }
+.lock-panel { grid-area: 1 / 1; position: relative; z-index: 1; width: min(320px, 86vw); padding: 16px 18px 18px; text-align: left;
+  background: #15171cdb; border: 1px solid #5b8cff73; border-radius: 12px; box-shadow: 0 0 28px #5b8cff2e, 0 8px 28px #000a; }
+.lock-panel h2 { margin: 0 0 12px; font-size: 18px; text-align: center; }
+.lock-panel label { margin-bottom: 10px; }
+.lock-panel .error { margin: 0 0 10px; }
+.lock-panel button { display: block; width: 100%; }
+.lock-note { flex: none; max-width: 760px; margin: 0; padding: 6px 20px 10px; font-size: 12px; line-height: 1.4; text-align: center;
+  color: var(--muted); }
 .lock-status { margin: 0 0 10px; font-weight: 600; color: var(--muted); }
 .lock-status.on { color: var(--text); }
 .lock-form { margin: 0 0 8px; }

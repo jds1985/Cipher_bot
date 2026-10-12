@@ -6,25 +6,27 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
-    <title>Cipher</title>
+    <title>Cipher Bot</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher</span></div></div>
+    <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher Bot</span></div></div>
     <div id="lock-screen" class="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
-      <form id="lock-form" class="card lock-card">
-        <img class="lock-art" src="assets/icon.png" alt="" width="72" height="72" />
-        <h2 id="lock-title">Cipher is locked</h2>
-        <label>Passphrase
-          <input id="lock-pass" type="password" autocomplete="current-password" maxlength="1024" />
-        </label>
-        <p id="lock-pass-error" class="error" hidden></p>
-        <div class="row end"><button type="submit" id="lock-unlock">Unlock</button></div>
-        <p class="muted lock-note">There is no recovery: Cipher can't reset a forgotten passphrase. If you forget it, quit Cipher and delete the file lock.json in Cipher's user data folder. That removes the lock and keeps your chats. The lock does not encrypt anything.</p>
-      </form>
+      <div class="lock-stage">
+        <img class="lock-logo" src="assets/icon-1024.png" alt="" width="1024" height="1024" />
+        <form id="lock-form" class="lock-panel">
+          <h2 id="lock-title">Cipher Bot is locked</h2>
+          <label>Passphrase
+            <input id="lock-pass" type="password" autocomplete="current-password" maxlength="1024" />
+          </label>
+          <p id="lock-pass-error" class="error" hidden></p>
+          <button type="submit" id="lock-unlock">Unlock</button>
+        </form>
+      </div>
+      <p class="lock-note">There is no recovery: Cipher Bot can't reset a forgotten passphrase. If you forget it, quit Cipher Bot and delete the file lock.json in Cipher Bot's user data folder. That removes the lock and keeps your chats. The lock does not encrypt anything.</p>
     </div>
     <i id="nosplash" hidden></i>
-    <div id="splash" aria-hidden="true"><img src="assets/splash.png" alt="Cipher" /></div>
+    <div id="splash" aria-hidden="true"><img src="assets/splash.png" alt="Cipher Bot" /></div>
     <div id="app">
       <nav id="sidebar" aria-label="Cipher bots and rooms">
         <div id="bot-list" class="rail-list" role="group" aria-label="Cipher bots"></div>
@@ -97,7 +99,7 @@
             <h2>Settings</h2>
             <div class="settings-block" id="lock-block">
               <h3>Lock</h3>
-              <p class="muted">Cipher locks each time it starts and as soon as its window is closed to the tray, and asks for this passphrase before showing anything again. The passphrase never leaves this computer; only a salted hash is kept, in lock.json. The lock does not encrypt your chats, and there is no recovery if you forget the passphrase.</p>
+              <p class="muted">Cipher Bot locks each time it starts and as soon as its window is closed to the tray, and asks for this passphrase before showing anything again. The passphrase never leaves this computer; only a salted hash is kept, in lock.json. The lock does not encrypt your chats, and there is no recovery if you forget the passphrase.</p>
               <p id="lock-status" class="lock-status"></p>
               <form id="lock-set-form" class="lock-form" hidden>
                 <label>New passphrase (at least 8 characters)
@@ -138,12 +140,12 @@
             </div>
             <div class="settings-block">
               <h3>Restore</h3>
-              <p class="muted">Replaces all current Cipher bots and chats with a backup file you choose. Cipher first keeps a copy of the current database next to it, then restarts. The lock on this computer stays as it is, and Online is turned off.</p>
+              <p class="muted">Replaces all current Cipher bots and chats with a backup file you choose. Cipher Bot first keeps a copy of the current database next to it, then restarts. The lock on this computer stays as it is, and Online is turned off.</p>
               <div class="row"><button type="button" id="restore-btn" class="secondary">Restore…</button></div>
               <p id="restore-error" class="error" hidden></p>
             </div>
             <div class="settings-block">
-              <label class="row switch-row" title="When off, Cipher does not open internet addresses. Local Ollama and Phone link (LAN) still work.">
+              <label class="row switch-row" title="When off, Cipher Bot does not open internet addresses. Local Ollama and Phone link (LAN) still work.">
                 <input type="checkbox" id="online-switch" />
                 <span><strong>Online</strong><span class="muted switch-hint"> Off by default. Turning it on enables nothing new yet (no email, search, or schedules).</span></span>
               </label>
@@ -252,7 +254,7 @@
           </label>
           <label class="row routine-on"><input type="checkbox" id="routine-enabled" /> <span>On</span></label>
         </div>
-        <p class="muted routine-hint">Sends this message to this Cipher bot every day at this time, as if you typed it (marked "Routine"). It runs only on this computer, and only while Cipher is open or in the tray. If Cipher isn't running at that time, that day's run is skipped (no catch-up). File reading is off for routines. The reply comes from the model on this computer; no internet.</p>
+        <p class="muted routine-hint">Sends this message to this Cipher bot every day at this time, as if you typed it (marked "Routine"). It runs only on this computer, and only while Cipher Bot is open or in the tray. If Cipher Bot isn't running at that time, that day's run is skipped (no catch-up). File reading is off for routines. The reply comes from the model on this computer; no internet.</p>
         <p id="routine-error" class="error" hidden></p>
         <div class="row end">
           <button type="button" id="routine-cancel" class="secondary">Cancel</button>

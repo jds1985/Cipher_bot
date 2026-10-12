@@ -18,12 +18,12 @@ export function configuredModel(): string {
 }
 
 // User-facing messages. Plain language: no engine or model names, always with a step the user can take.
-export const ENGINE_MISSING_MESSAGE = "Cipher's model engine isn't running. Install it from the setup page, then reopen Cipher.";
+export const ENGINE_MISSING_MESSAGE = "Cipher Bot's model engine isn't running. Install it from the setup page, then reopen Cipher Bot.";
 export const MODEL_MISSING_MESSAGE = "Your Cipher bot isn't set up yet. Choose \"Set up again\" to finish setup.";
 export const BAD_STREAM_MESSAGE =
-  'Cipher received a garbled reply. Please try again; if it keeps happening, restart your computer and reopen Cipher.';
+  'Cipher Bot received a garbled reply. Please try again; if it keeps happening, restart your computer and reopen Cipher Bot.';
 export const CONNECTION_LOST_MESSAGE =
-  "Cipher lost its connection to the model engine. Please try again; if it keeps happening, restart your computer and reopen Cipher.";
+  "Cipher Bot lost its connection to the model engine. Please try again; if it keeps happening, restart your computer and reopen Cipher Bot.";
 
 /** An error whose message is already plain, user-facing wording. */
 export class FriendlyError extends Error {}
@@ -90,7 +90,7 @@ function friendlyError(status: number, raw: string, _model: string): string {
     return 'This Cipher bot can\'t read files with the current setup. Turn off file reading for this Cipher bot and try again.';
   }
   if (status === 404 && /not found/i.test(msg)) return MODEL_MISSING_MESSAGE;
-  return 'Something went wrong while your Cipher bot was replying. Please try again; if it keeps happening, restart your computer and reopen Cipher.';
+  return 'Something went wrong while your Cipher bot was replying. Please try again; if it keeps happening, restart your computer and reopen Cipher Bot.';
 }
 
 /** Parse one NDJSON line from Ollama, turning malformed data into a clear user-facing error. */
@@ -248,7 +248,7 @@ function friendlyPullError(raw: string): string {
   if (/no space|disk/i.test(raw)) {
     return 'Setup stopped because this computer is out of disk space. Free up about 5 GB, then choose "Try again".';
   }
-  return 'Setup stopped before it finished. Choose "Try again"; if it keeps failing, restart your computer and reopen Cipher.';
+  return 'Setup stopped before it finished. Choose "Try again"; if it keeps failing, restart your computer and reopen Cipher Bot.';
 }
 
 export interface PullOptions {
