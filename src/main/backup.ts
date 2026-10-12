@@ -43,21 +43,21 @@ export function validateBackupFile(file: string): BackupCheck {
   } catch {
     return { ok: false, error: 'Could not read that file.' };
   }
-  if (!header.equals(SQLITE_HEADER)) return { ok: false, error: 'That file is not a Cipher backup (not an SQLite database).' };
+  if (!header.equals(SQLITE_HEADER)) return { ok: false, error: 'That file is not a Cipher Bot backup (not an SQLite database).' };
   let db: Database.Database | null = null;
   try {
     db = new Database(file, { readonly: true, fileMustExist: true });
     const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name));
-    if (!REQUIRED_TABLES.every((t) => tables.has(t))) return { ok: false, error: 'That database is not a Cipher backup (Cipher\'s tables are missing).' };
+    if (!REQUIRED_TABLES.every((t) => tables.has(t))) return { ok: false, error: 'That database is not a Cipher Bot backup (Cipher Bot\'s tables are missing).' };
     const version = db.pragma('user_version', { simple: true }) as number;
-    if (version < 1) return { ok: false, error: 'That database is not a Cipher backup (no Cipher schema version).' };
-    if (version > SCHEMA_VERSION) return { ok: false, error: 'That backup is from a newer version of Cipher. Update Cipher first.' };
+    if (version < 1) return { ok: false, error: 'That database is not a Cipher Bot backup (no Cipher Bot schema version).' };
+    if (version > SCHEMA_VERSION) return { ok: false, error: 'That backup is from a newer version of Cipher Bot. Update Cipher Bot first.' };
     const integrity = db.pragma('quick_check', { simple: true });
     if (integrity !== 'ok') return { ok: false, error: 'That backup file is damaged.' };
     const count = (t: string) => (tables.has(t) ? (db!.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n : 0);
     return { ok: true, schemaVersion: version, bots: count('bots'), rooms: count('rooms') };
   } catch {
-    return { ok: false, error: 'That file is not a Cipher backup (it could not be opened as a database).' };
+    return { ok: false, error: 'That file is not a Cipher Bot backup (it could not be opened as a database).' };
   } finally {
     db?.close();
   }
@@ -89,7 +89,7 @@ export function sanitizeRestoredDb(file: string): void {
 export async function restoreDatabase(opts: { live: CipherDb; livePath: string; source: string; now?: Date }): Promise<{ beforeRestorePath: string }> {
   const check = validateBackupFile(opts.source);
   if (!check.ok) throw new Error(check.error);
-  if (path.resolve(opts.source) === path.resolve(opts.livePath)) throw new Error('That is Cipher\'s current database.');
+  if (path.resolve(opts.source) === path.resolve(opts.livePath)) throw new Error('That is Cipher Bot\'s current database.');
   const tmp = `${opts.livePath}.restore-tmp`;
   for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) fs.rmSync(f, { force: true });
   fs.copyFileSync(opts.source, tmp);

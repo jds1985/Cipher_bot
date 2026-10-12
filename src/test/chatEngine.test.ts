@@ -134,7 +134,7 @@ test('getStatus: running + present, model missing, and not running', async () =>
   const down = await getStatus('qwen2.5:7b', 'http://127.0.0.1:9');
   assert.equal(down.running, false);
   assert.equal(down.action, 'get-engine');
-  assert.equal(down.problem, "Cipher's model engine isn't running. Install it from the setup page, then reopen Cipher.");
+  assert.equal(down.problem, "Cipher Bot's model engine isn't running. Install it from the setup page, then reopen Cipher Bot.");
 });
 
 test('a malformed stream line ends the turn with a friendly error', async () => {

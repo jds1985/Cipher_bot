@@ -170,7 +170,7 @@ test('user-facing messages never name the engine or the model, and always give a
     assert.doesNotMatch(m, /ollama|qwen|llama|11434/i, m);
     assert.match(m, /install|set up again|try again|reopen/i, m);
   }
-  assert.equal(ENGINE_MISSING_MESSAGE, "Cipher's model engine isn't running. Install it from the setup page, then reopen Cipher.");
+  assert.equal(ENGINE_MISSING_MESSAGE, "Cipher Bot's model engine isn't running. Install it from the setup page, then reopen Cipher Bot.");
   assert.equal(ENGINE_DOWNLOAD_URL, 'https://ollama.com/download'); // opened only via the "Get the engine" button
 });
 

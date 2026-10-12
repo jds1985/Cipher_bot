@@ -36,7 +36,7 @@ export const NOTICE_NAME_MAX = 60;
 export function routineNoticeContent(outcome: RoutineOutcome, botName: string | null): { title: string; body: string } {
   let name = (botName ?? '').replace(/\s+/g, ' ').trim() || 'Cipher bot';
   if (name.length > NOTICE_NAME_MAX) name = `${name.slice(0, NOTICE_NAME_MAX - 1)}…`;
-  return { title: 'Cipher', body: `Routine ${outcome === 'failed' ? 'failed' : 'finished'}: ${name}` };
+  return { title: 'Cipher Bot', body: `Routine ${outcome === 'failed' ? 'failed' : 'finished'}: ${name}` };
 }
 
 /** The part of Electron's Notification used here. */

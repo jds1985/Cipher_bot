@@ -42,7 +42,12 @@
         "deb"
       ],
       "category": "Utility",
-      "icon": "build/icons"
+      "icon": "build/icons",
+      "desktop": {
+        "entry": {
+          "Name": "Cipher Bot"
+        }
+      }
     },
     "mac": {
       "target": [

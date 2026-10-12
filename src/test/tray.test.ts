@@ -13,10 +13,10 @@ const block = (start: string, end: string): string => {
   return src.slice(i, j);
 };
 
-test('tray menu has "Show Cipher" and a real Quit; close hides only while not quitting and the tray exists', () => {
+test('tray menu has "Show Cipher Bot" and a real Quit; close hides only while not quitting and the tray exists', () => {
   const tray = block('function createTray', '/** Folders the user picked');
-  assert.match(tray, /label: 'Show Cipher'/);
-  assert.match(tray, /label: 'Quit', click: \(\) => \{ quitting = true; app\.quit\(\); \}/);
+  assert.match(tray, /label: 'Show Cipher Bot'/);
+  assert.match(tray, /label: 'Quit Cipher Bot', click: \(\) => \{ quitting = true; app\.quit\(\); \}/);
   assert.match(tray, /catch \{\s*tray = null;/, 'no tray → normal close-to-quit');
   assert.match(src, /if \(!quitting && tray && !tray\.isDestroyed\(\)\) \{\s*e\.preventDefault\(\);\s*hideToTray\(win\);/);
   assert.match(block('function hideToTray', '\n}\n'), /win\.hide\(\);/);

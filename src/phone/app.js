@@ -22,7 +22,7 @@
     const res = await fetch(path, opts);
     const body = await res.json().catch(() => ({}));
     // 423: Cipher is locked on the desktop. Everything is refused (pairing too) until it's unlocked there.
-    if (res.status === 423) { closeEvents(); setBusy(false); show('locked'); throw new Error(body.error || 'Cipher is locked on the desktop.'); }
+    if (res.status === 423) { closeEvents(); setBusy(false); show('locked'); throw new Error(body.error || 'Cipher Bot is locked on the desktop.'); }
     if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
     return body;
   }
