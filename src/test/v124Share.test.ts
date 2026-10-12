@@ -498,3 +498,16 @@ test('new IPC is desktop-only and lock-guarded; preload exposes it; no new netwo
   assert.match(policy, /Scheduled backup \(v1\.24\)[\s\S]*never includes lock\.json/);
   assert.match(policy, /Settings file \(v1\.24\)/);
 });
+
+test('v1.24 layout: reactions white on own bubbles, choices on hover/focus only, picked always shown; dark tag filter', () => {
+  assert.match(css, /\.msg\.user \.react-btn \.ico \{ filter: brightness\(0\) invert\(1\); opacity: 0\.8; \}/);
+  assert.match(css, /\.msg\.user \.msg-act img \{ filter: brightness\(0\) invert\(1\); opacity: 0\.8; \}/, 'same filter as quote and pin');
+  assert.match(css, /\.react-btn \{ opacity: 0;/);
+  assert.match(css, /\.msg:hover \.react-btn, \.msg:focus-within \.react-btn \{ opacity: 0\.55; \}/);
+  assert.match(css, /\.react-btn\[aria-pressed="true"\][^{]*\{ opacity: 1;/);
+  assert.doesNotMatch(css, /\.react-btn[^{]*\{[^}]*display: none/, 'hidden choices stay in the tab order');
+  assert.match(css, /\.tag-filter-wrap select \{ appearance: none;[^}]*color-scheme: dark;[^}]*max-width: 100%;[^}]*background: var\(--panel2\)/);
+  assert.doesNotMatch(css, /\.tag-filter-wrap select \{[^}]*max-width: \d+px/, 'no fixed width that truncates the tag');
+  assert.match(css, /\.tag-filter-wrap select option \{ background: var\(--panel2\); color: var\(--text\); \}/);
+  assert.match(renderer, /b\.setAttribute\('aria-pressed', String\(m\.reaction === r\.id\)\)/);
+});
