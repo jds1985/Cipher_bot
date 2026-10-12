@@ -47,6 +47,16 @@ const api: CipherApi = {
     return () => ipcRenderer.removeListener('setup:state', listener);
   },
   reportOpenBot: (botId) => ipcRenderer.send('ui:openBot', botId),
+  reportOpenRoom: (roomId) => ipcRenderer.send('ui:openRoom', roomId),
+  markRead: (kind, id) => ipcRenderer.invoke('unread:clear', kind, id),
+  onUnreadChanged: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('unread:changed', listener);
+    return () => ipcRenderer.removeListener('unread:changed', listener);
+  },
+  getVersion: () => ipcRenderer.invoke('app:version'),
+  getSendSound: () => ipcRenderer.invoke('sound:get'),
+  setSendSound: (on) => ipcRenderer.invoke('sound:set', on),
   onOpenBot: (cb) => {
     const listener = (_e: IpcRendererEvent, botId: number) => cb(botId);
     ipcRenderer.on('routine:openBot', listener);

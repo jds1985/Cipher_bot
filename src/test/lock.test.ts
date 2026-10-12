@@ -190,7 +190,7 @@ test('closing to the tray locks at the moment it hides (before win.hide); every 
 test('re-showing a hidden window shows the lock screen (safety net: locks if somehow unlocked while hidden); tray Show goes through it', () => {
   const main = src('main/main.ts');
   assert.match(main, /if \(!win\.isVisible\(\) && appLock\.isEnabled\(\) && !appLock\.isLocked\(\)\) await lockApp\(win\);/);
-  assert.match(main, /async function lockApp\(win: BrowserWindow\): Promise<void> \{\s*appLock\.lock\(\);\s*openBotId = null;\s*phone\?\.closeStreams\(\);/);
+  assert.match(main, /async function lockApp\(win: BrowserWindow\): Promise<void> \{\s*appLock\.lock\(\);\s*openBotId = null;\s*openRoomId = null;\s*phone\?\.closeStreams\(\);/);
   // a fresh document each time (a hash-only change would keep the old page and its chat data in memory)
   assert.match(main, /loadFile\([^)]*index\.html'\), \{ query: \{ lock: String\(\+\+lockLoads\) \}, hash: 'nosplash' \}\)/);
   assert.match(main, /label: 'Show Cipher Bot', click: \(\) => void showWindow\(\)/);

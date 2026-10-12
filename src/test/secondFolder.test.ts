@@ -88,7 +88,7 @@ test('migration v5 -> v6 adds second_folder_path, keeps everything else, and is 
   db = new CipherDb(file); db.close();
   const check = new Database(file, { readonly: true });
   assert.equal(check.pragma('user_version', { simple: true }), SCHEMA_VERSION);
-  assert.equal(SCHEMA_VERSION, 6);
+  assert.ok(SCHEMA_VERSION >= 6);
   const cols = (check.prepare('PRAGMA table_info(bots)').all() as { name: string }[]).map((c) => c.name);
   assert.equal(cols.filter((c) => c === 'second_folder_path').length, 1);
   check.close();
@@ -106,7 +106,7 @@ test('second folder: plus menu item next to Choose folder, gated by Read files; 
 });
 
 test('second folder: the model is told about it only with Read files on and a folder attached', () => {
-  const bot = { id: 1, name: 'x', systemPrompt: '', toolsEnabled: true, folderPath: main, secondFolderPath: second, createdAt: '', shape: 'hex', color: 'blue' };
+  const bot = { id: 1, name: 'x', systemPrompt: '', toolsEnabled: true, folderPath: main, secondFolderPath: second, unread: false, createdAt: '', shape: 'hex', color: 'blue' };
   assert.match(buildHistory(bot, [])[0].content, /folder set to "second"/);
   assert.doesNotMatch(buildHistory({ ...bot, secondFolderPath: null }, [])[0].content, /second/);
   assert.equal(buildHistory({ ...bot, toolsEnabled: false }, []).length, 0);
