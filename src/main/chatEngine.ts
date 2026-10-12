@@ -54,6 +54,18 @@ export function userContentForModel(m: Pick<Message, 'content' | 'quote' | 'imag
   return parts.join('\n\n');
 }
 
+/** v1.21: reply length → a line in the system prompt and Ollama's num_predict cap (normal adds neither). */
+export const REPLY_LENGTH_HINT: Record<'short' | 'normal' | 'long', string> = {
+  short: 'Keep replies short: a few sentences at most, unless the user asks for more.',
+  normal: '',
+  long: 'Give thorough, detailed replies with explanations and examples when useful.',
+};
+export const REPLY_NUM_PREDICT: Record<'short' | 'normal' | 'long', number | null> = { short: 256, normal: null, long: 2048 };
+export function replyOptions(len: 'short' | 'normal' | 'long' | undefined): Record<string, number> | undefined {
+  const n = REPLY_NUM_PREDICT[len ?? 'normal'];
+  return n ? { num_predict: n } : undefined;
+}
+
 /** v1.19: the user's memory note for this bot, sent in the system prompt of every chat. */
 export function memoryBlock(note: string | undefined | null): string {
   const t = (note ?? '').trim();
@@ -64,7 +76,7 @@ export function memoryBlock(note: string | undefined | null): string {
 export function buildHistory(bot: Bot, messages: Message[], searchOn = false): OllamaMessage[] {
   const out: OllamaMessage[] = [];
   const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '',
-    searchOn ? SEARCH_HINT : '', memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
+    searchOn ? SEARCH_HINT : '', REPLY_LENGTH_HINT[bot.replyLength ?? 'normal'], memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
   if (system) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'tool') {
@@ -112,6 +124,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       partial = '';
       const { content, toolCalls } = await streamChat({
         model: deps.model,
+        options: replyOptions(bot.replyLength),
         host: deps.host ?? OLLAMA_HOST,
         fetchImpl: deps.fetchImpl,
         messages: buildHistory({ ...bot, toolsEnabled: toolsOn }, db.listMessages(chatId), searchOn()),

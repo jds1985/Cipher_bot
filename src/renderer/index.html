@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher Bot</span></div></div>
+    <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher Bot</span><button type="button" id="always-on-top" class="titlebar-btn" aria-pressed="false" title="Always on top" aria-label="Always on top"><img src="assets/cipher-always-on-top.svg" alt="" width="20" height="20" /></button></div></div>
     <div id="lock-screen" class="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <div class="lock-stage">
         <img class="lock-logo" src="assets/icon-1024.png" alt="" width="1024" height="1024" />
@@ -64,6 +64,14 @@
             </label>
             <label>Job
               <textarea id="bot-job" rows="5" placeholder="What should this Cipher bot do? e.g. Help me plan my week and keep answers short."></textarea>
+            </label>
+            <label id="reply-length-wrap" class="reply-length-wrap" hidden>Reply length
+              <select id="reply-length">
+                <option value="short">Short</option>
+                <option value="normal">Normal</option>
+                <option value="long">Long</option>
+              </select>
+              <span class="muted memory-hint">Short asks for brief replies and caps their length; Long asks for detailed ones.</span>
             </label>
             <label id="bot-memory-wrap" class="memory-wrap" hidden>
               <span class="row memory-title"><img src="assets/cipher-memory.svg" alt="" width="20" height="20" class="memory-icon" />Memory note</span>
@@ -167,6 +175,23 @@
                 <p id="search-history-empty" class="muted">No searches yet.</p>
                 <button type="button" id="search-history-clear" class="secondary">Clear search history</button>
               </div>
+            </div>
+            <div class="settings-block">
+              <h3>Blocked sites</h3>
+              <p class="muted">Search results from these sites are dropped, and their pages and links are never opened. Kept only in cipher.db on this computer. With Online off, nothing is searched at all.</p>
+              <form id="site-form" class="row wrap">
+                <input id="site-input" maxlength="300" placeholder="example.com" aria-label="Site to block" />
+                <button type="submit" class="secondary">Block</button>
+              </form>
+              <p id="site-error" class="error" hidden></p>
+              <ul id="site-list" class="site-list"></ul>
+              <p id="site-empty" class="muted">No blocked sites.</p>
+            </div>
+            <div class="settings-block">
+              <h3 class="row archive-title"><img src="assets/cipher-archive.svg" alt="" width="20" height="20" class="archive-icon" />Archived</h3>
+              <p class="muted">Archived Cipher bots and rooms are hidden from the left column and the phone, and an archived bot's routine is paused. Nothing is deleted; Restore brings them back.</p>
+              <ul id="archived-list" class="archived-list"></ul>
+              <p id="archived-empty" class="muted">Nothing archived.</p>
             </div>
             <div class="settings-block">
               <h3>Updates</h3>
@@ -320,6 +345,23 @@
       </main>
     </div>
     <div id="bottombar" aria-hidden="true"></div>
+    <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="Image" hidden>
+      <img id="image-viewer-img" class="image-viewer-img" alt="" />
+      <p id="image-viewer-name" class="image-viewer-name"></p>
+      <button type="button" id="image-viewer-close" class="secondary">Close</button>
+    </div>
+    <div id="tips" class="tips-overlay" role="dialog" aria-modal="true" aria-labelledby="tip-title" hidden>
+      <div class="tip-card card">
+        <img id="tip-icon" class="tip-icon" alt="" width="96" height="96" />
+        <h2 id="tip-title"></h2>
+        <p id="tip-body" class="muted"></p>
+        <p id="tip-step" class="muted tip-step"></p>
+        <div class="row end">
+          <button type="button" id="tip-skip" class="secondary">Skip tips</button>
+          <button type="button" id="tip-next">Next</button>
+        </div>
+      </div>
+    </div>
     <div id="confirm-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div class="modal-card">
         <h2 id="confirm-title">Delete this Cipher bot?</h2>

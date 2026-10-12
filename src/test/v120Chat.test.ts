@@ -33,12 +33,12 @@ const tmpDb = () => path.join(base, `t${++n}.db`);
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(24, 1)]);
 const fn = (name: string) => { const m = new RegExp(`(?:async )?function ${name}[\\s\\S]*?\\n\\}`).exec(main); assert.ok(m, name); return m[0]; };
 
-test('version 1.20.0, schema 10, WHATS_NEW five lines or fewer, names unchanged', () => {
+test('version 1.21.0+, schema 10+, WHATS_NEW five lines or fewer, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.20.0');
+  assert.equal(pkg.version, '1.21.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
-  assert.equal(SCHEMA_VERSION, 10);
+  assert.ok(SCHEMA_VERSION >= 10);
   assert.ok(WHATS_NEW.length <= 5 && WHATS_NEW.length > 0);
   assert.doesNotMatch(WHATS_NEW.join(' ') + policy + html, /grok/i);
 });
@@ -96,7 +96,7 @@ test('2. pin: per chat, listed in order, strip at the top; 3. mute: stored per b
   db.close();
   assert.match(html, /<div id="pinned-strip" class="pinned-strip" hidden><\/div>\s*<div id="messages">/);
   assert.match(main, /handle\('messages:pin', \(_e, chatIdRaw: unknown, idRaw: unknown, on: unknown\) => db\.setPinned\(asId\(chatIdRaw\), asId\(idRaw\), on === true\)\);/);
-  assert.deepEqual(plusMenuItems({ kind: 'room', muted: true }).map((i) => [i.id, i.checked]), [['export', undefined], ['mute', true]]);
+  assert.deepEqual(plusMenuItems({ kind: 'room', muted: true }).map((i) => [i.id, i.checked]), [['export', undefined], ['mute', true], ['archive', undefined]]);
 });
 
 test('3. mute: a muted bot gets no tray notice; others still do', () => {
@@ -131,7 +131,7 @@ test('migration v9 → v10: quote, pin, image and mute columns added, data kept,
   db.close();
   new CipherDb(file).close();
   const chk = new Database(file);
-  assert.equal(chk.pragma('user_version', { simple: true }), 10);
+  assert.equal(chk.pragma('user_version', { simple: true }), SCHEMA_VERSION);
   chk.close();
 });
 

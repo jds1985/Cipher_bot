@@ -80,5 +80,5 @@ test('main wires delete through the guards and a native right-click menu with De
   // The renderer confirms before calling delete.
   const js = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'renderer.ts'), 'utf8');
   assert.match(js, /openConfirm\(\s*`Delete room "\$\{name\}"\?`/);
-  assert.match(js, /if \(\(await api\.showItemMenu\(kind\)\) !== 'delete'\) return;\s*if \(kind === 'bot'\) void requestDeleteBot\(id\);\s*else requestDeleteRoom\(id\);/);
+  assert.match(js, /const choice = await api\.showItemMenu\(kind\);\s*if \(choice === 'archive'\) \{ void archiveItem\(kind, id\); return; \}\s*if \(choice !== 'delete'\) return;\s*if \(kind === 'bot'\) void requestDeleteBot\(id\);\s*else requestDeleteRoom\(id\);/);
 });

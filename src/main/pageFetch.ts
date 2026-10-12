@@ -78,6 +78,8 @@ export interface PageDeps {
   /** Tests: replace the network layer. Must honour opts.lookup. */
   request?: (u: URL, opts: http.RequestOptions) => Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }>;
   lookup?: LookupFn;
+  /** v1.21: true for a blocked site; checked on the first address and on every redirect. */
+  isBlocked?: (url: string) => boolean;
 }
 
 function defaultRequest(u: URL, opts: http.RequestOptions, signal: AbortSignal): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
@@ -100,6 +102,7 @@ function defaultRequest(u: URL, opts: http.RequestOptions, signal: AbortSignal):
 
 export async function fetchPageText(url: string, deps: PageDeps): Promise<{ url: string; title: string; text: string }> {
   let u = assertPageUrl(url);
+  if (deps.isBlocked?.(u.toString())) throw new Error('That site is on your blocked-sites list.');
   if (!deps.isOnline()) throw new Error('Online is off, so pages cannot be opened.');
   if (!deps.consumeConsent(u.toString())) throw new Error('Opening this page was not confirmed.');
   const timeout = AbortSignal.timeout(PAGE_TIMEOUT_MS);
@@ -118,6 +121,7 @@ export async function fetchPageText(url: string, deps: PageDeps): Promise<{ url:
       const loc = res.headers.location;
       if (!loc) throw new Error('The page redirected nowhere.');
       u = assertPageUrl(new URL(loc, u).toString()); // re-checked; the next hop's address is checked by lookup again
+      if (deps.isBlocked?.(u.toString())) throw new Error('The page redirected to a site on your blocked-sites list.');
       continue;
     }
     if (res.status !== 200) throw new Error(`The site answered ${res.status}.`);

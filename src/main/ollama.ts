@@ -74,6 +74,8 @@ export interface StreamChatOptions {
   onToken: (text: string) => void;
   host?: string;
   fetchImpl?: FetchFn;
+  /** v1.21: Ollama options (num_predict for the bot's reply length). */
+  options?: Record<string, number>;
 }
 
 export interface StreamChatResult {
@@ -108,6 +110,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<StreamChatRes
   const fetchImpl = opts.fetchImpl ?? fetch;
   const body: Record<string, unknown> = { model: opts.model, messages: opts.messages, stream: true, keep_alive: KEEP_ALIVE };
   if (opts.tools && opts.tools.length) body.tools = opts.tools;
+  if (opts.options && Object.keys(opts.options).length) body.options = opts.options;
 
   let res: Response;
   try {

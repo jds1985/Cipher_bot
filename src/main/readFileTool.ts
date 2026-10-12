@@ -74,6 +74,11 @@ export interface ReadResult {
 
 /** Read a text file inside the shared folder, enforcing the sandbox, size cap and text-only rule. */
 export async function readFileInFolder(root: string | null, requested: unknown): Promise<ReadResult> {
+  // v1.21: a .pdf is read as its text (pdfText.ts), with the same folder rules and its own caps.
+  if (typeof requested === 'string' && /\.pdf$/i.test(requested)) {
+    const { readPdfInFolder } = await import('./pdfText');
+    return readPdfInFolder(root, requested);
+  }
   const real = await resolveInsideFolder(root, requested);
   const rootReal = await fs.realpath(root!);
   // Check the type before opening so FIFOs/devices can't block or be read.

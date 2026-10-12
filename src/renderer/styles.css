@@ -449,3 +449,27 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 /* v1.20: on the user's blue bubbles, quote/pin icons are white at ~80%, like the timestamp. */
 .msg.user .msg-act img { filter: brightness(0) invert(1); opacity: 0.8; }
 .msg.user .msg-act:hover, .msg.user .msg-act:focus-visible, .msg.user .msg-act.on { background: rgba(255, 255, 255, 0.18); }
+
+/* ---------- v1.21: always on top, archive, blocked sites, image viewer, tips ---------- */
+#titlebar .titlebar-btn { margin-left: 10px; width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; opacity: 0.6; padding: 0; }
+#titlebar .titlebar-btn img { width: 20px; height: 20px; display: block; }
+#titlebar .titlebar-btn:hover, #titlebar .titlebar-btn:focus-visible { opacity: 1; background: rgba(91, 140, 255, 0.12); }
+#titlebar .titlebar-btn.on { opacity: 1; background: rgba(91, 140, 255, 0.2); border-color: rgba(91, 140, 255, 0.5); }
+.archive-icon { width: 20px; height: 20px; margin-right: 6px; vertical-align: -4px; }
+.archived-list, .site-list { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 6px; }
+.archived-item, .site-item { justify-content: space-between; gap: 12px; }
+.archived-name, .site-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#site-input { flex: 1; min-width: 180px; }
+.reply-length-wrap select { display: block; margin-top: 4px; }
+.reply-length-wrap[hidden] { display: none; }
+.msg-image { cursor: zoom-in; }
+.image-viewer { position: fixed; inset: 0; z-index: 120; background: rgba(5, 8, 14, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; }
+.image-viewer[hidden] { display: none; }
+.image-viewer-img { max-width: 92vw; max-height: 78vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6); }
+.image-viewer-name { color: var(--muted); margin: 0; }
+.tips-overlay { position: fixed; inset: 0; z-index: 110; background: rgba(5, 8, 14, 0.78); display: flex; align-items: center; justify-content: center; }
+.tips-overlay[hidden] { display: none; }
+.tip-card { width: min(440px, 90vw); text-align: center; }
+.tip-icon { width: 96px; height: 96px; margin: 6px auto 4px; display: block; }
+.tip-step { font-size: 12px; }
+.attach-error.ok { color: var(--muted); }

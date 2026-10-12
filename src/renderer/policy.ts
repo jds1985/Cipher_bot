@@ -30,12 +30,13 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'Files',
     paragraphs: [
-      'Cipher Bot reads files only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder. With Read files on, that bot can read text files in those folders when it needs to. With Attach, the file you pick from that folder is added to your message.',
+      'Cipher Bot reads files only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder. With Read files on, that bot can read text files and PDFs in those folders when it needs to. With Attach, the file you pick from that folder is added to your message.',
       'File contents go to the model on this computer and are saved in that chat\'s history in the database. An attached file\'s text is part of your message, so if Phone link is on, it shows on the phone too.',
       'Second folder: from the plus menu ("Attach second folder…") you can give a Cipher bot one more folder on this computer, separate from its read folder. ' +
         'The folder is on this computer and Cipher Bot never uploads or syncs it; only its location is saved, in cipher.db. That bot can read text files in it only when Read files is on, with the same limits as the read folder, and what it reads is handled like any file it reads (see above). ' +
         'It is not a cloud drive, and there is no email and no login. "Remove second folder" removes it from the bot; your files are not touched.',
       'Images: you can drop a PNG, JPEG, GIF or WebP image (up to 5 MB) from a Cipher bot\'s read folder into its chat, under the same folder rules as Attach. Only its location in that folder is saved with your message; the picture is read from this computer each time it is shown, and never loaded from the internet. The model on this computer gets the file name, not the picture.',
+      'PDFs (v1.21): Cipher Bot reads only a PDF\'s text, on this computer, with PDF.js (Mozilla\'s open-source PDF reader, bundled with the app). Nothing is downloaded to read it: no fonts, no character maps and no helper code from the internet, and the PDF\'s own scripts never run. Up to 10 MB, the first 50 pages and 200,000 characters; the text is handled like any file the bot reads.',
       'Rooms, Phone link and routines never read files.',
     ],
   },
@@ -82,6 +83,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'When Online is on, a Cipher bot may ask to search the web. It shows you the exact search words first, with Search and Cancel. Nothing is sent unless you press Search; Cancel (or no answer) means no search, and the bot answers without one.',
       'When you press Search, the search words and your computer\'s IP address go to DuckDuckGo (html.duckduckgo.com), which runs the search. That is the only address Cipher Bot\'s own code contacts for search; no account, no API key, no cookies. DuckDuckGo\'s own privacy policy applies to what it receives.',
       'The results (titles, links and short snippets) are saved in that chat on this computer. A result link opens in your web browser only when you click it, and only while Online is on.',
+      'Blocked sites (Settings): search results from the sites you list are dropped before they are saved or shown, and Open as text and link opening refuse them, including after a redirect. The list is kept only in cipher.db on this computer. With Online off nothing is searched at all.',
       'Settings shows when the last search was made, and your search history: the search words and times of searches you confirmed, kept only in cipher.db on this computer. Clear search history deletes them for good (the rows are erased from the database file, not just hidden). The search words also stay in the chat, where you can delete them with the chat or by selecting messages.',
       'On Phone link, a search shows the same Search / Cancel card on the phone; only a paired phone can answer it, and only while Cipher Bot is unlocked. The phone can never turn Online on or off. Locking Cipher Bot or turning Online off closes the card everywhere. Routines, rooms and a locked Cipher Bot never search.',
       'Open as text (search results only): Cipher Bot first shows you the page\'s full address and asks. If you confirm, it downloads that one page from its site, so the site sees your computer\'s IP address, like any visit. Only http and https pages on the public internet are opened (never this computer or your local network, checked again on every redirect), only HTML or plain text, at most 1 MB. Cipher Bot keeps only the page\'s text, in the chat: nothing on the page runs, and its images, styles and links are never loaded. Turning Online off stops a download that is on the way.',
@@ -101,6 +103,13 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'Quoting a message saves a copy of the quoted text (up to 500 characters) with your reply, and pinning marks a message; both are kept in cipher.db on this computer. Mute only stops tray notifications for that bot or room.',
       'Export debug log (Settings) saves a text file you choose on this computer: versions, switches, counts and recent error lines, with folder paths and addresses\' queries removed. It never includes your passphrase hash or lock.json, pairing codes, memory notes, search words or folder paths. Chats are included only if you tick "Include chat content". Nothing is sent anywhere.',
+    ],
+  },
+  {
+    heading: 'Archive, reply length, always on top and tips',
+    paragraphs: [
+      'Archiving a Cipher bot or room hides it from the left column and the phone and pauses an archived bot\'s routine; nothing is deleted, and Settings → Archived restores it. The lock applies to archived bots and rooms like any others.',
+      'Reply length (short, normal or long) is a line in that bot\'s instructions to the local model, plus a length cap for short and long. Always on top, the first-run tips flag, and Copy chat as Markdown (which goes only to your clipboard) are kept locally; none of them uses the network.',
     ],
   },
   {

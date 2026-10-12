@@ -14,6 +14,10 @@ export interface Bot {
   unread: boolean;
   /** v1.20: muted (no tray notice). */
   muted: boolean;
+  /** v1.21: archived (hidden from the dock, routine paused; restorable). */
+  archived: boolean;
+  /** v1.21: reply length. */
+  replyLength: 'short' | 'normal' | 'long';
   createdAt: string;
   /**
    * Icon shape key from Liz's v1.5 set (hex, circle, square, diamond, triangle, shield, octagon, capsule,
@@ -100,6 +104,8 @@ export interface Room {
   unread: boolean;
   /** v1.20: muted (no tray notice). */
   muted: boolean;
+  /** v1.21: archived (hidden from the dock; restorable). */
+  archived: boolean;
 }
 
 export interface RoomMessage {
@@ -207,7 +213,7 @@ export interface CipherApi {
   /** Delete a room and its messages after the UI confirm step (refused while it's replying). Bots stay. */
   deleteRoom(roomId: number): Promise<void>;
   /** Right-click on a bot or room in the left column: native menu; resolves 'delete' or null. */
-  showItemMenu(kind: 'bot' | 'room'): Promise<'delete' | null>;
+  showItemMenu(kind: 'bot' | 'room'): Promise<'delete' | 'archive' | null>;
   pickFolder(): Promise<string | null>;
   /**
    * Desktop-only: pick a file inside this bot's folder and read it through the read_file sandbox
@@ -288,6 +294,22 @@ export interface CipherApi {
   clearSearchHistory(): Promise<{ id: number; query: string; searchedAt: string }[]>;
   /** v1.19: a bot's memory note ('' clears it). */
   setBotMemory(botId: number, note: string): Promise<Bot>;
+  /** v1.21: archive or restore a bot or room (not a delete). Returns the full lists. */
+  setArchived(kind: 'bot' | 'room', id: number, archived: boolean): Promise<{ bots: Bot[]; rooms: Room[] }>;
+  setReplyLength(botId: number, value: 'short' | 'normal' | 'long'): Promise<Bot>;
+  /** v1.21: blocked sites for search (stored in cipher.db). */
+  blockedSites(): Promise<string[]>;
+  addBlockedSite(site: string): Promise<string[]>;
+  removeBlockedSite(site: string): Promise<string[]>;
+  /** v1.21: always on top (saved). */
+  getAlwaysOnTop(): Promise<boolean>;
+  setAlwaysOnTop(on: boolean): Promise<boolean>;
+  onAlwaysOnTop(cb: (on: boolean) => void): () => void;
+  /** v1.21: first-run tips: true until finished or skipped once. */
+  tipsPending(): Promise<boolean>;
+  tipsDone(): Promise<void>;
+  /** v1.21: copy the bot's chat as Markdown to the clipboard. */
+  copyChatMarkdown(botId: number): Promise<{ chars: number }>;
   /** v1.20: pin/unpin a message; returns the chat's pinned messages. */
   pinMessage(chatId: number, id: number, on: boolean): Promise<Message[]>;
   listPinned(chatId: number): Promise<Message[]>;

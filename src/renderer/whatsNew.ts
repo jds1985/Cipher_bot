@@ -1,8 +1,8 @@
 // The About screen's "New in this version" list. At most five lines (enforced by a test).
 export const WHATS_NEW: readonly string[] = [
-  'Quote a message in your reply, and pin messages to the top of a chat.',
-  'Mute a bot or room; drop an image from its folder to show it in the chat.',
-  'Starter jobs when creating a bot: Writer, Researcher, Files or blank.',
-  'Settings: keyboard shortcuts, and a debug log you can export (no chats unless ticked).',
-  'With Online on, a daily check for a new release on GitHub; you choose to download.',
+  'Read PDFs from a bot\'s folder as text (on this computer, no network).',
+  'Archive a bot or room (restore it in Settings); per-bot reply length.',
+  'Always on top, Copy chat as Markdown, and click an image to view it larger.',
+  'Blocked sites for search: dropped from results and never opened.',
+  'Five first-run tips, shown once.',
 ];

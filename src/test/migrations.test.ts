@@ -104,7 +104,7 @@ test('the v4 migration is idempotent: reopening changes nothing and keeps a sing
   const first = snapshot();
   for (let i = 0; i < 3; i++) new CipherDb(file).close();
   assert.deepEqual(snapshot(), first);
-  assert.equal(first.version, 10); // current schema (v10 since v1.20)
+  assert.equal(first.version, 11); // current schema (v11 since v1.21)
   assert.deepEqual(first.bots, [
     { id: 1, icon: 'diamond', shape: 'diamond', color: 'blue' },
     { id: 2, icon: 'octagon', shape: 'octagon', color: 'blue' },

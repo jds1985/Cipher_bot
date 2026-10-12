@@ -89,6 +89,21 @@ const api: CipherApi = {
   searchHistory: () => ipcRenderer.invoke('search:history'),
   clearSearchHistory: () => ipcRenderer.invoke('search:clearHistory'),
   setBotMemory: (botId, note) => ipcRenderer.invoke('bots:setMemory', botId, note),
+  setArchived: (kind, id, on) => ipcRenderer.invoke('archive:set', kind, id, on === true),
+  setReplyLength: (botId, value) => ipcRenderer.invoke('bots:setReplyLength', botId, value),
+  blockedSites: () => ipcRenderer.invoke('sites:list'),
+  addBlockedSite: (site) => ipcRenderer.invoke('sites:add', site),
+  removeBlockedSite: (site) => ipcRenderer.invoke('sites:remove', site),
+  getAlwaysOnTop: () => ipcRenderer.invoke('window:getAlwaysOnTop'),
+  setAlwaysOnTop: (on) => ipcRenderer.invoke('window:setAlwaysOnTop', on === true),
+  onAlwaysOnTop: (cb) => {
+    const listener = (_e: IpcRendererEvent, on: boolean) => cb(on);
+    ipcRenderer.on('window:alwaysOnTop', listener);
+    return () => ipcRenderer.removeListener('window:alwaysOnTop', listener);
+  },
+  tipsPending: () => ipcRenderer.invoke('tips:get'),
+  tipsDone: () => ipcRenderer.invoke('tips:done'),
+  copyChatMarkdown: (botId) => ipcRenderer.invoke('chat:markdown', botId),
   pinMessage: (chatId, id, on) => ipcRenderer.invoke('messages:pin', chatId, id, on === true),
   listPinned: (chatId) => ipcRenderer.invoke('messages:pinned', chatId),
   setMuted: (kind, id, on) => ipcRenderer.invoke('mute:set', kind, id, on === true),

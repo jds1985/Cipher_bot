@@ -71,7 +71,7 @@ export const showsSplash = (hash: string): boolean => hash !== '#nosplash';
 export const splashRemainingMs = (elapsedMs: number): number => Math.max(0, SPLASH_MIN_MS - elapsedMs);
 
 // ---------- plus menu (v1.10) ----------
-export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute';
+export type PlusItemId = 'attach' | 'export' | 'clear' | 'select' | 'edit' | 'folder' | 'second' | 'tools' | 'routine' | 'mute' | 'markdown' | 'archive';
 
 export interface PlusItem {
   id: PlusItemId;
@@ -94,10 +94,12 @@ export function plusMenuItems(input:
   | { kind: 'bot'; toolsEnabled: boolean; folderPath: string | null; secondFolderPath?: string | null; busy: boolean; routineTime: string | null; muted?: boolean }): PlusItem[] {
   // v1.20: Mute (no tray notice for this bot or room while on), last in both menus.
   const mute: PlusItem = { id: 'mute', label: 'Mute notices', disabled: false, checked: input.muted === true };
-  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }, mute];
+  const archive: PlusItem = { id: 'archive', label: input.kind === 'room' ? 'Archive room' : 'Archive bot', disabled: input.kind === 'bot' && input.busy };
+  if (input.kind === 'room') return [{ id: 'export', label: 'Export chat…', disabled: false }, mute, archive];
   return [
     { id: 'attach', label: 'Attach file…', disabled: input.busy },
     { id: 'export', label: 'Export chat…', disabled: false },
+    { id: 'markdown', label: 'Copy chat as Markdown', disabled: false },
     { id: 'clear', label: 'Clear chat…', disabled: false },
     { id: 'select', label: 'Select messages…', disabled: input.busy },
     { id: 'edit', label: 'Edit bot…', disabled: false },
@@ -109,6 +111,7 @@ export function plusMenuItems(input:
     { id: 'tools', label: 'Read files', disabled: false, checked: input.toolsEnabled },
     { id: 'routine', label: input.routineTime ? `Routine (daily ${input.routineTime})…` : 'Routine…', disabled: false },
     mute,
+    archive,
   ];
 }
 
@@ -141,4 +144,13 @@ export const SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: 'Escape', action: 'Close the plus menu, or remove the quote being written' },
   { keys: '↑ / ↓', action: 'Move through the plus menu' },
   { keys: 'Ctrl+Q', action: 'Quit Cipher Bot' },
+];
+
+// ---------- v1.21: first-run tips (Liz's cards, in this order; shown once) ----------
+export const TIPS: readonly { icon: string; title: string; body: string }[] = [
+  { icon: 'assets/cipher-tip-1-welcome.svg', title: 'Welcome to Cipher Bot', body: 'Your own Cipher bots, running on this computer. Here are five quick tips; you can skip them at any time.' },
+  { icon: 'assets/cipher-tip-2-create-bot.svg', title: 'Create a bot', body: 'Press + in the left column, give it a name and a job, or start from Writer, Researcher or Files.' },
+  { icon: 'assets/cipher-tip-3-folder.svg', title: 'Attach a folder', body: 'In the plus menu, turn on Read files and choose a folder. The bot can then read text files and PDFs in it; nothing outside it.' },
+  { icon: 'assets/cipher-tip-4-private.svg', title: 'Private and local', body: 'Chats stay in cipher.db on this computer and replies come from the local model. Online is off until you turn it on in Settings.' },
+  { icon: 'assets/cipher-tip-5-shortcuts.svg', title: 'Shortcuts', body: 'Enter sends, Shift+Enter adds a line, Escape closes menus. The full list is in Settings.' },
 ];
