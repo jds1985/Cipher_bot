@@ -348,3 +348,18 @@ test('policy describes v1.25 truthfully', () => {
   assert.match(policy, /File drafts \(v1\.25\)[\s\S]*Nothing is written until you press Save and confirm/);
   assert.match(policy, /Weekly report \(v1\.25\)[\s\S]*never contains chat text/);
 });
+
+test('mic recording state: red dot + soft pulse, steady red ring under reduce motion, aria Recording (CSS in stylesheet)', () => {
+  const cssR = fs.readFileSync(path.join(__dirname, '..', '..', 'src/renderer/styles.css'), 'utf8');
+  const rr = fs.readFileSync(path.join(__dirname, '..', '..', 'src/renderer/renderer.ts'), 'utf8');
+  const rec = /\.composer-circle\.mic\.recording \{([^}]*)\}/.exec(cssR)?.[1] ?? '';
+  assert.match(rec, /background: #d93a4a/); assert.doesNotMatch(rec, /var\(--accent\)/, 'not the teal of Send');
+  assert.match(rec, /animation: mic-pulse/);
+  assert.match(cssR, /\.composer-circle\.mic\.recording::after \{ content: ""[^}]*border-radius: 50%;[^}]*background: #ff4d5e/);
+  assert.match(cssR, /@keyframes mic-pulse/);
+  assert.match(cssR, /:root\.reduce-motion \.composer-circle\.mic\.recording \{ animation: none; box-shadow: 0 0 0 3px #ff4d5e; \}/);
+  assert.match(cssR, /@media \(prefers-reduced-motion: reduce\) \{ \.composer-circle\.mic\.recording \{ animation: none; box-shadow: 0 0 0 3px #ff4d5e; \} \}/);
+  assert.match(rr, /el\.mic\.setAttribute\('aria-pressed', 'true'\);\n  el\.mic\.setAttribute\('aria-label', 'Recording'\);/);
+  assert.match(rr, /el\.mic\.setAttribute\('aria-pressed', 'false'\);\n  el\.mic\.setAttribute\('aria-label', 'Hold to talk'\);/);
+  assert.doesNotMatch(rr, /el\.mic\.style\./, 'no inline styles');
+});

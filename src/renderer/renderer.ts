@@ -813,6 +813,7 @@ function releaseMic(): void {
   micCtx = null;
   el.mic.classList.remove('recording');
   el.mic.setAttribute('aria-pressed', 'false');
+  el.mic.setAttribute('aria-label', 'Hold to talk');
 }
 
 async function micDown(): Promise<void> {
@@ -828,6 +829,7 @@ async function micDown(): Promise<void> {
   src.connect(proc); proc.connect(micCtx.destination);
   el.mic.classList.add('recording');
   el.mic.setAttribute('aria-pressed', 'true');
+  el.mic.setAttribute('aria-label', 'Recording');
 }
 
 async function micUp(): Promise<void> {
