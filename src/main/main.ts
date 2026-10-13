@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ChatEvent, NewBotForm, NewRoomForm, Reminder, RoomEvent, SetupState } from '../shared/types';
 import { CipherDb, isUrlBlocked } from './db';
-import { parseToolUpdate } from './toolSwitches';
+import { parseToolUpdate, toolSwitches } from './toolSwitches';
 import { ReminderScheduler } from './reminders';
 import { diskUsage } from './diskUsage';
 import crypto from 'node:crypto';
@@ -46,6 +46,10 @@ import { confirmFolderSummary } from './folderSummary';
 import { PhoneUnlock } from './phoneUnlock';
 import { parseReminderLine } from './reminders';
 import { MEMORY_NOTE_MAX } from './db';
+import { allowPermission, allowPermissionCheck } from './mediaPermission';
+import { DraftStore } from './drafts';
+import { VOICE_ENGINE_KEY, VOICE_MODEL_KEY, WHISPER_TESTED_VERSION, checkEngine, checkModel, transcribe } from './voice';
+import { formatWeeklyReport, weekStart } from './weeklyReport';
 
 // v1.20: keep the last log lines (redacted) for "Export debug log". Still printed as before.
 for (const level of ['error', 'warn'] as const) {
@@ -152,6 +156,7 @@ async function lockApp(win: BrowserWindow): Promise<void> {
   finishUndo(); // v1.23: a pending delete is purged for real on lock (no undo after unlock)
   summaryConsent.revokeAll(); // v1.24: folder-summary tokens and phone unlock sessions die on lock too
   phoneUnlock?.revokeAll();
+  drafts.clearAll(); // v1.25: waiting file drafts are dropped on lock (the reloaded page also ends any mic recording)
   if (!win.webContents.isDestroyed()) {
     await win.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lock: String(++lockLoads) }, hash: 'nosplash' })
       .catch(() => undefined);
@@ -207,8 +212,18 @@ function lockDownNetwork(): void {
     const url = details.url;
     callback({ cancel: !(url.startsWith('file://') || url.startsWith('devtools://')) });
   });
-  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  // v1.25: the microphone (audio only, main window's own page) is the one permission ever granted; all else is denied.
+  session.defaultSession.setPermissionRequestHandler((wc, perm, cb, details) => cb(allowPermission({
+    permission: perm, mediaTypes: (details as { mediaTypes?: string[] }).mediaTypes, isMainWindow: wc.id === mainWebContentsId,
+    url: (details as { requestingUrl?: string }).requestingUrl ?? wc.getURL(),
+  })));
+  session.defaultSession.setPermissionCheckHandler((wc, perm, origin, details) => allowPermissionCheck({
+    permission: perm, mediaType: (details as { mediaType?: string }).mediaType, isMainWindow: !!wc && wc.id === mainWebContentsId,
+    url: (details as { requestingUrl?: string }).requestingUrl ?? origin,
+  }));
+  session.defaultSession.setDevicePermissionHandler(() => false);
 }
+let mainWebContentsId: number | null = null;
 
 /** Cipher window frame colors (match --bg and --accent in styles.css). */
 const FRAME_BG = '#15171c';
@@ -246,6 +261,7 @@ function createWindow(): BrowserWindow {
       spellcheck: false,
     },
   });
+  mainWebContentsId = win.webContents.id; // v1.25: the only page that may ask for the microphone
   win.removeMenu();
   if (isAlwaysOnTop()) win.setAlwaysOnTop(true); // v1.21: saved choice
   if (saved?.maximized) win.maximize();
@@ -361,6 +377,8 @@ const writeConsent = new WriteConsent();
 const checklistConsent = new SearchConsent();
 /** v1.24: one-time tokens for "Summarize folder" (issued after the native confirm, consumed right before reading). */
 const summaryConsent = new SearchConsent();
+/** v1.25: file drafts wait here (memory only) until the user saves them through the write confirm, or discards them. */
+const drafts = new DraftStore();
 /** v1.24: phone challenge-response unlock, verified here in main against the lock hash. Never sent to the phone. */
 let phoneUnlock: PhoneUnlock | null = null;
 const SHARED_FOLDER_KEY = 'shared_folder';
@@ -379,6 +397,15 @@ async function nativeAsk(title: string, t: { message: string; detail: string; bu
 const actionHooks: ActionHooks = {
   writeFile: (chatId, bot, p, content) => confirmAndWrite(
     { consent: writeConsent, isLocked, ask: (t) => nativeAsk('Write a file', t) }, chatId, bot.name, bot.folderPath, p, content),
+  draftFile: async (chatId, bot, p, content) => {
+    try {
+      const d = drafts.add(chatId, bot.id, p, content);
+      sendToWindow('drafts:changed', chatId);
+      return { ok: true, path: d.path, content: `Draft ready: ${d.path}. Nothing was written. It waits in the chat until the user saves or discards it.` };
+    } catch (err) {
+      return { ok: false, path: '', content: `Error: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  },
   addChecklist: async (chatId, bot, text) => {
     const r = await confirmChecklistAdd({ consent: checklistConsent, isLocked, ask: (t) => nativeAsk('Checklist', t),
       add: (botId, item) => { db.addChecklistItem(botId, item); } }, chatId, bot.id, bot.name, text);
@@ -981,6 +1008,55 @@ function registerIpc(): void {
       .finally(() => { activeTurns.delete(chatId); noteReplyFinished(botOfChat(chatId), controller.signal.aborted); });
   });
   handle('chat:stop', (_e, chatId: unknown) => { activeTurns.get(asId(chatId))?.abort(); });
+
+  // ---- v1.25: drafts, voice, weekly report ----
+  handle('drafts:list', (_e, chatId: unknown) => drafts.list(asId(chatId)).map((d) => ({ id: d.id, path: d.path, content: d.content, createdAt: d.createdAt })));
+  handle('drafts:discard', (_e, chatId: unknown, id: unknown) => { const ok = drafts.discard(id, asId(chatId)); sendToWindow('drafts:changed', asId(chatId)); return ok; });
+  handle('drafts:save', async (_e, chatIdRaw: unknown, id: unknown) => {
+    const chatId = asId(chatIdRaw);
+    const chat = db.getChat(chatId);
+    const bot = chat ? db.getBot(chat.botId) : null;
+    if (!bot || !drafts.get(id, chatId)) throw new Error('That draft is gone.');
+    // Switches checked again now: Files and Write file on, a folder set.
+    if (!toolSwitches(bot).files || !toolSwitches(bot).write || !bot.folderPath) throw new Error('Turn on Files and Write file (plus menu → Tools) and choose a folder to save drafts.');
+    const d = drafts.take(id, chatId)!;
+    sendToWindow('drafts:changed', chatId);
+    // The v1.22 path: native confirm in main → one-time token → commitWrite. Nothing is written before that.
+    const r = await confirmAndWrite({ consent: writeConsent, isLocked, ask: (t) => nativeAsk('Save draft', t) }, chatId, bot.name, bot.folderPath, d.path, d.content);
+    if (!r.ok && /cancel/i.test(r.content)) { drafts.add(chatId, bot.id, d.path, d.content); sendToWindow('drafts:changed', chatId); }
+    broadcastChat({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'tool', content: r.content, toolName: 'write_file' }) });
+    return { ok: r.ok, content: r.content };
+  });
+  const voiceState = () => ({ engine: db.getSetting(VOICE_ENGINE_KEY) || null, model: db.getSetting(VOICE_MODEL_KEY) || null, tested: WHISPER_TESTED_VERSION });
+  const pickFile = async (e: Electron.IpcMainInvokeEvent, title: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = { title, properties: ['openFile' as const], ...(filters ? { filters } : {}) };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  };
+  handle('voice:state', () => voiceState());
+  handle('voice:pickEngine', async (e) => { const f = await pickFile(e, 'Choose whisper-cli (whisper.cpp)'); if (f) db.setSetting(VOICE_ENGINE_KEY, await checkEngine(f)); return voiceState(); });
+  handle('voice:pickModel', async (e) => { const f = await pickFile(e, 'Choose a whisper.cpp model', [{ name: 'whisper.cpp model', extensions: ['bin'] }]); if (f) db.setSetting(VOICE_MODEL_KEY, await checkModel(f)); return voiceState(); });
+  handle('voice:clear', () => { db.setSetting(VOICE_ENGINE_KEY, ''); db.setSetting(VOICE_MODEL_KEY, ''); return voiceState(); });
+  handle('voice:transcribe', async (_e, pcm: unknown) => transcribe({ engine: db.getSetting(VOICE_ENGINE_KEY), model: db.getSetting(VOICE_MODEL_KEY), pcm }));
+  const weekly = async (): Promise<string> => {
+    const now = new Date();
+    const since = weekStart(now).toISOString();
+    const folder = db.getSetting(BACKUP_FOLDER_KEY);
+    let inFolder: number | null = null;
+    if (folder) { try { inFolder = (await fs.readdir(folder)).filter((n) => /^cipher-backup-.*\.db$/.test(n)).length; } catch { inFolder = null; } }
+    return formatWeeklyReport({ since, until: now.toISOString(), ...db.weeklyCounts(since),
+      backups: { scheduled: parseSchedule(db.getSetting(BACKUP_SCHEDULE_KEY)), last: db.getSetting(BACKUP_LAST_KEY) || null, inFolder } });
+  };
+  handle('report:weekly', () => weekly());
+  handle('report:save', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const opts = { title: 'Save weekly report', defaultPath: path.join(app.getPath('documents'), `cipher-weekly-${new Date().toISOString().slice(0, 10)}.txt`), filters: [{ name: 'Text file', extensions: ['txt'] }] };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true as const };
+    await fs.writeFile(r.filePath, await weekly(), 'utf8');
+    return { ok: true as const, path: r.filePath };
+  });
 
   // ---- v1.24 ----
   const pickFolder = async (e: Electron.IpcMainInvokeEvent, title: string): Promise<string | null> => {

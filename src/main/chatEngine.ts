@@ -4,6 +4,7 @@ import { executeToolCall, READ_FILE_TOOL } from './readFileTool';
 import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
 import { CALCULATOR_TOOL, runCalculator } from './calculator';
 import { WRITE_FILE_TOOL } from './fileWrite';
+import { DRAFT_FILE_TOOL } from './drafts';
 import { CHECKLIST_TOOL } from './checklist';
 import { isToolName, TOOL_LABELS, toolSwitches, type ToolName } from './toolSwitches';
 import { NOT_CONFIRMED_RESULT, OFF_RESULT, WEB_SEARCH_TOOL, formatResultsForModel, normalizeQuery, type SearchResult } from './webSearch';
@@ -43,6 +44,8 @@ export interface SearchHooks {
 export interface ActionHooks {
   writeFile: (chatId: number, bot: Bot, path: unknown, content: unknown) => Promise<{ ok: boolean; path: string; content: string }>;
   addChecklist: (chatId: number, bot: Bot, text: unknown) => Promise<{ ok: boolean; content: string; text: string }>;
+  /** v1.25: keep a draft in main (nothing is written); the user saves it later through the v1.22 token confirm. */
+  draftFile?: (chatId: number, bot: Bot, path: unknown, content: unknown) => Promise<{ ok: boolean; path: string; content: string }>;
 }
 
 const WRITE_HINT = 'You can also use write_file to save a text file into the shared folder. The user is asked first and may cancel; ' +
@@ -146,6 +149,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       // The calculator is local (no network, no files). Routines never get it; reminders do when it's switched on.
       case 'calculator': return t.calculator && (!deps.fromRoutine || deps.reminder === true);
       case 'write_file': return t.write && filesOn && !!b.folderPath && actionsOn;
+      case 'draft_file': return t.write && filesOn && !!b.folderPath && actionsOn && !!deps.actions?.draftFile;
       case 'checklist_add': return t.checklist && actionsOn;
     }
   };
@@ -156,7 +160,7 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
   const searchOn = (): boolean => allowed('web_search');
   const offeredTools = (): unknown[] | undefined => {
     const t: unknown[] = [...(allowed('read_file') ? [READ_FILE_TOOL] : []), ...(searchOn() ? [WEB_SEARCH_TOOL] : []),
-      ...(allowed('calculator') ? [CALCULATOR_TOOL] : []), ...(allowed('write_file') ? [WRITE_FILE_TOOL] : []),
+      ...(allowed('calculator') ? [CALCULATOR_TOOL] : []), ...(allowed('write_file') ? [WRITE_FILE_TOOL] : []), ...(allowed('draft_file') ? [DRAFT_FILE_TOOL] : []),
       ...(allowed('checklist_add') ? [CHECKLIST_TOOL] : [])];
     return t.length ? t : undefined;
   };
@@ -215,12 +219,15 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
           emit({ chatId, type: 'message', message: calcMsg });
           continue;
         }
-        if (call?.function?.name === 'write_file' || call?.function?.name === 'checklist_add') {
+        if (call?.function?.name === 'write_file' || call?.function?.name === 'checklist_add' || call?.function?.name === 'draft_file') {
           const name = call.function.name;
           const args = parseArgs(call.function.arguments);
           let r: { ok: boolean; path?: string; content: string; text?: string };
           const b = liveBot();
-          if (name === 'write_file') {
+          if (name === 'draft_file') {
+            r = deps.actions?.draftFile ? await deps.actions.draftFile(chatId, b, args.path, args.content)
+              : { ok: false, path: '', content: 'Error: drafting files is not available here.' };
+          } else if (name === 'write_file') {
             r = deps.actions ? await deps.actions.writeFile(chatId, b, args.path, args.content)
               : { ok: false, path: '', content: 'Error: writing files is not available here.' };
           } else {

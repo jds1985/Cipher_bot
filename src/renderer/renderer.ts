@@ -1,8 +1,8 @@
-import type { BackupScheduleState, Bot, Chat, ChecklistItem, MessageEdit, DiskUsage, Reminder, ToolSwitches, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
+import type { DraftInfo, VoiceState, UiPrefsState, BackupScheduleState, Bot, Chat, ChecklistItem, MessageEdit, DiskUsage, Reminder, ToolSwitches, ChatEvent, CipherApi, LockState, Message, PhoneLinkStatus, Room, RoomEvent, RoomMessage, Routine, SetupState, UnlockResult, UpdateState } from '../shared/types';
 import { WHATS_NEW } from './whatsNew.js';
 import { renderMarkdown } from './markdown.js';
 import { decideView, formatReminderAt, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId,
-  REACTION_CHOICES, allTags, autoTitle, dockSections, formatActivity, tokensPerSecond } from './view.js';
+  REACTION_CHOICES, allTags, localVoices, searchMemory, reactionCount, floatToPcm16, autoTitle, dockSections, formatActivity, tokensPerSecond } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
@@ -14,6 +14,13 @@ const api = window.cipher;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const el = {
+  mic: $<HTMLButtonElement>('mic'), compactSwitch: $<HTMLInputElement>('compact-switch'),
+  voiceTested: $('voice-tested'), voiceEngine: $('voice-engine'), voiceModel: $('voice-model'),
+  voicePickEngine: $<HTMLButtonElement>('voice-pick-engine'), voicePickModel: $<HTMLButtonElement>('voice-pick-model'),
+  voiceClear: $<HTMLButtonElement>('voice-clear'), voiceError: $('voice-error'),
+  reportOpen: $<HTMLButtonElement>('report-open'), reportModal: $('report-modal'), reportText: $('report-text'),
+  reportMsg: $('report-msg'), reportSave: $<HTMLButtonElement>('report-save'), reportClose: $<HTMLButtonElement>('report-close'),
+  memorySearchWrap: $('memory-search-wrap'), memorySearch: $<HTMLInputElement>('memory-search'), memoryResults: $('memory-results'),
   splash: $('splash'),
   search: $<HTMLInputElement>('search'),
   botList: $('bot-list'), roomList: $('room-list'),
@@ -142,7 +149,7 @@ const state = {
   /** v1.16: optional send sound (off by default). */
   sendSound: false,
   /** v1.17: display preferences (stored in main): message times (on by default), dock collapsed (off by default). */
-  prefs: { showTimes: true, dockCollapsed: false, reduceMotion: false },
+  prefs: { showTimes: true, dockCollapsed: false, reduceMotion: false, compact: false } as UiPrefsState,
   /** v1.18: confirm cards main is waiting on (id → chat and exact query). */
   searchAsks: new Map<string, { chatId: number; query: string }>(),
   /** v1.19: multi-select: on/off and the chosen message ids. */
@@ -325,6 +332,17 @@ function renderRail(): void {
     const btn = railButton(`bot${working ? ' working' : ''}`, b.toolsEnabled ? `${b.name} (reads files)` : b.name, showingChat && b.id === state.botId, () => void selectBot(b.id));
     btn.addEventListener('contextmenu', (e) => void onItemContextMenu(e, 'bot', b.id));
     btn.append(botIcon(b, 42), node('span', 'rail-name', b.name));
+    btn.draggable = true;
+    btn.dataset.botId = String(b.id);
+    btn.addEventListener('dragstart', (e) => { e.dataTransfer?.setData('application/x-cipher-bot', String(b.id)); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'link'; });
+    btn.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('application/x-cipher-bot')) { e.preventDefault(); e.dataTransfer.dropEffect = 'link'; btn.classList.add('drop-target'); } });
+    btn.addEventListener('dragleave', () => btn.classList.remove('drop-target'));
+    btn.addEventListener('drop', (e) => {
+      e.preventDefault(); btn.classList.remove('drop-target');
+      const raw = e.dataTransfer?.getData('application/x-cipher-bot') ?? '';
+      if (/^\d+$/.test(raw)) void roomFromDrag(Number(raw), b.id);
+    });
+    btn.title = `${btn.title}. Drag onto another bot to start a room.`;
     if (b.muted) btn.append(muteMark());
     addUnreadDot(btn, b.unread && !(showingChat && b.id === state.botId));
     if (!nameMatches(b.name, q)) btn.classList.add('filtered-out');
@@ -369,12 +387,14 @@ function renderDock(): void {
   el.dockToggle.title = label;
 }
 
-async function setUiPref(name: 'showTimes' | 'dockCollapsed' | 'reduceMotion', value: boolean): Promise<void> {
+async function setUiPref(name: 'showTimes' | 'dockCollapsed' | 'reduceMotion' | 'compact', value: boolean): Promise<void> {
   state.prefs = await api.setUiPref(name, value);
   applyMotion();
   renderRail();
   if (name === 'showTimes' && !el.chatView.hidden) renderChat();
   el.timesSwitch.checked = state.prefs.showTimes;
+  applyCompact();
+  if (name === 'compact' && !el.chatView.hidden) renderChat();
 }
 
 /** v1.16: a small accent dot on a bot or room with a reply the user hasn't opened yet. */
@@ -627,51 +647,7 @@ function onSearchClosed(e: { id: string }): void {
 // ---------- copy a message ----------
 const SVG_NS = 'http://www.w3.org/2000/svg';
 /** The small copy icon (two overlapping rounded squares), built with DOM calls (no inline styles). */
-function copyIcon(): SVGSVGElement {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', '14');
-  svg.setAttribute('height', '14');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  for (const [x, y] of [[8, 8], [4, 4]]) {
-    const r = document.createElementNS(SVG_NS, 'rect');
-    r.setAttribute('x', String(x)); r.setAttribute('y', String(y));
-    r.setAttribute('width', '12'); r.setAttribute('height', '12'); r.setAttribute('rx', '2.5');
-    r.setAttribute('fill', 'none'); r.setAttribute('stroke', 'currentColor'); r.setAttribute('stroke-width', '2');
-    svg.append(r);
-  }
-  return svg;
-}
-
-function copyButton(text: string): HTMLButtonElement {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'copy-btn';
-  btn.title = 'Copy message';
-  btn.setAttribute('aria-label', 'Copy message');
-  btn.append(copyIcon());
-  btn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    try {
-      await api.copyText(text);
-      btn.classList.add('copied');
-      btn.title = 'Copied';
-      btn.setAttribute('aria-label', 'Copied');
-      window.setTimeout(() => {
-        btn.classList.remove('copied');
-        btn.title = 'Copy message';
-        btn.setAttribute('aria-label', 'Copy message');
-      }, 1200);
-    } catch (err) {
-      state.error = plainError(err);
-      renderChat();
-    }
-  });
-  return btn;
-}
-
-/** A user or bot message bubble: the text plus a small copy button (and a "Routine" tag for routine messages). */
+/** A user or bot message bubble: text and time only (v1.25; actions sit behind the bubble plus) (and a "Routine" tag for routine messages). */
 const MD_OPTS = {
   // Links in chat text use the same main-side check as result links, plus a confirm showing the URL.
   onLink: (url: string) => void api.openLink(url, true).catch((err) => showAttachError(plainError(err))),
@@ -685,13 +661,286 @@ function bubble(cls: string, text: string, fromRoutine: boolean | string = false
     // v1.19: markdown, built as DOM nodes (text only, raw HTML stays text, no images).
     const md = node('div', 'msg-text md');
     md.append(renderMarkdown(text, MD_OPTS));
-    msg.append(md, copyButton(text));
+    msg.append(md);
     addTime(msg, createdAt);
     return msg;
   }
-  msg.append(node('span', 'msg-text', text), copyButton(text));
+  msg.append(node('span', 'msg-text', text));
   addTime(msg, createdAt);
   return msg;
+}
+
+// ---------- v1.25: the bubble plus menu ----------
+interface BubbleItem { label: string; icon?: string; ico?: string; run: () => void; pressed?: boolean; cls?: string }
+let openBubbleMenu: HTMLElement | null = null;
+
+function closeBubbleMenu(): void {
+  if (!openBubbleMenu) return;
+  const host = openBubbleMenu.closest('.msg');
+  host?.classList.remove('menu-open');
+  host?.querySelector('.bubble-plus')?.setAttribute('aria-expanded', 'false');
+  openBubbleMenu.remove();
+  openBubbleMenu = null;
+}
+
+/** The small plus on a bubble. Its menu is built only when opened, so no action row exists by default. */
+function bubblePlus(items: () => BubbleItem[]): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'bubble-plus'; btn.title = 'Message actions';
+  btn.setAttribute('aria-label', 'Message actions'); btn.setAttribute('aria-haspopup', 'menu'); btn.setAttribute('aria-expanded', 'false');
+  btn.append(node('span', 'ico ico-bubble-plus'));
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const host = btn.closest('.msg') as HTMLElement | null;
+    const wasOpen = host?.classList.contains('menu-open');
+    closeBubbleMenu();
+    if (!host || wasOpen) return;
+    const menu = node('div', 'bubble-menu');
+    menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Message actions');
+    for (const it of items()) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('role', 'menuitem'); b.className = `bubble-item${it.cls ? ` ${it.cls}` : ''}`;
+      b.title = it.label; b.setAttribute('aria-label', it.label);
+      if (it.pressed !== undefined) b.setAttribute('aria-pressed', String(it.pressed));
+      if (it.icon) { const img = document.createElement('img'); img.src = it.icon; img.alt = ''; img.width = 18; img.height = 18; b.append(img); }
+      if (it.ico) b.append(node('span', `ico ${it.ico}`));
+      if (!it.cls?.includes('react-btn')) b.append(node('span', 'bubble-item-label', it.label));
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); closeBubbleMenu(); it.run(); });
+      menu.append(b);
+    }
+    host.classList.add('menu-open');
+    btn.setAttribute('aria-expanded', 'true');
+    host.append(menu);
+    openBubbleMenu = menu;
+    (menu.querySelector('button') as HTMLButtonElement | null)?.focus();
+  });
+  return btn;
+}
+
+function withPlus(row: HTMLElement, items: () => BubbleItem[]): HTMLElement { row.append(bubblePlus(items)); return row; }
+
+async function copyMessage(text: string): Promise<void> {
+  try { await api.copyText(text); } catch (err) { showAttachError(plainError(err)); }
+}
+
+function roomMenuItems(text: string): () => BubbleItem[] {
+  return () => [
+    { label: 'Copy', ico: 'ico-copy-msg', run: () => void copyMessage(text) },
+    { label: readingText === text ? 'Stop reading' : 'Read aloud', ico: 'ico-read-aloud', run: () => readAloud(text) },
+  ];
+}
+
+function botMenuItems(row: HTMLElement, m: Message, chatId: number): () => BubbleItem[] {
+  return () => {
+    const items: BubbleItem[] = [
+      { label: 'Quote', icon: 'assets/cipher-quote.svg', run: () => { state.quote = { id: m.id, text: m.content }; renderQuoteUi(); el.input.focus(); } },
+      { label: m.pinned ? 'Unpin' : 'Pin', icon: 'assets/cipher-pin.svg', cls: m.pinned ? 'on' : '', run: () => void togglePin(chatId, m.id, !m.pinned) },
+      ...REACTION_CHOICES.map((c) => ({ label: c.label, ico: `ico-react-${c.id}`, cls: 'react-btn', pressed: m.reaction === c.id, run: () => void react(chatId, m, c.id) })),
+      { label: 'Copy', ico: 'ico-copy-msg', run: () => void copyMessage(m.content) },
+    ];
+    if (m.role === 'user' && !m.content.startsWith(PAGE_BLOCK_START)) items.push({ label: 'Edit', run: () => startEdit(row, m, chatId) });
+    items.push(
+      { label: 'Delete', run: () => void deleteOne(chatId, m.id) },
+      { label: 'Save to memory', icon: 'assets/cipher-memory.svg', run: () => void rememberMessage(chatId, m.id) },
+      { label: readingText === m.content ? 'Stop reading' : 'Read aloud', ico: 'ico-read-aloud', run: () => readAloud(m.content) },
+    );
+    if (m.edited) items.push({ label: 'Edit history', run: () => void openEdits(chatId, m.id) });
+    return items;
+  };
+}
+
+async function react(chatId: number, m: Message, id: string): Promise<void> {
+  try {
+    const upd = await api.reactMessage(chatId, m.id, m.reaction === id ? null : id);
+    const cur = state.messages.find((x) => x.id === m.id);
+    if (cur) cur.reaction = upd.reaction ?? null;
+    renderChat();
+  } catch (err) { state.error = plainError(err); renderChat(); }
+}
+
+async function deleteOne(chatId: number, id: number): Promise<void> {
+  try {
+    const r = await api.deleteMessages(chatId, [id]); // main asks first
+    if (r.canceled) return;
+    state.messages = state.messages.filter((x) => x.id !== id);
+    renderChat();
+    if (r.undoId) showUndo(r.undoId, 'Deleted 1 message.');
+  } catch (err) { showAttachError(plainError(err)); }
+}
+
+// ---------- v1.25: read aloud (voices on this computer only) ----------
+let readingText: string | null = null;
+function readAloud(text: string): void {
+  const synth = window.speechSynthesis;
+  if (readingText === text) { synth.cancel(); readingText = null; return; }
+  synth.cancel();
+  const voice = localVoices(synth.getVoices())[0];
+  if (!voice) { showAttachError('No voice on this computer is available for read-aloud. Nothing was sent anywhere.'); return; }
+  const u = new SpeechSynthesisUtterance(text);
+  u.voice = voice; // a local voice only; never a network voice
+  u.onend = () => { if (readingText === text) readingText = null; };
+  readingText = text;
+  synth.speak(u);
+}
+
+// ---------- v1.25: hold-to-talk (local whisper.cpp, run by main) ----------
+let voice: VoiceState = { engine: null, model: null, tested: '' };
+let micStream: MediaStream | null = null;
+let micCtx: AudioContext | null = null;
+let micChunks: Float32Array[] = [];
+let micBusy = false;
+
+function renderVoice(): void {
+  const ready = !!voice.engine && !!voice.model;
+  el.mic.hidden = !ready;
+  el.voiceTested.textContent = voice.tested;
+  el.voiceEngine.textContent = voice.engine ?? 'Not chosen';
+  el.voiceModel.textContent = voice.model ?? 'Not chosen';
+  el.voiceClear.hidden = !voice.engine && !voice.model;
+}
+
+async function voiceCall(f: () => Promise<VoiceState>): Promise<void> {
+  el.voiceError.hidden = true;
+  try { voice = await f(); } catch (err) { el.voiceError.textContent = plainError(err); el.voiceError.hidden = false; }
+  renderVoice();
+}
+
+/** Stop the mic: every track ends, the audio graph closes. Called on release, blur and lock. */
+function releaseMic(): void {
+  micStream?.getTracks().forEach((t) => t.stop());
+  micStream = null;
+  void micCtx?.close().catch(() => undefined);
+  micCtx = null;
+  el.mic.classList.remove('recording');
+  el.mic.setAttribute('aria-pressed', 'false');
+  el.mic.setAttribute('aria-label', 'Hold to talk');
+}
+
+async function micDown(): Promise<void> {
+  if (micStream || micBusy || el.mic.hidden) return;
+  micChunks = [];
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch { showAttachError('The microphone is not available.'); return; }
+  micCtx = new AudioContext({ sampleRate: 16000 });
+  const src = micCtx.createMediaStreamSource(micStream);
+  const proc = micCtx.createScriptProcessor(4096, 1, 1);
+  proc.onaudioprocess = (e) => { if (micStream) micChunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  src.connect(proc); proc.connect(micCtx.destination);
+  el.mic.classList.add('recording');
+  el.mic.setAttribute('aria-pressed', 'true');
+  el.mic.setAttribute('aria-label', 'Recording');
+}
+
+async function micUp(): Promise<void> {
+  if (!micStream) return;
+  releaseMic();
+  const total = micChunks.reduce((n, c) => n + c.length, 0);
+  const all = new Float32Array(total);
+  let o = 0; for (const c of micChunks) { all.set(c, o); o += c.length; }
+  micChunks = [];
+  if (total < 1600) return; // under 0.1 s
+  micBusy = true; el.mic.classList.add('busy');
+  try {
+    const text = await api.transcribe(floatToPcm16(all));
+    if (text) {
+      const cur = el.input.value;
+      el.input.value = cur ? `${cur}${/\s$/.test(cur) ? '' : ' '}${text}` : text;
+      el.input.dispatchEvent(new Event('input'));
+      el.input.focus();
+    }
+  } catch (err) { showAttachError(plainError(err)); }
+  finally { micBusy = false; el.mic.classList.remove('busy'); }
+}
+
+el.mic.addEventListener('pointerdown', (e) => { e.preventDefault(); el.mic.setPointerCapture(e.pointerId); void micDown(); });
+el.mic.addEventListener('pointerup', () => void micUp());
+el.mic.addEventListener('pointercancel', () => void micUp());
+el.mic.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); void micDown(); } });
+el.mic.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); void micUp(); } });
+el.mic.addEventListener('blur', () => void micUp());
+window.addEventListener('blur', () => releaseMic());
+document.addEventListener('click', (e) => { if (openBubbleMenu && !openBubbleMenu.contains(e.target as Node)) closeBubbleMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBubbleMenu(); });
+el.voicePickEngine.addEventListener('click', () => void voiceCall(() => api.pickVoiceEngine()));
+el.voicePickModel.addEventListener('click', () => void voiceCall(() => api.pickVoiceModel()));
+el.voiceClear.addEventListener('click', () => void voiceCall(() => api.clearVoice()));
+
+// ---------- v1.25: file drafts (nothing is written until Save and the confirm in main) ----------
+let drafts: DraftInfo[] = [];
+let draftsChat: number | null = null;
+async function loadDrafts(): Promise<void> {
+  const chatId = state.chat?.id ?? null;
+  draftsChat = chatId;
+  drafts = chatId === null ? [] : await api.listDrafts(chatId).catch(() => []);
+  if (!el.chatView.hidden && state.roomId === null) renderChat();
+}
+
+function draftCard(d: DraftInfo, chatId: number): HTMLElement {
+  const card = node('div', 'msg note draft-card');
+  card.append(node('strong', '', `Draft file: ${d.path}`), node('pre', 'draft-preview', d.content.length > 1200 ? `${d.content.slice(0, 1199)}…` : d.content));
+  card.append(node('p', 'muted', 'Nothing is written until you press Save and confirm.'));
+  const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save…';
+  const discard = document.createElement('button'); discard.type = 'button'; discard.className = 'secondary'; discard.textContent = 'Discard';
+  save.addEventListener('click', () => {
+    save.disabled = true;
+    void api.saveDraft(chatId, d.id).catch((err) => showAttachError(plainError(err))).finally(() => void loadDrafts());
+  });
+  discard.addEventListener('click', () => void api.discardDraft(chatId, d.id).finally(() => void loadDrafts()));
+  const bar = node('div', 'row end'); bar.append(discard, save);
+  card.append(bar);
+  return card;
+}
+api.onDrafts((chatId) => { if (state.chat?.id === chatId) void loadDrafts(); });
+
+// ---------- v1.25: weekly report (counts only, made on this computer) ----------
+el.reportOpen.addEventListener('click', () => {
+  el.reportMsg.hidden = true;
+  void api.weeklyReport().then((t) => { el.reportText.textContent = t; el.reportModal.hidden = false; el.reportClose.focus(); })
+    .catch((err) => showAttachError(plainError(err)));
+});
+el.reportClose.addEventListener('click', () => { el.reportModal.hidden = true; });
+el.reportSave.addEventListener('click', () => {
+  void api.saveWeeklyReport().then((r) => {
+    if (r.ok) { el.reportMsg.textContent = `Saved to ${r.path}`; el.reportMsg.hidden = false; }
+  }).catch((err) => { el.reportMsg.textContent = plainError(err); el.reportMsg.hidden = false; });
+});
+
+// ---------- v1.25: compact mode, memory search ----------
+function applyCompact(): void {
+  document.documentElement.classList.toggle('compact', state.prefs.compact === true);
+  el.compactSwitch.checked = state.prefs.compact === true;
+}
+el.compactSwitch.addEventListener('change', () => void setUiPref('compact', el.compactSwitch.checked));
+
+function renderMemorySearch(): void {
+  const hits = searchMemory(el.botMemory.value, el.memorySearch.value);
+  const q = el.memorySearch.value.trim();
+  el.memoryResults.replaceChildren(...(q && !hits.length ? [node('li', 'muted', 'No match in this memory note.')] : hits.map((h) => {
+    const li = document.createElement('li');
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'link-btn';
+    b.textContent = `Line ${h.line}: ${clip(h.text, 120)}`;
+    b.addEventListener('click', () => {
+      const lines = el.botMemory.value.split('\n');
+      const startAt = lines.slice(0, h.line - 1).reduce((n, l) => n + l.length + 1, 0);
+      el.botMemory.focus(); el.botMemory.setSelectionRange(startAt, startAt + lines[h.line - 1].length);
+    });
+    li.append(b);
+    return li;
+  })));
+}
+el.memorySearch.addEventListener('input', renderMemorySearch);
+
+// ---------- v1.25: drag a bot onto another to start a room ----------
+async function roomFromDrag(fromId: number, toId: number): Promise<void> {
+  if (fromId === toId) return;
+  const a = botById(fromId); const b = botById(toId);
+  if (!a || !b) return;
+  try {
+    const room = await api.createRoom({ name: '', botIds: [toId, fromId] });
+    await loadRooms();
+    await selectRoom(room.id);
+  } catch (err) { showAttachError(plainError(err)); }
 }
 
 // ---------- v1.20: quote, pin, image in a bot's chat ----------
@@ -735,28 +984,17 @@ function decorateMessage(row: HTMLElement, m: Message, chatId: number): void {
       }).catch(() => { state.images.set(m.id, null); img.remove(); });
     }
   }
-  const acts = node('span', 'msg-acts');
-  acts.append(
-    iconButton('assets/cipher-quote.svg', 'Quote this message', 'quote-btn', () => { state.quote = { id: m.id, text: m.content }; renderQuoteUi(); el.input.focus(); }),
-    iconButton('assets/cipher-pin.svg', m.pinned ? 'Unpin' : 'Pin to the top', `pin-btn${m.pinned ? ' on' : ''}`, () => void togglePin(chatId, m.id, !m.pinned)),
-    iconButton('assets/cipher-memory.svg', 'Save to memory note', 'remember-btn', () => void rememberMessage(chatId, m.id)),
-  );
-  // v1.24: edit your own message (the old text is kept in its history).
-  if (m.role === 'user' && !m.content.startsWith(PAGE_BLOCK_START)) {
-    const ed = document.createElement('button');
-    ed.type = 'button'; ed.className = 'msg-act edit-btn edited-mark'; ed.textContent = 'Edit'; ed.title = 'Edit this message';
-    ed.addEventListener('click', (e) => { e.stopPropagation(); startEdit(row, m, chatId); });
-    acts.append(ed);
-  }
-  row.append(acts);
-  if (m.edited) {
-    const h = document.createElement('button');
-    h.type = 'button'; h.className = 'edited-mark'; h.textContent = 'edited'; h.title = 'See the old text';
-    h.addEventListener('click', () => void openEdits(chatId, m.id));
-    row.append(h);
-  }
+  // v1.25: text and time only; everything else sits behind the small plus on the bubble.
   if (m.role === 'assistant' && state.showTps && state.tps.has(m.id)) row.append(node('div', 'tps-line', state.tps.get(m.id)!));
-  row.append(reactBar(m, chatId));
+  const n = reactionCount(m.reaction);
+  if (n && m.reaction) {
+    const badge = node('span', 'react-count');
+    badge.title = `Reaction: ${REACTION_CHOICES.find((c) => c.id === m.reaction)?.label ?? m.reaction}`;
+    badge.append(node('span', `ico ico-react-${m.reaction}`), node('span', 'react-n', String(n)));
+    row.append(badge);
+  }
+  if (m.edited) row.append(node('span', 'edited-tag', 'edited'));
+  row.append(bubblePlus(botMenuItems(row, m, chatId)));
 }
 
 async function togglePin(chatId: number, id: number, on: boolean): Promise<void> {
@@ -845,6 +1083,9 @@ function renderBotChat(): void {
       row = searchResultRow(m);
     } else if (m.toolName === 'calculator') {
       row = node('div', `msg note${m.content.startsWith('Error:') ? ' bad' : ''}`, `Calculator: ${m.content}`);
+    } else if (m.toolName === 'draft_file') {
+      // v1.25: the draft is kept in main; nothing was written (the Save card below does that, after a confirm).
+      row = node('div', `msg note${m.content.startsWith('Error:') ? ' bad' : ''}`, `Draft file: ${m.content}`);
     } else if (m.toolName === 'write_file' || m.toolName === 'checklist_add') {
       // v1.22: the outcome main reported (written, cancelled or refused), as plain text.
       const ok = /^(Wrote|Added)/.test(m.content);
@@ -863,6 +1104,8 @@ function renderBotChat(): void {
   const busy = state.busy.has(chat.id);
   renderSelectBar();
   for (const [id, a] of state.searchAsks) if (a.chatId === chat.id) items.push(searchAskCard(id, a.query));
+  if (draftsChat === chat.id) for (const d of drafts) items.push(draftCard(d, chat.id));
+  else void loadDrafts();
   if (busy) items.push(node('div', 'msg assistant live', state.live));
   if (state.error) items.push(node('div', 'msg error', state.error));
   if (!items.length) items.push(node('div', 'msg note', `Say hello to ${bot.name}.`));
@@ -882,7 +1125,7 @@ function roomReply(botId: number | null, text: string, live = false, createdAt?:
   if (bot) speaker.append(botIcon(bot, 26));
   speaker.append(node('span', 'name', bot ? bot.name : 'Cipher bot'));
   msg.append(speaker, node('div', 'text', text));
-  if (!live) msg.append(copyButton(text));
+  if (!live) msg.append(bubblePlus(roomMenuItems(text)));
   addTime(msg, createdAt);
   return msg;
 }
@@ -904,7 +1147,7 @@ function renderRoom(): void {
   const items: HTMLElement[] = [];
   for (const m of state.roomMessages) {
     const match = !q || m.content.toLowerCase().includes(q);
-    const row = m.role === 'user' ? bubble('user', m.content, false, m.createdAt) : roomReply(m.botId, m.content, false, m.createdAt);
+    const row = m.role === 'user' ? withPlus(bubble('user', m.content, false, m.createdAt), roomMenuItems(m.content)) : roomReply(m.botId, m.content, false, m.createdAt);
     if (!match) row.classList.add('search-hidden');
     items.push(row);
   }
@@ -1139,6 +1382,7 @@ function setBotFormMode(editName: string | null): void {
   el.botSubmit.textContent = editName === null ? 'Create Cipher bot' : 'Save';
   el.botFormArt.hidden = editName !== null;
   el.botMemoryWrap.hidden = editName === null; // v1.19: memory note is edited in the bot's settings
+  el.memorySearchWrap.hidden = editName === null; // v1.25: search inside this bot's memory
   el.starterJobs.hidden = editName !== null; // v1.20: starter jobs only when creating
   el.replyLengthWrap.hidden = editName === null; // v1.21: reply length in the bot's settings
 }
@@ -1167,6 +1411,7 @@ function openEditBot(): void {
   el.botName.value = bot.name;
   el.botJob.value = bot.systemPrompt;
   el.botMemory.value = bot.memoryNote;
+  el.memorySearch.value = ''; renderMemorySearch();
   el.replyLength.value = bot.replyLength;
   el.botTags.value = (bot.tags ?? []).join(', ');
   el.botGroup.value = bot.group ?? '';
@@ -1302,6 +1547,8 @@ function renderSettings(): void {
   el.onlineOnIcon.hidden = !state.online;
   el.lastSearch.textContent = state.lastSearch ? new Date(state.lastSearch).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
   el.timesSwitch.checked = state.prefs.showTimes;
+  applyCompact();
+  void voiceCall(() => api.voiceState());
   el.settingsVersion.textContent = state.version;
   const ph = state.phone;
   el.phoneStart.hidden = ph.running;
@@ -1448,6 +1695,8 @@ async function restoreNow(): Promise<void> {
 // main refuses every data request and sends no chat events; locking again reloads the page.
 let unlockRetryTimer: number | undefined;
 function showLockScreen(): void {
+  releaseMic(); // v1.25: the mic stream ends on lock
+  window.speechSynthesis?.cancel();
   el.lockScreen.hidden = false;
   el.lockPassError.hidden = true;
   el.lockPass.focus();
@@ -1999,6 +2248,11 @@ el.dockToggle.addEventListener('click', () => void setUiPref('dockCollapsed', !s
 const dropTargetOk = (): boolean => !el.chatView.hidden && state.botId !== null && state.roomId === null;
 document.addEventListener('dragover', (e) => {
   e.preventDefault();
+  // v1.25: a bot dragged in the dock may only land on another bot (to start a room); never on the chat.
+  if (e.dataTransfer?.types.includes('application/x-cipher-bot')) {
+    e.dataTransfer.dropEffect = (e.target as Element | null)?.closest?.('#bot-list .rail-btn.bot') ? 'link' : 'none';
+    return;
+  }
   const onChat = el.chatView.contains(e.target as Node) && !el.chatView.hidden;
   if (e.dataTransfer) e.dataTransfer.dropEffect = onChat && dropTargetOk() ? 'copy' : 'none';
   el.chatView.classList.toggle('drop-over', onChat && dropTargetOk());
@@ -2139,7 +2393,7 @@ async function loadAppData(): Promise<void> {
     state.version = await api.getVersion();
     state.sendSound = await api.getSendSound();
     state.prefs = await api.getUiPrefs();
-    applyMotion();
+    applyMotion(); applyCompact(); void voiceCall(() => api.voiceState());
     void api.getAccent().then(applyAccent).catch(() => undefined);
     void api.getFont().then(applyFont).catch(() => undefined);
     state.showTps = await api.getShowTps();
@@ -2647,27 +2901,6 @@ async function refreshActivity(): Promise<void> {
     state.activity = formatActivity(a);
     el.chatActivity.textContent = state.roomId === null ? state.activity : '';
   } catch { /* the line just stays empty */ }
-}
-
-function reactBar(m: Message, chatId: number): HTMLElement {
-  const bar = node('div', 'react-bar');
-  bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Reactions');
-  for (const r of REACTION_CHOICES) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'react-btn'; b.title = r.label; b.setAttribute('aria-label', r.label);
-    b.setAttribute('aria-pressed', String(m.reaction === r.id));
-    b.append(node('span', `ico ico-react-${r.id}`));
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      void api.reactMessage(chatId, m.id, m.reaction === r.id ? null : r.id).then((upd) => {
-        const cur = state.messages.find((x) => x.id === m.id);
-        if (cur) cur.reaction = upd.reaction ?? null;
-        renderChat();
-      }).catch((err) => { state.error = plainError(err); renderChat(); });
-    });
-    bar.append(b);
-  }
-  return bar;
 }
 
 function startEdit(row: HTMLElement, m: Message, chatId: number): void {

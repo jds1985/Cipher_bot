@@ -35,7 +35,7 @@ const fn = (name: string) => { const m = new RegExp(`(?:async )?function ${name}
 
 test('version 1.21.0+, schema 10+, WHATS_NEW five lines or fewer, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.24.0');
+  assert.equal(pkg.version, '1.25.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.ok(SCHEMA_VERSION >= 10);
@@ -177,7 +177,8 @@ test('5. starter jobs: Writer, Researcher, Files, Blank, local presets with Liz\
   assert.match(html, /<h3>Keyboard shortcuts<\/h3>\s*<dl id="shortcut-list"/);
   for (const icon of ['pin', 'mute', 'quote']) assert.ok(fs.existsSync(path.join(root, `src/renderer/assets/cipher-${icon}.svg`)));
   const css = read('src/renderer/styles.css');
-  assert.match(css, /\.msg-act img \{ width: 20px; height: 20px;/);
+  // v1.25: quote/pin icons now sit in the bubble plus menu.
+  assert.match(css, /\.bubble-item img, \.bubble-item \.ico \{ width: 16px; height: 16px; \}/);
 });
 
 test('7. debug log: no chats unless ticked, redacted paths and queries, never lock data, pairing codes or memory notes', () => {

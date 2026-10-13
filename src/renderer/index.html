@@ -89,6 +89,10 @@
               <textarea id="bot-memory" rows="4" maxlength="2000" placeholder="Things this Cipher bot should remember in every chat, e.g. I live in Lyon and prefer metric units."></textarea>
               <span class="muted memory-hint">Sent to this bot with every chat, on this computer. Leave empty for none.</span>
             </label>
+            <div id="memory-search-wrap" class="memory-search" hidden>
+              <input id="memory-search" type="search" maxlength="100" placeholder="Search this bot's memory" aria-label="Search this bot's memory" />
+              <ul id="memory-results" class="memory-results" aria-live="polite"></ul>
+            </div>
             <fieldset class="picker">
               <legend>Icon shape</legend>
               <div id="shape-picker" class="shape-grid" role="radiogroup" aria-label="Icon shape"></div>
@@ -275,6 +279,24 @@
               </label>
             </div>
             <div class="settings-block">
+              <label class="row switch-row">
+                <input type="checkbox" id="compact-switch" />
+                <span><strong>Compact mode</strong><span class="muted switch-hint"> Off by default. Tighter bubbles and a smaller time.</span></span>
+              </label>
+            </div>
+            <div class="settings-block">
+              <h3 class="row"><span class="ico ico-mic" aria-hidden="true"></span>Voice input</h3>
+              <p class="muted">Hold the mic button to talk; the text lands in the message box. Speech is turned into text on this computer by whisper.cpp, a program you install yourself, with a model file you choose. Nothing is downloaded and no audio leaves this computer. Tested with <span id="voice-tested"></span>.</p>
+              <dl class="shortcut-list"><dt>Program</dt><dd id="voice-engine">Not chosen</dd><dt>Model</dt><dd id="voice-model">Not chosen</dd></dl>
+              <div class="row"><button type="button" id="voice-pick-engine" class="secondary">Choose program…</button><button type="button" id="voice-pick-model" class="secondary">Choose model…</button><button type="button" id="voice-clear" class="secondary">Turn off</button></div>
+              <p id="voice-error" class="error" hidden></p>
+            </div>
+            <div class="settings-block">
+              <h3>Weekly report</h3>
+              <p class="muted">Counts for the last 7 days: messages per bot, tools used and backups. Never any chat text. Made on this computer.</p>
+              <div class="row"><button type="button" id="report-open" class="secondary">Show weekly report…</button></div>
+            </div>
+            <div class="settings-block">
               <h3>Font</h3>
               <select id="font-select" aria-label="Font">
                 <option value="system">System (default)</option>
@@ -420,6 +442,7 @@
             <button type="button" id="plus" class="composer-circle plus" aria-label="More actions" title="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="plus-menu">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
             </button>
+            <button type="button" id="mic" class="composer-circle mic" aria-label="Hold to talk" title="Hold to talk (speech is turned into text on this computer)" hidden><span class="ico ico-mic" aria-hidden="true"></span></button>
             <button type="submit" id="send" class="composer-circle" aria-label="Send">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
@@ -458,6 +481,14 @@
         </div>
         <p id="tools-error" class="error" hidden></p>
         <div class="row end"><button type="button" id="tools-close" class="secondary">Close</button></div>
+      </div>
+    </div>
+    <div id="report-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="report-title" hidden>
+      <div class="checklist-card">
+        <h3 id="report-title">Weekly report</h3>
+        <pre id="report-text" class="report-text"></pre>
+        <p id="report-msg" class="muted" hidden></p>
+        <div class="row end"><button type="button" id="report-save" class="secondary">Save…</button><button type="button" id="report-close" class="secondary">Close</button></div>
       </div>
     </div>
     <div id="edits-modal" class="checklist-modal" role="dialog" aria-modal="true" aria-labelledby="edits-title" hidden>

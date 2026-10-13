@@ -71,7 +71,7 @@ code, .cmd { background: #0008; padding: 2px 6px; border-radius: 4px; user-selec
 .title-block span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .folder { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.msg { max-width: 78%; padding: 10px 16px; border-radius: 22px; white-space: pre-wrap; word-wrap: break-word; }
+.msg { max-width: min(70ch, 85%); padding: 10px 16px; border-radius: 22px; white-space: pre-wrap; word-wrap: break-word; }
 .msg.user { align-self: flex-end; background: var(--accent2); color: #fff; }
 .msg.assistant { align-self: flex-start; background: var(--panel2); }
 /* Room replies: who is speaking (icon + name) above the text. */
@@ -240,15 +240,6 @@ button.secondary.danger:hover { background: #3a1c1c; }
 .chat-actions { flex: none; }
 /* Small copy button next to each message bubble; shows on hover or keyboard focus. */
 .msg { position: relative; }
-.msg .copy-btn { position: absolute; top: 4px; width: 26px; height: 26px; padding: 0; display: grid; place-items: center;
-  background: var(--panel2); color: var(--muted); border: 1px solid var(--line); border-radius: 50%; opacity: 0;
-  transition: opacity .12s ease; white-space: normal; }
-.msg.user .copy-btn { left: -32px; }
-.msg.assistant .copy-btn { right: -32px; }
-.msg:hover .copy-btn, .msg .copy-btn:focus-visible, .msg .copy-btn.copied { opacity: 1; }
-.msg .copy-btn:hover { background: var(--line); color: var(--text); }
-.msg .copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.msg .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
 /* With file reading on, the header's controls can wrap to a second line in narrow windows. */
 #chat-header { flex-wrap: wrap; row-gap: 6px; }
 
@@ -417,12 +408,6 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .select-bar #select-count { margin-right: auto; color: var(--muted); }
 
 /* ---------- v1.20: quote, pin, mute, images, starter jobs, shortcuts ---------- */
-.msg-acts { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; opacity: 0; transition: opacity 0.12s; }
-.msg:hover .msg-acts, .msg:focus-within .msg-acts, .msg-act.on { opacity: 1; }
-.msg-act { background: none; border: none; padding: 2px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; }
-.msg-act:hover, .msg-act:focus-visible { background: rgba(var(--accent-rgb), 0.15); }
-.msg-act img { width: 20px; height: 20px; display: block; }
-.msg-act.on { background: rgba(var(--accent-rgb), 0.2); }
 .msg-quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid var(--accent); opacity: 0.85; font-size: 0.92em; white-space: pre-wrap; }
 .msg-image { display: block; max-width: min(360px, 100%); max-height: 320px; border-radius: 8px; margin: 2px 0 6px; object-fit: contain; }
 .image-missing { display: block; font-size: 0.9em; }
@@ -449,8 +434,6 @@ body.dock-collapsed .dock-toggle svg { transform: scaleX(-1); }
 .shortcut-list dt { font-family: ui-monospace, monospace; font-weight: 600; }
 .shortcut-list dd { margin: 0; }
 /* v1.20: on the user's blue bubbles, quote/pin icons are white at ~80%, like the timestamp. */
-.msg.user .msg-act img { filter: brightness(0) invert(1); opacity: 0.8; }
-.msg.user .msg-act:hover, .msg.user .msg-act:focus-visible, .msg.user .msg-act.on { background: rgba(255, 255, 255, 0.18); }
 
 /* ---------- v1.21: always on top, archive, blocked sites, image viewer, tips ---------- */
 #titlebar .titlebar-btn { margin-left: 10px; width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; opacity: 0.6; padding: 0; }
@@ -591,17 +574,6 @@ body.dock-collapsed .tag-filter-wrap select { min-width: 0; width: 100%; padding
   background: none; border: 0; color: var(--muted, #9aa4b2); padding: 2px 4px; cursor: pointer; }
 .dock-group-head .ico { width: 14px; height: 14px; }
 .dock-group-head[aria-expanded="false"] { color: var(--accent); }
-.react-bar { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
-.react-btn { background: none; border: 1px solid transparent; border-radius: 10px; padding: 2px 4px; cursor: pointer; opacity: .55; line-height: 0; }
-.react-btn .ico { width: 16px; height: 16px; }
-/* v1.24 layout: the five choices show on hover or keyboard focus of the bubble; a picked reaction always shows. */
-.react-btn { opacity: 0; transition: opacity 0.12s; }
-.msg:hover .react-btn, .msg:focus-within .react-btn { opacity: 0.55; }
-.react-btn:hover, .react-btn:focus-visible, .msg:hover .react-btn:hover { opacity: 1; }
-.react-btn[aria-pressed="true"], .msg:hover .react-btn[aria-pressed="true"] { opacity: 1; border-color: var(--accent); }
-/* Own (accent) bubbles: the same white filter at 80% as quote and pin. */
-.msg.user .react-btn .ico { filter: brightness(0) invert(1); opacity: 0.8; }
-.msg.user .react-btn[aria-pressed="true"] { border-color: rgba(255, 255, 255, 0.8); }
 .edited-mark { font-size: 11px; background: none; border: 0; color: var(--muted, #9aa4b2); text-decoration: underline; cursor: pointer; padding: 0 4px; }
 .edits-list { max-height: 50vh; overflow: auto; padding-left: 20px; }
 .edits-list li { margin: 8px 0; white-space: pre-wrap; }
@@ -610,3 +582,53 @@ body.dock-collapsed .tag-filter-wrap select { min-width: 0; width: 100%; padding
 .path-line { word-break: break-all; }
 .auto-title-hint { margin: -4px 0 4px; font-size: 12px; }
 #lock-timeout-wrap { gap: 8px; align-items: center; margin-top: 8px; }
+
+/* ---------- v1.25: bubbles show text and time; actions sit behind a small plus ---------- */
+.ico-bubble-plus { --ico: url("assets/cipher-bubble-plus.svg"); }
+.ico-mic { --ico: url("assets/cipher-mic.svg"); }
+.ico-read-aloud { --ico: url("assets/cipher-read-aloud.svg"); }
+.ico-copy-msg { --ico: url("assets/cipher-copy-code.svg"); }
+.bubble-plus { position: absolute; top: 2px; width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
+  background: none; border: 0; border-radius: 50%; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.msg.user .bubble-plus { left: -26px; }
+.msg.assistant .bubble-plus { right: -26px; }
+.msg:hover .bubble-plus, .msg:focus-within .bubble-plus, .msg.menu-open .bubble-plus { opacity: 1; }
+.bubble-plus:hover, .bubble-plus:focus-visible { background: rgba(var(--accent-rgb), 0.15); }
+.bubble-plus .ico { width: 16px; height: 16px; }
+.msg.user .bubble-plus .ico, .msg.user .react-count .ico { filter: brightness(0) invert(1); opacity: 0.8; }
+.bubble-menu { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; padding: 4px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text); white-space: normal; }
+.bubble-item { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid transparent; border-radius: 8px;
+  padding: 3px 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+.bubble-item:hover, .bubble-item:focus-visible { background: rgba(var(--accent-rgb), 0.15); }
+.bubble-item img, .bubble-item .ico { width: 16px; height: 16px; }
+.bubble-item.on, .bubble-item[aria-pressed="true"] { border-color: var(--accent); }
+.react-count { display: inline-flex; align-items: center; gap: 2px; margin-top: 4px; font-size: 11px; opacity: 0.85; }
+.react-count .ico { width: 14px; height: 14px; }
+.msg.menu-open .react-count { display: none; }
+.edited-tag { font-size: 11px; opacity: 0.7; margin-left: 6px; }
+.composer-circle.mic { background: var(--panel2); border: 1px solid var(--line); }
+.composer-circle.mic:hover { background: var(--line); }
+.composer-circle.mic:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.composer-circle.mic .ico { width: 18px; height: 18px; }
+.composer-circle.mic { position: relative; }
+/* Recording (Liz): red, not the teal of Send, with a red dot and a soft pulse. Reduce motion: a steady red ring. */
+.composer-circle.mic.recording { background: #d93a4a; border-color: #d93a4a; animation: mic-pulse 1.4s ease-out infinite; }
+.composer-circle.mic.recording .ico { filter: brightness(0) invert(1); }
+.composer-circle.mic.recording::after { content: ""; position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%;
+  background: #ff4d5e; border: 2px solid var(--bg); }
+@keyframes mic-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 77, 94, 0.55); } 70% { box-shadow: 0 0 0 10px rgba(255, 77, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 77, 94, 0); } }
+:root.reduce-motion .composer-circle.mic.recording { animation: none; box-shadow: 0 0 0 3px #ff4d5e; }
+@media (prefers-reduced-motion: reduce) { .composer-circle.mic.recording { animation: none; box-shadow: 0 0 0 3px #ff4d5e; } }
+.composer-circle.mic.busy { opacity: 0.6; }
+.draft-card { align-self: stretch; max-width: min(70ch, 85%); white-space: normal; border: 1px solid var(--accent); }
+.draft-preview { max-height: 200px; overflow: auto; white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 8px; }
+.report-text { white-space: pre-wrap; font-size: 13px; max-height: 50vh; overflow: auto; }
+.memory-search { display: flex; flex-direction: column; gap: 4px; }
+.memory-results { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.memory-results .link-btn { background: none; border: 0; color: var(--accent); cursor: pointer; text-align: left; padding: 2px 0; }
+.rail-btn.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
+/* Compact mode: tighter bubbles, smaller time. */
+.compact .msg { padding: 5px 10px; border-radius: 14px; }
+.compact #messages { gap: 4px; }
+.compact .msg .msg-time { font-size: 9px; margin-top: 1px; }

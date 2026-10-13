@@ -121,7 +121,7 @@ export interface NewBot {
 }
 
 /** A group chat: two or more Cipher bots and the user. */
-export interface UiPrefsState { showTimes: boolean; dockCollapsed: boolean; reduceMotion: boolean }
+export interface UiPrefsState { showTimes: boolean; dockCollapsed: boolean; reduceMotion: boolean; compact: boolean }
 export type AccentName = 'blue' | 'teal' | 'violet' | 'amber' | 'rose';
 export interface ChecklistItem { id: number; botId: number; text: string; done: boolean; createdAt: string }
 
@@ -259,7 +259,7 @@ export interface CipherApi {
   attachDroppedFile(botId: number, filePath: string): Promise<AttachPickResult>;
   /** v1.17: display preferences (message times, dock collapsed), stored locally. */
   getUiPrefs(): Promise<UiPrefsState>;
-  setUiPref(name: 'showTimes' | 'dockCollapsed' | 'reduceMotion', value: boolean): Promise<UiPrefsState>;
+  setUiPref(name: 'showTimes' | 'dockCollapsed' | 'reduceMotion' | 'compact', value: boolean): Promise<UiPrefsState>;
   /** v1.22: accent color (blue, teal, violet, amber, rose). */
   getAccent(): Promise<AccentName>;
   setAccent(accent: AccentName): Promise<AccentName>;
@@ -430,6 +430,18 @@ export interface CipherApi {
   pickBackupFolder(): Promise<BackupScheduleState>;
   exportSettings(includeMemory: boolean): Promise<{ ok: true; path: string } | { ok: false; canceled: true }>;
   importSettings(includeMemory: boolean): Promise<{ ok: true; applied: number; memory: number } | { ok: false; canceled: true }>;
+  // ---- v1.25 ----
+  listDrafts(chatId: number): Promise<DraftInfo[]>;
+  saveDraft(chatId: number, id: string): Promise<{ ok: boolean; content: string }>;
+  discardDraft(chatId: number, id: string): Promise<boolean>;
+  onDrafts(cb: (chatId: number) => void): () => void;
+  voiceState(): Promise<VoiceState>;
+  pickVoiceEngine(): Promise<VoiceState>;
+  pickVoiceModel(): Promise<VoiceState>;
+  clearVoice(): Promise<VoiceState>;
+  transcribe(pcm: Uint8Array): Promise<string>;
+  weeklyReport(): Promise<string>;
+  saveWeeklyReport(): Promise<{ ok: true; path: string } | { ok: false; canceled: true }>;
 }
 
 export interface LockState {
@@ -460,3 +472,5 @@ export interface UpdateState {
 
 
 export interface BackupScheduleState { schedule: 'off' | 'daily' | 'weekly'; folder: string | null; last: string | null }
+export interface DraftInfo { id: string; path: string; content: string; createdAt: string }
+export interface VoiceState { engine: string | null; model: string | null; tested: string }

@@ -45,7 +45,7 @@ const files = (d: string) => fs.readdirSync(d).sort();
 
 test('version 1.22.0, schema 12, WHATS_NEW five lines of 90 chars or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.24.0');
+  assert.equal(pkg.version, '1.25.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(SCHEMA_VERSION, 14);
@@ -211,9 +211,10 @@ test('2. no write path skips the confirm (source audit of every file write in ma
   // Every other file write in main is a known, user-chosen or app-internal path (see the PR's list).
   const writers = fs.readdirSync(path.join(root, 'src/main')).filter((f) => f.endsWith('.ts') &&
     /\bfs(\.promises)?\.(writeFile|writeFileSync|appendFile|createWriteStream|copyFileSync|renameSync|rename|link)\(|\.backup\(|open\([^)]*'wx?'/.test(read(`src/main/${f}`))).sort();
-  assert.deepEqual(writers, ['backup.ts', 'db.ts', 'fileWrite.ts', 'lock.ts', 'main.ts', 'scheduledBackup.ts', 'updateCheck.ts', 'windowBounds.ts']);
-  // main's writes: only the native Save dialog's chosen path (export, debug log, v1.24 settings file) and the backup.
-  assert.equal((main.match(/fs\.writeFile\(r\.filePath/g) ?? []).length, 3);
+  assert.deepEqual(writers, ['backup.ts', 'db.ts', 'fileWrite.ts', 'lock.ts', 'main.ts', 'scheduledBackup.ts', 'updateCheck.ts', 'voice.ts', 'windowBounds.ts']);
+  // v1.25: voice.ts writes only its own temporary WAV (mode 600) inside a fresh mkdtemp folder, removed afterwards.
+  // main's writes: only the native Save dialog's chosen path (export, debug log, v1.24 settings file, v1.25 weekly report) and the backup.
+  assert.equal((main.match(/fs\.writeFile\(r\.filePath/g) ?? []).length, 4);
   assert.doesNotMatch(main, /fs\.writeFile\((?!r\.filePath)/);
   // The renderer and preload have no way to write: no write channel, no token in, no path out.
   assert.doesNotMatch(preload, /write_file|file:write|writeFile|confirmWrite/i);
@@ -319,7 +320,7 @@ test('1. save a message into the memory note: one tap, 2000-char cap, clear mess
   assert.throws(() => db.appendBotMemory(bot.id, 'hi'), /memory note is full \(2000 characters\)/);
   assert.equal(db.getBot(bot.id)!.memoryNote.length, MEMORY_NOTE_MAX, 'unchanged when refused');
   assert.match(main, /handle\('memory:remember'[\s\S]*?db\.appendBotMemory\(chat\.botId, m\.content\)/);
-  assert.match(renderer, /'Save to memory note', 'remember-btn'/);
+  assert.match(renderer, /label: 'Save to memory', icon: 'assets\/cipher-memory\.svg', run: \(\) => void rememberMessage\(chatId, m\.id\)/); // v1.25: in the bubble plus menu
   db.close();
 });
 

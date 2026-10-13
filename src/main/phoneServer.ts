@@ -437,7 +437,7 @@ export class PhoneServer {
     // v1.19: the phone can never read or change Online (it is a desktop-only setting). Refused before anything else.
     if (/^\/api\/(online|settings|update|debug)(\/|$)/i.test(url.pathname)) return json(res, 403, { error: 'Online can only be changed on the desktop.' });
     // v1.24: desktop-only features; the phone is always refused.
-    if (/^\/api\/(backup|shared-folder|tools|tags|dock|reactions?|edits?|summar\w*|fonts?|lock|export|import)(\/|$)/i.test(url.pathname)) {
+    if (/^\/api\/(backup|shared-folder|tools|tags|dock|reactions?|edits?|summar\w*|fonts?|lock|export|import|voice|mic|speech|transcribe|drafts?|report|read-aloud)(\/|$)/i.test(url.pathname)) {
       return json(res, 403, { error: 'That is only available on the desktop.' });
     }
 

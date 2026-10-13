@@ -189,6 +189,22 @@ const api: CipherApi = {
   pickBackupFolder: () => ipcRenderer.invoke('backupsched:pick'),
   exportSettings: (m) => ipcRenderer.invoke('settings:export', m),
   importSettings: (m) => ipcRenderer.invoke('settings:import', m),
+  // v1.25
+  listDrafts: (chatId) => ipcRenderer.invoke('drafts:list', chatId),
+  saveDraft: (chatId, id) => ipcRenderer.invoke('drafts:save', chatId, id),
+  discardDraft: (chatId, id) => ipcRenderer.invoke('drafts:discard', chatId, id),
+  onDrafts: (cb) => {
+    const fn = (_e: IpcRendererEvent, chatId: number) => cb(chatId);
+    ipcRenderer.on('drafts:changed', fn);
+    return () => ipcRenderer.removeListener('drafts:changed', fn);
+  },
+  voiceState: () => ipcRenderer.invoke('voice:state'),
+  pickVoiceEngine: () => ipcRenderer.invoke('voice:pickEngine'),
+  pickVoiceModel: () => ipcRenderer.invoke('voice:pickModel'),
+  clearVoice: () => ipcRenderer.invoke('voice:clear'),
+  transcribe: (pcm) => ipcRenderer.invoke('voice:transcribe', pcm),
+  weeklyReport: () => ipcRenderer.invoke('report:weekly'),
+  saveWeeklyReport: () => ipcRenderer.invoke('report:save'),
 };
 
 contextBridge.exposeInMainWorld('cipher', api);
