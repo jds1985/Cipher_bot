@@ -390,7 +390,7 @@ test('policy and what\'s new describe v1.19 truthfully', () => {
   const { WHATS_NEW } = require('../renderer/whatsNew.js') as { WHATS_NEW: readonly string[] };
   assert.ok(WHATS_NEW.length <= 5);
   const pkg = JSON.parse(read('package.json')) as { name: string; productName: string; version: string; build: { productName: string } };
-  assert.equal(pkg.version, '1.24.0');
+  assert.equal(pkg.version, '1.25.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(pkg.build.productName, 'Cipher');

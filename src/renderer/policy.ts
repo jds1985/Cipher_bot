@@ -146,6 +146,16 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     ],
   },
   {
+    heading: 'Voice input, read-aloud, drafts and the weekly report (v1.25)',
+    paragraphs: [
+      'Voice input (v1.25, desktop only): when you hold the mic button, the window records audio from your microphone, and only while you hold it. The stream is stopped when you let go, when the window loses focus and when Cipher Bot locks. The window may ask your system for the microphone (audio only); every other permission request, such as the camera, location or notifications, is refused. The recording goes to the main part of Cipher Bot, which writes it to a temporary file that only you can read and runs whisper.cpp on it. whisper.cpp is a program you install yourself and pick in Settings with a model file you choose; Cipher Bot downloads and installs nothing. The text goes into the message box and the temporary file is deleted. No audio or text is sent over the network, and the browser\'s online speech recognition is never used. The phone has no voice input.',
+      'Read aloud (v1.25): when you choose Read aloud on one message, its text is spoken with a voice that runs on this computer (a system voice marked as local); voices that would use the network are never used. If there is no local voice, nothing is spoken. It is off until you tap it.',
+      'File drafts (v1.25): with Files and Write files on and a folder set, a bot can draft a file. The draft is kept in memory only (never written, cleared on lock and on quit) and shown in the chat. Nothing is written until you press Save and confirm in the same dialog used for writing files, with the switches checked again at that moment.',
+      'Weekly report (v1.25): Settings can show counts for the last 7 days: messages per bot and per room, tools used and backup facts. It is made on this computer from cipher.db and never contains chat text; it is saved only if you press Save and choose a file.',
+      'Drag a bot onto another in the dock to start a room with both. Memory search looks only inside the memory note shown on screen.',
+    ],
+  },
+  {
     heading: 'Reminders',
     paragraphs: [
       'A reminder (plus menu → Reminders) sends a message you write to one Cipher bot once, at the date and time you pick. Like routines, it runs only on this computer while Cipher Bot is open or in the tray, uses no network of its own, and is kept in cipher.db.',

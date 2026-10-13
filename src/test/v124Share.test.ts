@@ -55,7 +55,7 @@ function scripted(calls: unknown[], offered: string[][]): typeof fetch {
 
 test('version 1.24.0, schema 14, WHATS_NEW ≤5 lines of ≤90 chars, names stay Cipher, CSP fonts from self only', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.24.0');
+  assert.equal(pkg.version, '1.25.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.build.productName, 'Cipher');
   assert.equal(SCHEMA_VERSION, 14);
@@ -500,14 +500,10 @@ test('new IPC is desktop-only and lock-guarded; preload exposes it; no new netwo
 });
 
 test('v1.24 layout: reactions white on own bubbles, choices on hover/focus only, picked always shown; dark tag filter', () => {
-  assert.match(css, /\.msg\.user \.react-btn \.ico \{ filter: brightness\(0\) invert\(1\); opacity: 0\.8; \}/);
-  assert.match(css, /\.msg\.user \.msg-act img \{ filter: brightness\(0\) invert\(1\); opacity: 0\.8; \}/, 'same filter as quote and pin');
-  assert.match(css, /\.react-btn \{ opacity: 0;/);
-  assert.match(css, /\.msg:hover \.react-btn, \.msg:focus-within \.react-btn \{ opacity: 0\.55; \}/);
-  assert.match(css, /\.react-btn\[aria-pressed="true"\][^{]*\{ opacity: 1;/);
-  assert.doesNotMatch(css, /\.react-btn[^{]*\{[^}]*display: none/, 'hidden choices stay in the tab order');
+  // v1.25 supersedes the hover row: choices live in the bubble plus menu; the picked one shows as a small count, white at 80% on own bubbles.
+  assert.match(css, /\.msg\.user \.bubble-plus \.ico, \.msg\.user \.react-count \.ico \{ filter: brightness\(0\) invert\(1\); opacity: 0\.8; \}/);
   assert.match(css, /\.tag-filter-wrap select \{ appearance: none;[^}]*color-scheme: dark;[^}]*max-width: 100%;[^}]*background: var\(--panel2\)/);
   assert.doesNotMatch(css, /\.tag-filter-wrap select \{[^}]*max-width: \d+px/, 'no fixed width that truncates the tag');
   assert.match(css, /\.tag-filter-wrap select option \{ background: var\(--panel2\); color: var\(--text\); \}/);
-  assert.match(renderer, /b\.setAttribute\('aria-pressed', String\(m\.reaction === r\.id\)\)/);
+  assert.match(renderer, /pressed: m\.reaction === c\.id/);
 });

@@ -69,7 +69,7 @@ function hooks(hits: string[]): { actions: ActionHooks; search: SearchHooks } {
 
 test('version 1.24.0, schema 14, WHATS_NEW five lines of 90 chars or fewer, CSP and names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.24.0');
+  assert.equal(pkg.version, '1.25.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(SCHEMA_VERSION, 14);

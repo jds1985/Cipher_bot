@@ -56,7 +56,7 @@ function makePdf(pages: string[], js = false): Buffer {
 
 test('version 1.22.0+, schema 12+, WHATS_NEW five lines or fewer, CSP unchanged, names unchanged', () => {
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.version, '1.24.0');
+  assert.equal(pkg.version, '1.25.0');
   assert.equal(pkg.name, 'cipher');
   assert.equal(pkg.productName, 'Cipher');
   assert.equal(SCHEMA_VERSION, 14);

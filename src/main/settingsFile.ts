@@ -24,6 +24,7 @@ export const SETTINGS_EXPORT: Record<string, readonly string[]> = {
   show_message_times: bool,
   dock_collapsed: bool,
   reduce_motion: bool,
+  compact_mode: bool,
   send_sound: bool,
 };
 

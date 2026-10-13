@@ -3,16 +3,19 @@
 // The engine checks them when offering tools and again right before running one (chatEngine.allowed()).
 import type { Bot, ToolSwitches } from '../shared/types';
 
-export const TOOL_NAMES = ['read_file', 'web_search', 'calculator', 'checklist_add', 'write_file'] as const;
+export const TOOL_NAMES = ['read_file', 'web_search', 'calculator', 'checklist_add', 'write_file', 'draft_file'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 export const isToolName = (v: unknown): v is ToolName => typeof v === 'string' && (TOOL_NAMES as readonly string[]).includes(v);
 
 /** Switch key for each tool. Files (read_file) is the v1.3+ "Read files" switch (bots.tools_enabled). */
 export const TOOL_SWITCH: Record<ToolName, keyof ToolSwitches> = {
   read_file: 'files', web_search: 'search', calculator: 'calculator', checklist_add: 'checklist', write_file: 'write',
+  // v1.25: a draft is a write that waits for the user, so it uses the Write file switch.
+  draft_file: 'write',
 };
 export const TOOL_LABELS: Record<ToolName, string> = {
   read_file: 'File reading', web_search: 'Web search', calculator: 'The calculator', checklist_add: 'The checklist', write_file: 'Writing files',
+  draft_file: 'Drafting files',
 };
 
 /** Defaults for new bots and for the v13 migration of existing bots: everything off except files. */

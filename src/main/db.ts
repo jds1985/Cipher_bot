@@ -431,6 +431,20 @@ export class CipherDb {
     return { lastReplyAt: reply?.created_at ?? null, lastTool: tool?.tool_name ?? null, lastToolAt: tool?.created_at ?? null };
   }
 
+  /** v1.25: weekly report counts (never text): per bot sent/replies, per room messages, tool uses, since `since`. */
+  weeklyCounts(since: string): { bots: { name: string; sent: number; replies: number }[]; rooms: { name: string; messages: number }[]; tools: { tool: string; uses: number }[] } {
+    const bots = this.db.prepare(`SELECT b.name AS name,
+        SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) AS sent,
+        SUM(CASE WHEN m.role = 'assistant' AND m.content <> '' THEN 1 ELSE 0 END) AS replies
+      FROM bots b JOIN chats c ON c.bot_id = b.id JOIN messages m ON m.chat_id = c.id
+      WHERE m.created_at >= ? AND m.deleted_batch IS NULL AND b.deleted_batch IS NULL GROUP BY b.id ORDER BY b.name`).all(since) as { name: string; sent: number; replies: number }[];
+    const rooms = this.db.prepare(`SELECT r.name AS name, COUNT(m.id) AS messages FROM rooms r JOIN room_messages m ON m.room_id = r.id
+      WHERE m.created_at >= ? AND r.deleted_batch IS NULL GROUP BY r.id ORDER BY r.name`).all(since) as { name: string; messages: number }[];
+    const tools = this.db.prepare(`SELECT tool_name AS tool, COUNT(*) AS uses FROM messages
+      WHERE role = 'tool' AND tool_name IS NOT NULL AND created_at >= ? AND deleted_batch IS NULL GROUP BY tool_name ORDER BY uses DESC`).all(since) as { tool: string; uses: number }[];
+    return { bots, rooms: rooms.map((r) => ({ name: r.name || 'Room', messages: r.messages })), tools };
+  }
+
   /** Memory notes by bot name (Settings export, only when the user opts in). */
   memoryNotes(): { bot: string; note: string }[] {
     return this.listBots().filter((b) => b.memoryNote.trim()).map((b) => ({ bot: b.name, note: b.memoryNote }));

@@ -243,3 +243,34 @@ export function formatActivity(a: { lastReplyAt: string | null; lastTool: string
   if (a.lastTool) parts.push(`last tool ${a.lastTool.replace(/_/g, ' ')}`);
   return parts.join(' · ');
 }
+
+// ---------- v1.25 ----------
+/** Read-aloud only ever uses voices that run on this computer (localService === true). */
+export function localVoices<T extends { localService: boolean }>(voices: readonly T[]): T[] {
+  return voices.filter((v) => v.localService === true);
+}
+
+/** Lines of a bot's memory note that contain the query (case-insensitive), with their 1-based line numbers. */
+export function searchMemory(note: string, query: string): { line: number; text: string }[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const out: { line: number; text: string }[] = [];
+  note.split('\n').forEach((t, i) => { if (t.toLowerCase().includes(q)) out.push({ line: i + 1, text: t.trim() }); });
+  return out.slice(0, 50);
+}
+
+/** The small count shown on a bubble while its plus menu is closed (one reaction per message today). */
+export function reactionCount(reaction: string | null | undefined): number {
+  return reaction ? 1 : 0;
+}
+
+/** Float32 microphone samples (−1..1) to 16-bit little-endian PCM bytes. */
+export function floatToPcm16(samples: Float32Array): Uint8Array {
+  const out = new Uint8Array(samples.length * 2);
+  const dv = new DataView(out.buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    dv.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return out;
+}

@@ -6,6 +6,8 @@ export const UI_PREFS = {
   dockCollapsed: { key: 'dock_collapsed', default: false },
   /** v1.22: stop icon animation and the splash fade. Off by default (the system's prefers-reduced-motion also applies). */
   reduceMotion: { key: 'reduce_motion', default: false },
+  /** v1.25: compact bubbles (tighter padding, smaller time). Off by default. */
+  compact: { key: 'compact_mode', default: false },
 } as const;
 
 /** v1.22: accent colors (Liz's swatches). The stylesheet maps each name to its CSS variables. */
