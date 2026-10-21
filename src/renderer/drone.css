@@ -1,0 +1,61 @@
+/* Drone avatars (droneParts.ts). CSS-only motion; JS only flips data-state and state classes. Reuses avatar.css phase idea. */
+.drone { display: block; overflow: visible; flex: none;
+  --dr-dur: 5.2s; --dr-delay: 0s; --dr-blink: 6.1s; --dr-sway: 3.7s; }
+.drone .dr-float, .drone .dr-eye, .drone .dr-lid, .drone .dr-aura { transform-box: fill-box; transform-origin: center; }
+.drone .dr-pendant { transform-box: view-box; transform-origin: 128px 184px; }
+.drone .dr-scan { transform-box: fill-box; transform-origin: center; opacity: 0; transition: opacity .3s; }
+
+.drone.ph-0 { --dr-delay: 0s;    --dr-blink: 6.1s; --dr-dur: 5.2s; --dr-sway: 3.7s; }
+.drone.ph-1 { --dr-delay: -1.3s; --dr-blink: 4.7s; --dr-dur: 5.8s; --dr-sway: 4.1s; }
+.drone.ph-2 { --dr-delay: -2.9s; --dr-blink: 7.3s; --dr-dur: 4.9s; --dr-sway: 3.4s; }
+.drone.ph-3 { --dr-delay: -0.7s; --dr-blink: 5.5s; --dr-dur: 6.1s; --dr-sway: 4.4s; }
+.drone.ph-4 { --dr-delay: -3.6s; --dr-blink: 6.7s; --dr-dur: 5.5s; --dr-sway: 3.9s; }
+.drone.ph-5 { --dr-delay: -2.1s; --dr-blink: 4.3s; --dr-dur: 4.6s; --dr-sway: 3.2s; }
+.drone.ph-6 { --dr-delay: -4.4s; --dr-blink: 8.1s; --dr-dur: 6.4s; --dr-sway: 4.6s; }
+.drone.ph-7 { --dr-delay: -1.8s; --dr-blink: 5.1s; --dr-dur: 5.0s; --dr-sway: 3.6s; }
+
+/* idle: bob, crystal sway (lagging the bob), blink, aura breathing */
+.drone .dr-float { animation: dr-bob var(--dr-dur) ease-in-out var(--dr-delay) infinite; }
+.drone .dr-pendant { animation: dr-sway var(--dr-sway) ease-in-out var(--dr-delay) infinite; }
+.drone .dr-lid { animation: dr-blink var(--dr-blink) ease-in-out var(--dr-delay) infinite; }
+.drone .dr-aura { animation: dr-aura var(--dr-dur) ease-in-out var(--dr-delay) infinite; }
+@keyframes dr-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes dr-sway { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+@keyframes dr-blink { 0%, 94%, 100% { transform: scaleY(1); } 96.5% { transform: scaleY(.1); } }
+@keyframes dr-aura { 0%, 100% { opacity: .7; transform: scale(.95); } 50% { opacity: 1; transform: scale(1.03); } }
+
+/* thinking: eye scans left-right, scan arc spins round the ring, faster bob */
+.drone[data-state="thinking"] .dr-scan { opacity: 1; animation: dr-spin 1.1s linear infinite; }
+.drone[data-state="thinking"] .dr-eye { animation: dr-scanlook 2.6s ease-in-out infinite; }
+.drone[data-state="thinking"] .dr-float { animation-duration: 2.6s; }
+@keyframes dr-spin { to { transform: rotate(360deg); } }
+@keyframes dr-scanlook { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(5px); } 75% { transform: translateX(-5px); } }
+
+/* speaking: ring pulse (beat-a/b from avatar.ts token beats restart a pop) */
+.drone[data-state="speaking"] .dr-lid { animation: dr-pulse .32s ease-in-out infinite alternate; }
+.drone[data-state="speaking"] .dr-aura { animation-duration: 1s; }
+.drone[data-state="speaking"].beat-a .dr-lid, .drone[data-state="speaking"].beat-b .dr-lid { animation: dr-pulse .18s ease-out 2 alternate; }
+@keyframes dr-pulse { from { transform: scale(1); opacity: 1; } to { transform: scale(1.16); opacity: .82; } }
+
+/* muted / archived */
+.drone.is-muted { opacity: .72; filter: saturate(.45); }
+.drone.is-muted .dr-lid { opacity: .55; animation: none; }
+.drone.is-archived { opacity: .5; filter: grayscale(.85); }
+.drone.is-archived *, .drone.is-muted .dr-float { animation-play-state: paused !important; }
+
+/* small optical variant: smaller bob */
+.drone.dr-sm .dr-float { animation-name: dr-bob-sm; }
+@keyframes dr-bob-sm { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+.drone.av-off, .drone.av-off *, :root.unfocused .drone * { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) { .drone, .drone * { animation: none !important; transition: none !important; } }
+:root.reduce-motion .drone, :root.reduce-motion .drone * { animation: none !important; transition: none !important; }
+
+/* Optional CSS-variable recolor: add .dr-themed and set any of --d-body/--d-deep/--d-hi/--d-glow/--d-glow2/--d-metal. */
+.drone.dr-themed .dr-s-body { stop-color: var(--d-body); } .drone.dr-themed .dr-s-deep { stop-color: var(--d-deep); }
+.drone.dr-themed .dr-s-hi { stop-color: var(--d-hi); } .drone.dr-themed .dr-s-glow { stop-color: var(--d-glow); }
+.drone.dr-themed .dr-s-glow2 { stop-color: var(--d-glow2); } .drone.dr-themed .dr-s-metal { stop-color: var(--d-metal); }
+.drone.dr-themed .dr-f-glow { fill: var(--d-glow); } .drone.dr-themed .dr-k-glow { stroke: var(--d-glow); }
+.drone.dr-themed .dr-f-glow2 { fill: var(--d-glow2); } .drone.dr-themed .dr-k-glow2 { stroke: var(--d-glow2); }
+.drone.dr-themed .dr-f-hi { fill: var(--d-hi); } .drone.dr-themed .dr-k-hi { stroke: var(--d-hi); }
+.drone.dr-themed .dr-k-deep { stroke: var(--d-deep); }
