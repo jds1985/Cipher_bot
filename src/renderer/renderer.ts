@@ -4,6 +4,7 @@ import { renderMarkdown } from './markdown.js';
 import { decideView, formatReminderAt, formatSize, formatMessageTime, plusMenuItems, roomTitle, setupCopy, SHORTCUTS, showsSplash, splashRemainingMs, SPLASH_MAX_MS, STARTER_JOBS, TIPS, findRanges, type PlusItem, type PlusItemId,
   REACTION_CHOICES, allTags, localVoices, searchMemory, reactionCount, floatToPcm16, autoTitle, dockSections, formatActivity, tokensPerSecond } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
+import { avatarToken, createAvatar, setBotActivity } from './avatar.js';
 import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
 
 declare global {
@@ -222,7 +223,17 @@ function iconSvg(shape: unknown, color: unknown, size: number, extraClass = 'bot
   return svg;
 }
 
-const botIcon = (b: Bot, size: number): SVGSVGElement => iconSvg(b.shape, b.color, size);
+/** v2: a bot's live, animated avatar (avatar.ts). Small sizes drop the orbit ring. */
+const botIcon = (b: Bot, size: number, extraClass?: string): SVGSVGElement =>
+  createAvatar({ shape: b.shape, color: b.color, size, botId: b.id, muted: b.muted, archived: b.archived, extraClass: extraClass ?? (size <= 30 ? 'av-sm' : undefined) });
+
+/** Mark a bot as replying (or not): the rail dot and the avatar state. Returns true when it changed. */
+function markSpeaking(botId: number, on: boolean): boolean {
+  const had = state.speakingBots.has(botId);
+  if (on) state.speakingBots.add(botId); else state.speakingBots.delete(botId);
+  setBotActivity(botId, on);
+  return had !== on;
+}
 
 /** A room's mark: its first two or three bots' icons in a small cluster. */
 function roomMark(r: Room): HTMLElement {
@@ -1062,7 +1073,7 @@ function renderBotChat(): void {
   if (!bot || !chat) return;
   // Header: the bot's icon and name only (everything else is in the plus menu).
   el.chatIcon.hidden = false;
-  el.chatIcon.replaceChildren(botIcon(bot, 40));
+  el.chatIcon.replaceChildren(botIcon(bot, 56, 'av-header'));
   el.chatBotName.textContent = bot.name;
   el.chatActivity.textContent = state.activity;
 
@@ -1108,7 +1119,12 @@ function renderBotChat(): void {
   else void loadDrafts();
   if (busy) items.push(node('div', 'msg assistant live', state.live));
   if (state.error) items.push(node('div', 'msg error', state.error));
-  if (!items.length) items.push(node('div', 'msg note', `Say hello to ${bot.name}.`));
+  if (!items.length) {
+    // v2: the empty chat shows the bot's large living avatar.
+    const hero = node('div', 'chat-hero');
+    hero.append(botIcon(bot, 168, 'av-hero'), node('div', 'msg note', `Say hello to ${bot.name}.`));
+    items.push(hero);
+  }
   el.messages.replaceChildren(...items);
   el.messages.scrollTop = el.messages.scrollHeight;
   renderPinnedStrip(chat.id);
@@ -1210,7 +1226,7 @@ async function send(): Promise<void> {
   state.error = null;
   state.live = '';
   state.busy.add(chat.id);
-  if (state.botId != null) { state.speakingBots.add(state.botId); renderRail(); }
+  if (state.botId != null && markSpeaking(state.botId, true)) renderRail();
   el.input.value = '';
   const clearedAttach = state.pendingAttach;
   state.pendingAttach = null;
@@ -1222,7 +1238,7 @@ async function send(): Promise<void> {
     playSendSound();
   } catch (e) {
     state.busy.delete(chat.id);
-    if (state.botId != null) { state.speakingBots.delete(state.botId); renderRail(); }
+    if (state.botId != null && markSpeaking(state.botId, false)) renderRail();
     state.error = plainError(e);
     el.input.value = text;
     state.pendingAttach = clearedAttach;
@@ -1244,12 +1260,14 @@ async function onChatEvent(ev: ChatEvent): Promise<void> {
   if (ev.type === 'token' || ev.type === 'tool') state.busy.add(ev.chatId);
   if (ev.type === 'token' || ev.type === 'message' || ev.type === 'tool') {
     const botId = speakingBotForChat(ev.chatId);
-    if (botId != null) { state.speakingBots.add(botId); renderRail(); }
+    // Rebuild the rail only when the bot starts replying (not on every token), so avatars keep animating smoothly.
+    if (botId != null && markSpeaking(botId, true)) renderRail();
+    if (botId != null && ev.type === 'token') avatarToken(botId);
   }
   if (ev.type === 'done' || ev.type === 'error') {
     state.busy.delete(ev.chatId);
     const botId = speakingBotForChat(ev.chatId);
-    if (botId != null) { state.speakingBots.delete(botId); renderRail(); }
+    if (botId != null && markSpeaking(botId, false)) renderRail();
   }
   if (state.roomId !== null || ev.chatId !== state.chat?.id) return;
   switch (ev.type) {
@@ -1294,32 +1312,33 @@ function onRoomEvent(ev: RoomEvent): void {
   const viewing = ev.roomId === state.roomId;
   switch (ev.type) {
     case 'speaker':
-      if (live?.botId != null) state.speakingBots.delete(live.botId);
+      if (live?.botId != null) markSpeaking(live.botId, false);
       state.roomLive.set(ev.roomId, { botId: ev.botId, text: '' });
-      state.speakingBots.add(ev.botId);
+      markSpeaking(ev.botId, true);
       renderRail();
       break;
     case 'token':
       if (live) live.text += ev.text;
+      avatarToken(ev.botId);
       if (viewing) updateLive();
       return;
     case 'message':
       if (ev.message.role === 'assistant' && live) {
-        if (live.botId != null) state.speakingBots.delete(live.botId);
+        if (live.botId != null) markSpeaking(live.botId, false);
         live.botId = null; live.text = '';
         renderRail();
       }
       if (viewing) state.roomMessages.push(ev.message);
       break;
     case 'error':
-      if (live?.botId != null) state.speakingBots.delete(live.botId);
+      if (live?.botId != null) markSpeaking(live.botId, false);
       state.roomLive.delete(ev.roomId);
       renderRail();
       if (viewing) state.error = ev.error;
       void api.checkSetup();
       break;
     case 'done':
-      if (live?.botId != null) state.speakingBots.delete(live.botId);
+      if (live?.botId != null) markSpeaking(live.botId, false);
       state.roomLive.delete(ev.roomId);
       renderRail();
       break;
@@ -1337,8 +1356,11 @@ function pickedColor(): string {
 
 /** Recolor the shape picker's icons to the picked color. */
 function recolorShapePicker(): void {
-  const cls = colorClass(pickedColor());
-  for (const svg of el.shapePicker.querySelectorAll('svg')) svg.setAttribute('class', `bot-icon ${cls}`);
+  const color = pickedColor();
+  for (const label of el.shapePicker.querySelectorAll('label.shape-opt')) {
+    const shape = label.querySelector('input')?.value;
+    label.querySelector('svg')?.replaceWith(createAvatar({ shape, color, size: 46, botId: BOT_SHAPES.indexOf(shapeOf(shape)) }));
+  }
 }
 
 function buildPickers(): void {
@@ -1351,7 +1373,7 @@ function buildPickers(): void {
     input.value = shape;
     input.className = 'sr-only';
     input.setAttribute('aria-label', SHAPE_LABELS[shape]);
-    label.append(input, iconSvg(shape, DEFAULT_COLOR, 46));
+    label.append(input, createAvatar({ shape, color: DEFAULT_COLOR, size: 46, botId: BOT_SHAPES.indexOf(shape) }));
     return label;
   }));
   el.colorPicker.replaceChildren(...BOT_COLORS.map((color) => {

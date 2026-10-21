@@ -65,8 +65,8 @@ code, .cmd { background: #0008; padding: 2px 6px; border-radius: 4px; user-selec
 #chat-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .title-block { display: flex; flex-direction: column; min-width: 0; }
 #chat-header .title-block { flex: 1; }
-.header-icon { display: block; flex: none; width: 40px; height: 40px; }
-.header-icon > .bot-icon { width: 40px; height: 40px; }
+.header-icon { display: block; flex: none; width: 56px; height: 56px; }
+.header-icon > .bot-icon { width: 56px; height: 56px; }
 .room-note { font-size: 12px; white-space: nowrap; }
 .title-block span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .folder { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -131,14 +131,14 @@ label.member-opt:hover { background: var(--panel2); }
 label.member-opt .bot-icon { width: 30px; height: 30px; }
 
 /* ---------- Icon colors: a fixed palette that reads well on #15171c (classes only, no inline styles) ---------- */
-.c-blue   { color: #5b8cff; --glow: 91, 140, 255; }
-.c-cyan   { color: #3ccfe6; --glow: 60, 207, 230; }
-.c-green  { color: #4fd18b; --glow: 79, 209, 139; }
-.c-yellow { color: #f2c94c; --glow: 242, 201, 76; }
-.c-orange { color: #ff9f5a; --glow: 255, 159, 90; }
+.c-blue   { color: #1f6bff; --glow: 31, 107, 255; }
+.c-cyan   { color: #22c8e8; --glow: 34, 200, 232; }
+.c-green  { color: #2fddcf; --glow: 47, 221, 207; }
+.c-yellow { color: #d4ea48; --glow: 212, 234, 72; }
+.c-orange { color: #ffa24c; --glow: 255, 162, 76; }
 .c-coral  { color: #ff6b7a; --glow: 255, 107, 122; }
 .c-pink   { color: #f17ad8; --glow: 241, 122, 216; }
-.c-violet { color: #a68bff; --glow: 166, 139, 255; }
+.c-violet { color: #8b6cff; --glow: 139, 108, 255; }
 
 /* ---------- Cipher window frame: Liz's top frame is the draggable title strip under the window controls ---------- */
 /* cipher-frame-top.svg / -bottom.svg stretch to the full width: the long lines stretch, the tracer ends stay
@@ -153,17 +153,13 @@ label.member-opt .bot-icon { width: 30px; height: 30px; }
 #titlebar .titlebar-title { color: var(--muted); font-size: 12px; letter-spacing: .6px; }
 #titlebar button, #titlebar input, #titlebar a { -webkit-app-region: no-drag; }
 
-/* ---------- Bot icons: a subtle glow in the icon's color (#5b8cff by default) + 1px float ---------- */
-/* Every bot icon rendering (column, chat header, room messages, room marks, pickers) has the .bot-icon class. */
-.bot-icon { flex: none; display: block; overflow: visible; animation: bot-icon-glow 3.2s ease-in-out infinite; }
-@keyframes bot-icon-glow {
-  0%, 100% { filter: drop-shadow(0 0 1px rgba(var(--glow, 91, 140, 255), .25)); transform: translateY(0); }
-  50% { filter: drop-shadow(0 0 4px rgba(var(--glow, 91, 140, 255), .6)); transform: translateY(-1px); }
-}
-/* Paused while the window is in the background (class toggled from window focus/blur in renderer.ts). */
+/* ---------- Bot icons ---------- */
+/* v2: every bot icon is a live avatar (.bot-icon.avatar); its motion lives in avatar.css. Non-avatar marks (the
+   "create a room" button) stay static. Paused while the window is in the background (class toggled in renderer.ts). */
+.bot-icon { flex: none; display: block; overflow: visible; }
 :root.unfocused .bot-icon { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  .bot-icon { animation: none; filter: drop-shadow(0 0 2px rgba(var(--glow, 91, 140, 255), .35)); }
+  .bot-icon { animation: none; }
 }
 
 /* Working/activity dot on a bot icon while that bot is streaming a reply. */
@@ -632,3 +628,11 @@ body.dock-collapsed .tag-filter-wrap select { min-width: 0; width: 100%; padding
 .compact .msg { padding: 5px 10px; border-radius: 14px; }
 .compact #messages { gap: 4px; }
 .compact .msg .msg-time { font-size: 9px; margin-top: 1px; }
+
+/* ---------- v2 avatars in context ---------- */
+/* Empty chat: the bot's large living avatar above the greeting. */
+.chat-hero { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 0; }
+.chat-hero > .msg.note { align-self: center; }
+/* Rooms: the bot speaking right now glows and is a little larger. */
+.room-msg.live .speaker .bot-icon { width: 34px; height: 34px; filter: drop-shadow(0 0 6px rgba(var(--glow), .7)); }
+.room-msg.live .speaker { color: var(--text); }

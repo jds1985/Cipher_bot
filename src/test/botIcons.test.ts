@@ -231,10 +231,10 @@ test('whitelist fallback in the renderer: shapes map only to bundled SVGs, color
   assert.equal(rendererIcons.leastUsedShape([...BOT_SHAPES]), 'hex');
 });
 
-test('every palette color has a CSS class that reads on #15171c; blue is #5b8cff', () => {
+test('every palette color has a CSS class (v2 brand lead color); blue is Cipher blue #1f6bff', () => {
   const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
   for (const c of BOT_COLORS) assert.match(css, new RegExp(`\\.c-${c}\\s*\\{ color: #[0-9a-f]{6}; --glow: \\d+, \\d+, \\d+; \\}`), `.c-${c}`);
-  assert.match(css, /\.c-blue\s*\{ color: #5b8cff;/);
+  assert.match(css, /\.c-blue\s*\{ color: #1f6bff;/);
 });
 
 test('bot icon animation pauses when unfocused and is off with reduced motion; CSP and no inline styles kept', () => {
