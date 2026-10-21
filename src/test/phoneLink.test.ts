@@ -6,7 +6,7 @@ import path from 'node:path';
 import { CipherDb } from '../main/db';
 import { PhoneServer, PAIR_TTL_MS, PHONE_LINK_PORT, buildPhoneUrls, primaryPhoneUrl } from '../main/phoneServer';
 import {
-  assertOutboundAllowed, isEngineDownloadUrl, isPhoneLinkSafeUrl, parseOnlineSetting, onlineSettingValue, ONLINE_SETTING_KEY,
+  assertOutboundAllowed, isPhoneLinkSafeUrl, parseOnlineSetting, onlineSettingValue, ONLINE_SETTING_KEY,
 } from '../main/networkGuard';
 
 const tmpDb = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cipher-phone-')), 'c.db');
@@ -51,15 +51,11 @@ test('Online setting defaults off and persists', () => {
 });
 
 test('Online off blocks non-loopback outbound; loopback always allowed; phone-link must not open internet', () => {
-  assert.doesNotThrow(() => assertOutboundAllowed(false, 'http://127.0.0.1:11434/api/tags'));
+  assert.doesNotThrow(() => assertOutboundAllowed(false, 'http://127.0.0.1:43117/v1/chat/completions'));
   assert.doesNotThrow(() => assertOutboundAllowed(false, 'http://localhost:17865/'));
   assert.throws(() => assertOutboundAllowed(false, 'https://example.com/'), /Online is off/);
-  // "Get the engine" is the one user-clicked exception when Online is off.
-  assert.equal(isEngineDownloadUrl('https://ollama.com/download'), true);
-  assert.doesNotThrow(() => assertOutboundAllowed(false, 'https://ollama.com/download'));
-  assert.doesNotThrow(() => assertOutboundAllowed(true, 'https://ollama.com/download'));
-  // Other ollama.com pages stay blocked while Online is off.
-  assert.throws(() => assertOutboundAllowed(false, 'https://ollama.com/blog'), /Online is off/);
+  // No exceptions any more: there is no engine or model download page (the model ships in the app).
+  assert.throws(() => assertOutboundAllowed(false, 'https://ollama.com/download'), /Online is off/);
   assert.equal(isPhoneLinkSafeUrl('http://127.0.0.1:17865/api/bots'), true);
   assert.equal(isPhoneLinkSafeUrl('https://evil.example/pull'), false);
   // Module boundary: phone link never treats a public host as safe for app-initiated fetches.
@@ -129,8 +125,10 @@ test('pairing: bad code rejected; expired code rejected; valid session required 
     assert.equal((await httpJson(base, '/api/bots')).status, 401);
     assert.equal((await httpJson(base, '/api/bots', { token: 'ab'.repeat(24) })).status, 401);
 
-    const pull = await httpJson(base, '/api/ollama/pull', { method: 'POST', token, body: {} });
-    assert.equal(pull.status, 404, 'phone path does not call model pull');
+    const pull = await httpJson(base, '/api/model/pull', { method: 'POST', token, body: {} });
+    assert.equal(pull.status, 404, 'phone path has no model pull');
+    const v1 = await httpJson(base, '/v1/chat/completions', { method: 'POST', token, body: {} });
+    assert.equal(v1.status, 404, 'the model API is never exposed on the LAN');
   } finally {
     server.stop();
     db.close();

@@ -207,7 +207,7 @@
               <p id="restore-error" class="error" hidden></p>
             </div>
             <div class="settings-block">
-              <label class="row switch-row" title="When off, Cipher Bot sends nothing to the internet. Local Ollama and Phone link (LAN) still work.">
+              <label class="row switch-row" title="When off, Cipher Bot sends nothing to the internet. the built-in Cipher model and Phone link (LAN) still work.">
                 <input type="checkbox" id="online-switch" />
                 <span><strong>Online</strong><span class="muted switch-hint"> Off by default. When on, a Cipher bot can search the web, but only after you press Search on the query it shows. No email, no logins.</span></span>
               </label>
@@ -397,12 +397,10 @@
         <section id="setup-view" class="view" hidden>
           <div class="card setup-card">
             <div class="setup-brand"><img class="setup-logo" src="assets/icon.png" alt="" width="56" height="56" /><span>Cipher Bot</span></div>
-            <h2>Setting up your Cipher bot</h2>
+            <h2>Starting the Cipher model</h2>
             <p id="setup-text" class="muted"></p>
-            <progress id="setup-progress" max="100" hidden></progress>
             <p id="setup-detail" class="muted" hidden></p>
             <div class="row end">
-              <button type="button" id="setup-get-engine" hidden>Get the engine</button>
               <button type="button" id="setup-retry" class="secondary" hidden>Try again</button>
             </div>
           </div>
@@ -480,6 +478,7 @@
       <div class="checklist-card">
         <h3 id="tools-title" class="row checklist-title"><span id="tools-name">Tools</span></h3>
         <p class="muted small-note">What this Cipher bot may use. Kept in cipher.db and checked by Cipher Bot every time a tool would be offered or run. Only you can change these, here.</p>
+        <p id="tools-model-note" class="notice small-note" hidden>Tools are off for now: this Cipher model is too small to use them reliably. Your choices are kept and turn on when the larger Cipher model arrives.</p>
         <div id="tools-list" class="tools-list">
           <label class="row switch-row tool-row"><span class="ico ico-files" aria-hidden="true"></span><input type="checkbox" data-tool="files" /><span>Files <small class="muted">read the attached folders (PDF, .docx, text)</small></span></label>
           <label class="row switch-row tool-row"><span class="ico ico-search" aria-hidden="true"></span><input type="checkbox" data-tool="search" /><span>Search <small class="muted">web search, only while Online is on and you press Search</small></span></label>

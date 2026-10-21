@@ -1,0 +1,15 @@
+{
+  "id": "cipher-135m-sft",
+  "name": "Cipher 2.0 (135M stand-in)",
+  "file": "cipher-135m-sft.ctern",
+  "bytes": 73231828,
+  "sha256": "4f97a2162fd96b899c4bb0398cc288239f2b1963627dca5fcbe1afc02dd51e55",
+  "build": "public",
+  "nCtx": 1024,
+  "vocab": 32000,
+  "maxReplyTokens": 300,
+  "sampling": { "temperature": 0.7, "topP": 0.9, "repetitionPenalty": 1.2 },
+  "systemPrompt": "You are Cipher, a helpful AI assistant.",
+  "capabilities": { "toolCalling": false },
+  "notes": "Stand-in until the 369M Cipher 2.0 (d1024, L24, 32k tokenizer) lands: swap file, bytes, sha256, id, nCtx (and capabilities once tool calling is verified)."
+}

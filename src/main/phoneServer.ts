@@ -603,7 +603,7 @@ export class PhoneServer {
     }
 
     // Explicitly refuse any model-pull style paths.
-    if (url.pathname.includes('pull') || url.pathname.includes('ollama')) {
+    if (url.pathname.includes('pull') || url.pathname.startsWith('/v1/')) {
       return json(res, 404, { error: 'Not available on phone link.' });
     }
 

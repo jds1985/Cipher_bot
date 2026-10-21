@@ -2,7 +2,7 @@
   "name": "cipher",
   "productName": "Cipher",
   "version": "1.25.0",
-  "description": "Cipher bots: a local-first desktop app. Your Cipher bots run on your own computer with a local model. Web search only when Online is on and you press Search.",
+  "description": "Cipher bots: a local-first desktop app. Your Cipher bots run on the Cipher model (Jim's own), bundled and running on your computer. Web search only when Online is on and you press Search.",
   "main": "dist/main/main.js",
   "private": true,
   "license": "UNLICENSED",
@@ -14,14 +14,16 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && node scripts/copy-static.mjs",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && node scripts/copy-static.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "dev": "npm run build && electron .",
     "start": "electron .",
     "test": "npm run build && cross-env ELECTRON_RUN_AS_NODE=1 electron --test \"dist/test/**/*.test.js\"",
     "postinstall": "node scripts/rebuild-native.mjs",
-    "dist": "npm run build && electron-builder",
-    "dist:dir": "npm run build && electron-builder --dir"
+    "dist": "npm run native && npm run model && npm run build && electron-builder",
+    "dist:dir": "npm run native && npm run model && npm run build && electron-builder --dir",
+    "native": "make -C native/cipher-serve",
+    "model": "node scripts/fetch-model.mjs"
   },
   "build": {
     "appId": "com.jds1985.cipher",
@@ -48,7 +50,7 @@
       "category": "Utility",
       "icon": "build/icons",
       "synopsis": "Cipher Bot: your Cipher bots, running on your own computer",
-      "description": "Cipher Bot is a local-first desktop app. Your Cipher bots run on your own computer with a local model. No account needed.",
+      "description": "Cipher Bot is a local-first desktop app. Your Cipher bots run on the Cipher model (Jim's own), bundled and running on your own computer. No account needed.",
       "desktop": {
         "entry": {
           "Name": "Cipher Bot"
@@ -70,6 +72,24 @@
       {
         "from": "LICENSES",
         "to": "LICENSES"
+      },
+      {
+        "from": "resources/bin/${os}-${arch}",
+        "to": "bin",
+        "filter": [
+          "cipher-serve",
+          "cipher-serve.exe"
+        ]
+      },
+      {
+        "from": "resources/model",
+        "to": "model",
+        "filter": [
+          "manifest.json",
+          "*.ctern",
+          "!*dev*",
+          "!*private*"
+        ]
       }
     ],
     "icon": "build/icon.png"

@@ -2,7 +2,9 @@ import type { Bot, ChatEvent, Message, ToolCall } from '../shared/types';
 import type { CipherDb } from './db';
 import { executeToolCall, READ_FILE_TOOL } from './readFileTool';
 import { trimHistory } from './historyBudget';
-import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
+import type { ModelManifest } from './modelManifest';
+import { streamChat, type BackendEndpoint, type ChatMessage } from './backend';
+import { historyBudgetTokens } from './historyBudget';
 import { CALCULATOR_TOOL, runCalculator } from './calculator';
 import { WRITE_FILE_TOOL } from './fileWrite';
 import { DRAFT_FILE_TOOL } from './drafts';
@@ -13,19 +15,12 @@ import { NOT_CONFIRMED_RESULT, OFF_RESULT, WEB_SEARCH_TOOL, formatResultsForMode
 /** Maximum model→tool→model round trips per user message. */
 export const MAX_TOOL_ROUNDS = 5;
 
-const TOOL_HINT =
-  'You have one tool, read_file, which reads text files from a folder the user shared with you. ' +
-  'Use it when the user asks about the contents of their files. Paths are relative to that folder.';
-const SECOND_FOLDER_HINT =
-  'The user also attached a second folder. To read from it, call read_file with folder set to "second".';
+const TOOL_HINT = 'Tool read_file reads files in the folder the user shared (relative paths).';
+const SECOND_FOLDER_HINT = 'For the second folder, call read_file with folder "second".';
 
-const SHARED_FOLDER_HINT =
-  'The user also has a shared folder for all Cipher bots. To read from it, call read_file with folder set to "shared". It is read-only.';
+const SHARED_FOLDER_HINT = 'For the shared folder (read-only), call read_file with folder "shared".';
 
-const SEARCH_HINT =
-  'You can also use web_search when the user needs current information from the web. The user sees your exact query and ' +
-  'must press Search first. If the result is "User did not confirm the search", do not search again for it: answer ' +
-  'without web results and say that no search was made. Never claim you searched unless you got results. Cite the links you use.';
+const SEARCH_HINT = 'Tool web_search needs the user to press Search. If not confirmed, answer without it and say so. Cite links.';
 
 /** v1.18: what main provides for web search. Absent for rooms, phone link and routines (they never search). */
 export interface SearchHooks {
@@ -49,15 +44,18 @@ export interface ActionHooks {
   draftFile?: (chatId: number, bot: Bot, path: unknown, content: unknown) => Promise<{ ok: boolean; path: string; content: string }>;
 }
 
-const WRITE_HINT = 'You can also use write_file to save a text file into the shared folder. The user is asked first and may cancel; ' +
-  'if they cancel, do not try again unless they ask. Never say a file was written unless the result says so.';
-const CHECKLIST_HINT = "You can use checklist_add to add an item to the user's checklist. The user must approve each item.";
+const WRITE_HINT = 'Tool write_file saves a file after the user confirms. Never claim it was written unless the result says so.';
+const CHECKLIST_HINT = 'Tool checklist_add adds an item after the user approves.';
+
+/** The running Cipher model, as main sees it (manifest + live endpoint of the bundled cipher-serve). */
+export type ModelProfile = Pick<ModelManifest, 'id' | 'nCtx' | 'maxReplyTokens' | 'sampling' | 'systemPrompt' | 'capabilities'>;
 
 export interface EngineDeps {
   db: CipherDb;
-  model: string;
+  model: ModelProfile;
+  /** Live endpoint of cipher-serve (null while it is starting or down). */
+  endpoint: () => BackendEndpoint | null;
   emit: (e: ChatEvent) => void;
-  host?: string;
   fetchImpl?: typeof fetch;
   /** Phone link / tests: never offer tools for this turn, regardless of bot settings. */
   forceToolsOff?: boolean;
@@ -84,42 +82,44 @@ export function userContentForModel(m: Pick<Message, 'content' | 'quote' | 'imag
   return parts.join('\n\n');
 }
 
-/** v1.21: reply length → a line in the system prompt and Ollama's num_predict cap (normal adds neither). */
+/** v1.21: reply length → a short line in the system prompt and a reply-token cap that fits the model's context. */
 export const REPLY_LENGTH_HINT: Record<'short' | 'normal' | 'long', string> = {
-  short: 'Keep replies short: a few sentences at most, unless the user asks for more.',
+  short: 'Keep replies short.',
   normal: '',
-  long: 'Give thorough, detailed replies with explanations and examples when useful.',
+  long: 'Give detailed replies.',
 };
-export const REPLY_NUM_PREDICT: Record<'short' | 'normal' | 'long', number | null> = { short: 256, normal: null, long: 2048 };
-export function replyOptions(len: 'short' | 'normal' | 'long' | undefined): Record<string, number> | undefined {
-  const n = REPLY_NUM_PREDICT[len ?? 'normal'];
-  return n ? { num_predict: n } : undefined;
+/** Reply tokens: short 120, normal = the manifest's maxReplyTokens (300 on the 135M), long = half the context. */
+export function replyTokens(len: 'short' | 'normal' | 'long' | undefined, model: Pick<ModelProfile, 'nCtx' | 'maxReplyTokens'>): number {
+  const l = len ?? 'normal';
+  if (l === 'short') return Math.min(120, model.maxReplyTokens);
+  if (l === 'long') return Math.max(model.maxReplyTokens, Math.floor(model.nCtx / 2));
+  return model.maxReplyTokens;
 }
 
 /** v1.19: the user's memory note for this bot, sent in the system prompt of every chat. */
 export function memoryBlock(note: string | undefined | null): string {
   const t = (note ?? '').trim();
-  return t ? `Memory note from the user (things to remember in every chat):\n${t}` : '';
+  return t ? `Remember: ${t}` : '';
 }
 
-/** Convert stored messages into Ollama's chat format. */
-export function buildHistory(bot: Bot, messages: Message[], searchOn = false, actions: { write?: boolean; checklist?: boolean; shared?: boolean } = {}): OllamaMessage[] {
-  const out: OllamaMessage[] = [];
-  const system = [bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '', bot.toolsEnabled && actions.shared ? SHARED_FOLDER_HINT : '',
+/** Convert stored messages into the model's chat messages, trimmed to the model's token budget. */
+export function buildHistory(bot: Bot, messages: Message[], model: ModelProfile, searchOn = false, actions: { write?: boolean; checklist?: boolean; shared?: boolean } = {}): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  const system = [model.systemPrompt, bot.name ? `Your name is ${bot.name}.` : '', bot.systemPrompt.trim(), bot.toolsEnabled ? TOOL_HINT : '', bot.toolsEnabled && bot.secondFolderPath ? SECOND_FOLDER_HINT : '', bot.toolsEnabled && actions.shared ? SHARED_FOLDER_HINT : '',
     searchOn ? SEARCH_HINT : '', actions.write ? WRITE_HINT : '', actions.checklist ? CHECKLIST_HINT : '', REPLY_LENGTH_HINT[bot.replyLength ?? 'normal'], memoryBlock(bot.memoryNote)].filter(Boolean).join('\n\n');
   if (system) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'tool') {
       out.push({ role: 'tool', content: m.content, tool_name: m.toolName ?? 'read_file' });
     } else if (m.role === 'assistant') {
-      const msg: OllamaMessage = { role: 'assistant', content: m.content };
+      const msg: ChatMessage = { role: 'assistant', content: m.content };
       if (m.toolCalls?.length) msg.tool_calls = m.toolCalls;
       out.push(msg);
     } else {
       out.push({ role: 'user', content: userContentForModel(m) });
     }
   }
-  return trimHistory(out);
+  return trimHistory(out, historyBudgetTokens(model.nCtx, replyTokens(bot.replyLength, model)));
 }
 
 /**
@@ -144,6 +144,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
     const filesOn = t.files && !deps.forceToolsOff;
     // v1.22: write/checklist only when main passed its native-confirm hooks (desktop 1:1); never routines, reminders or the phone.
     const actionsOn = !!deps.actions && !deps.fromRoutine && !deps.forceToolsOff;
+    // Models without verified function calling (the 135M stand-in) are offered no tools at all: nothing is faked.
+    if (!deps.model.capabilities.toolCalling) return false;
     switch (name) {
       case 'read_file': return filesOn;
       case 'web_search': return t.search && !deps.fromRoutine && !!deps.search && deps.search.isOnline();
@@ -171,12 +173,12 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
     for (let round = 0; ; round++) {
       partial = '';
       const { content, toolCalls } = await streamChat({
-        model: deps.model,
-        options: replyOptions(bot.replyLength),
-        host: deps.host ?? OLLAMA_HOST,
+        endpoint: deps.endpoint(),
+        maxTokens: replyTokens(liveBot().replyLength, deps.model),
+        sampling: deps.model.sampling,
         fetchImpl: deps.fetchImpl,
-        messages: buildHistory({ ...liveBot(), toolsEnabled: allowed('read_file') }, db.listMessages(chatId), searchOn(),
-          { write: allowed('write_file'), checklist: allowed('checklist_add'), shared: !!deps.sharedFolder?.() }),
+        messages: buildHistory({ ...liveBot(), toolsEnabled: allowed('read_file') }, db.listMessages(chatId), deps.model, searchOn(),
+          { write: allowed('write_file'), checklist: allowed('checklist_add'), shared: !!deps.sharedFolder?.() && allowed('read_file') }),
         tools: offeredTools(),
         signal,
         onToken: (t) => { partial += t; emit({ chatId, type: 'token', text: t }); },

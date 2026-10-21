@@ -10,13 +10,13 @@ import type { SetupState } from '../shared/types';
 // The renderer's pure view module is an ES module; Electron's Node can require() it directly.
 interface ViewModule {
   decideView(i: { botCount: number; formOpen: boolean; roomFormOpen?: boolean; settingsOpen?: boolean; setup: SetupState }): 'form' | 'room-form' | 'settings' | 'setup' | 'chat';
-  setupCopy(s: SetupState): { text: string; detail: string | null; showProgress: boolean; showGetEngine: boolean; retryLabel: string | null };
+  setupCopy(s: SetupState): { text: string; detail: string | null; retryLabel: string | null };
 }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const view = require('../renderer/view.js') as ViewModule;
 
 const st = (phase: SetupState['phase'], extra: Partial<SetupState> = {}): SetupState =>
-  ({ phase, percent: null, completed: 0, total: 0, message: null, ...extra });
+  ({ phase, message: null, model: null, toolCalling: false, ...extra });
 
 test('"Create a Cipher bot" Name + Job: Job becomes the system prompt, file reading off, no folder', () => {
   assert.deepEqual(toNewBot({ name: 'Planner', job: '  Help me plan my week.  ', shape: 'chip', color: 'cyan' }), {
@@ -38,15 +38,13 @@ test('a created Cipher bot is stored with tools off by default and its job as th
 });
 
 test('first-run detection: with no Cipher bots the first screen is "Create a Cipher bot", whatever setup is doing', () => {
-  for (const phase of ['checking', 'downloading', 'engine-missing', 'model-missing', 'error', 'ready'] as const) {
+  for (const phase of ['checking', 'starting', 'error', 'ready'] as const) {
     assert.equal(view.decideView({ botCount: 0, formOpen: false, setup: st(phase) }), 'form', phase);
   }
 });
 
-test('after the first Cipher bot exists: setup screen until ready; never blocks on "checking"', () => {
-  assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('downloading') }), 'setup');
-  assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('engine-missing') }), 'setup');
-  assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('model-missing') }), 'setup');
+test('after the first Cipher bot exists: the model screen only on error; never blocks on "checking" or "starting"', () => {
+  assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('starting') }), 'chat');
   assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('error') }), 'setup');
   assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('checking') }), 'chat');
   assert.equal(view.decideView({ botCount: 1, formOpen: false, setup: st('ready') }), 'chat');
@@ -56,16 +54,13 @@ test('after the first Cipher bot exists: setup screen until ready; never blocks 
   assert.equal(view.decideView({ botCount: 1, formOpen: false, settingsOpen: true, setup: st('ready') }), 'settings');
 });
 
-test('setup screen copy: progress while downloading, actionable buttons otherwise, no engine/model names', () => {
-  const dl = view.setupCopy(st('downloading', { percent: 42.7, completed: 2e9, total: 4.7e9 }));
-  assert.equal(dl.showProgress, true);
-  assert.equal(dl.detail, '42% · 2.0 GB of 4.7 GB');
-  assert.equal(dl.retryLabel, null);
-  assert.equal(view.setupCopy(st('downloading')).detail, 'Starting…');
-  const engine = view.setupCopy(st('engine-missing', { message: 'm' }));
-  assert.equal(engine.showGetEngine, true);
-  assert.equal(engine.retryLabel, 'Check again');
-  assert.equal(view.setupCopy(st('model-missing', { message: 'm' })).retryLabel, 'Set up again');
-  assert.equal(view.setupCopy(st('error', { message: 'm' })).retryLabel, 'Try again');
-  for (const c of [dl, engine]) assert.doesNotMatch(c.text + (c.detail ?? ''), /ollama|qwen/i);
+test('model screen copy: plain words, a retry only on error, no download or install step, no third-party names', () => {
+  assert.deepEqual(view.setupCopy(st('error', { message: 'm' })), { text: 'm', detail: null, retryLabel: 'Try again' });
+  assert.equal(view.setupCopy(st('starting')).text, 'Starting the Cipher model…');
+  assert.equal(view.setupCopy(st('starting')).retryLabel, null);
+  assert.equal(view.setupCopy(st('ready', { model: 'Cipher 2.0 (135M stand-in)' })).detail, 'Cipher 2.0 (135M stand-in)');
+  for (const p of ['checking', 'starting', 'error', 'ready'] as const) {
+    const c = view.setupCopy(st(p));
+    assert.doesNotMatch(c.text + (c.detail ?? '') + (c.retryLabel ?? ''), /ollama|qwen|download|install|engine/i);
+  }
 });

@@ -8,6 +8,7 @@ import { CipherDb, SCHEMA_VERSION } from '../main/db';
 import { executeToolCall, MAX_FILE_BYTES, READ_FILE_TOOL } from '../main/readFileTool';
 import { buildHistory } from '../main/chatEngine';
 import type { ToolCall } from '../shared/types';
+import { TEST_MODEL } from './fakeCipher';
 
 // v1.15: one optional second local folder per bot, separate from the read folder, read through the same sandbox.
 interface ViewModule { plusMenuItems: (i: unknown) => { id: string; label: string; disabled: boolean; hint?: string }[] }
@@ -107,9 +108,9 @@ test('second folder: plus menu item next to Choose folder, gated by Read files; 
 
 test('second folder: the model is told about it only with Read files on and a folder attached', () => {
   const bot = { id: 1, name: 'x', systemPrompt: '', toolsEnabled: true, folderPath: main, secondFolderPath: second, memoryNote: "", muted: false, archived: false, replyLength: 'normal' as const, unread: false, createdAt: '', shape: 'hex', color: 'blue', drone: { shell: 'plain' as const, palette: 'cipher' as const, eye: 'ring' as const, fins: 'blade' as const, crystal: 'gem' as const, accessories: [] } };
-  assert.match(buildHistory(bot, [])[0].content, /folder set to "second"/);
-  assert.doesNotMatch(buildHistory({ ...bot, secondFolderPath: null }, [])[0].content, /second/);
-  assert.equal(buildHistory({ ...bot, toolsEnabled: false }, []).length, 0);
+  assert.match(buildHistory(bot, [], TEST_MODEL)[0].content, /folder "second"/);
+  assert.doesNotMatch(buildHistory({ ...bot, secondFolderPath: null }, [], TEST_MODEL)[0].content, /second/);
+  assert.doesNotMatch(buildHistory({ ...bot, toolsEnabled: false }, [], TEST_MODEL)[0].content, /read_file/);
 });
 
 test('policy names the second folder truthfully: on this computer (never uploaded), Read files only, no cloud drive, email or login', () => {

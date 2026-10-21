@@ -16,6 +16,7 @@ import { restoreDatabase } from '../main/backup';
 import { ONLINE_SETTING_KEY, onlineSettingValue, parseOnlineSetting } from '../main/networkGuard';
 import { plusMenuItems } from '../renderer/view';
 import { UNLOCKED_CHANNELS } from '../main/lock';
+import { TEST_MODEL } from './fakeCipher';
 
 // v1.19: page as text, search history, markdown, memory notes, phone confirm, multi-delete, calculator, backup.
 const root = path.join(__dirname, '..', '..');
@@ -215,8 +216,8 @@ test('4. memory note: stored in cipher.db (v9 migration), in the system prompt e
   assert.equal(bot.memoryNote, '');
   const withNote = db.setBotMemory(bot.id, '  I live in Zanzibar-Quokka-77.  ');
   assert.equal(withNote.memoryNote, 'I live in Zanzibar-Quokka-77.');
-  const sys = buildHistory(withNote, [])[0].content as string;
-  assert.match(sys, /^Be brief\.\n\nMemory note from the user \(things to remember in every chat\):\nI live in Zanzibar-Quokka-77\.$/);
+  const sys = buildHistory(withNote, [], TEST_MODEL)[0].content as string;
+  assert.match(sys, /^You are Cipher, a helpful AI assistant\.\n\nYour name is Ada\.\n\nBe brief\.\n\nRemember: I live in Zanzibar-Quokka-77\.$/);
   assert.equal(memoryBlock(''), '');
   assert.throws(() => db.setBotMemory(bot.id, 'x'.repeat(MEMORY_NOTE_MAX + 1)), /longer/);
   assert.throws(() => db.setBotMemory(bot.id, 5), /text/);

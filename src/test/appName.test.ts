@@ -20,7 +20,8 @@ const policy = require('../renderer/policy.js') as PolicyModule;
  * "Cipher" on its own as the app's name. Allowed: "Cipher Bot" (the app), "Cipher bot(s)" (your bots), and
  * folder paths such as ~/.config/Cipher, %APPDATA%\Cipher, Application Support/Cipher (the real folder name).
  */
-const BARE_APP_NAME = /(?<![\w/\\.])Cipher\b(?! Bot\b)(?! bots?\b)/g;
+// Phase 3: the model is also called Cipher, so "Cipher model", "Cipher's model" and "Cipher 2.0" are allowed.
+const BARE_APP_NAME = /(?<![\w/\\.])Cipher\b(?! Bot\b)(?! bots?\b)(?! model\b)(?!'s model\b)(?! 2\.0\b)/g;
 const codeOnly = (text: string) =>
   text.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*|<!--)/.test(l)).map((l) => l.replace(/\s\/\/\s.*$/, '')).join('\n');
 const bare = (text: string) => codeOnly(text).match(BARE_APP_NAME) ?? [];
@@ -55,7 +56,7 @@ test('no user-visible string calls the app plain "Cipher" (bots stay "Cipher bot
     'src/renderer/index.html', 'src/renderer/renderer.ts', 'src/renderer/view.ts', 'src/renderer/policy.ts',
     'src/phone/index.html', 'src/phone/app.js',
     'src/main/main.ts', 'src/main/routineNotice.ts', 'src/main/lock.ts', 'src/main/phoneServer.ts', 'src/main/backup.ts',
-    'src/main/ollama.ts', 'src/main/exportChat.ts', 'src/main/chatEngine.ts', 'src/main/db.ts', 'src/main/createBot.ts',
+    'src/main/backend.ts', 'src/main/cipherServe.ts', 'src/main/exportChat.ts', 'src/main/chatEngine.ts', 'src/main/db.ts', 'src/main/createBot.ts',
     'src/main/deleteGuard.ts', 'src/main/attachFile.ts',
   ];
   for (const f of files) assert.deepEqual(bare(read(f)), [], f);

@@ -35,8 +35,8 @@ const el = {
   botFormArt: $('bot-form-art'), botFormTitle: $('bot-form-title'), botSubmit: $<HTMLButtonElement>('bot-submit'),
   roomForm: $<HTMLFormElement>('room-form'), roomName: $<HTMLInputElement>('room-name'), roomMembers: $('room-members'),
   roomFormError: $('room-form-error'), roomCancel: $<HTMLButtonElement>('room-cancel'), roomCreate: $<HTMLButtonElement>('room-create'),
-  setupText: $('setup-text'), setupProgress: $<HTMLProgressElement>('setup-progress'), setupDetail: $('setup-detail'),
-  setupGetEngine: $<HTMLButtonElement>('setup-get-engine'), setupRetry: $<HTMLButtonElement>('setup-retry'),
+  setupText: $('setup-text'), setupDetail: $('setup-detail'), setupRetry: $<HTMLButtonElement>('setup-retry'),
+  toolsModelNote: $('tools-model-note'),
   chatIcon: $('chat-icon'), chatBotName: $('chat-bot-name'),
   messages: $('messages'), composer: $<HTMLFormElement>('composer'), input: $<HTMLTextAreaElement>('input'),
   plus: $<HTMLButtonElement>('plus'), plusMenu: $('plus-menu'),
@@ -169,7 +169,7 @@ const state = {
   speakingBots: new Set<number>(),
   online: false,
   phone: { running: false, port: 17865, pairingCode: null, pairingExpiresAt: null, urls: [], sessionCount: 0, primaryUrl: null, qrDataUrl: null } as PhoneLinkStatus,
-  setup: { phase: 'checking', percent: null, completed: 0, total: 0, message: null } as SetupState,
+  setup: { phase: 'checking', message: null, model: null, toolCalling: false } as SetupState,
   /** Client-side filter for bot/room names and open-chat messages. */
   searchQuery: '',
   /** Desktop-only pending attach block for the next 1:1 send (rooms skipped). */
@@ -291,22 +291,14 @@ function reportOpenBot(botId: number | null): void {
 }
 
 // ---------- setup screen ----------
-let setupPoll: number | undefined;
 function renderSetup(): void {
   const st = state.setup;
   const copy = setupCopy(st);
   el.setupText.textContent = copy.text;
-  el.setupProgress.hidden = !copy.showProgress;
-  if (st.percent === null) el.setupProgress.removeAttribute('value');
-  else el.setupProgress.value = st.percent;
   el.setupDetail.hidden = copy.detail === null;
   el.setupDetail.textContent = copy.detail ?? '';
-  el.setupGetEngine.hidden = !copy.showGetEngine;
   el.setupRetry.hidden = copy.retryLabel === null;
   el.setupRetry.textContent = copy.retryLabel ?? '';
-  // While the engine is missing, keep checking quietly so setup continues once it's installed and running.
-  window.clearTimeout(setupPoll);
-  if (st.phase === 'engine-missing') setupPoll = window.setTimeout(() => void api.startSetup(), 5000);
 }
 
 function onSetupState(st: SetupState): void {
@@ -2389,7 +2381,6 @@ el.phoneRefresh.addEventListener('click', async () => { state.phone = await api.
 api.onPhoneLink(onPhoneStatus);
 el.form.addEventListener('submit', (e) => void submitBotForm(e));
 el.roomForm.addEventListener('submit', (e) => void submitRoomForm(e));
-el.setupGetEngine.addEventListener('click', () => void api.openEngineDownload());
 el.setupRetry.addEventListener('click', () => void api.startSetup());
 api.onSetupState(onSetupState);
 el.attachClear.addEventListener('click', () => { state.pendingAttach = null; clearAttachError(); renderAttachUi(true); });
@@ -2789,7 +2780,10 @@ function renderTools(bot: Bot): void {
   for (const box of el.toolsList.querySelectorAll<HTMLInputElement>('input[data-tool]')) {
     const k = box.dataset.tool as keyof ToolSwitches;
     box.checked = t[k];
+    // The current Cipher model can't call tools reliably: switches stay as set but are greyed out (and main offers none).
+    box.disabled = !state.setup.toolCalling;
   }
+  el.toolsModelNote.hidden = state.setup.toolCalling;
 }
 function openTools(): void {
   const bot = currentBot();

@@ -18,6 +18,7 @@ import { findRanges, plusMenuItems, SHORTCUTS } from '../renderer/view';
 import { WHATS_NEW } from '../renderer/whatsNew';
 import { POLICY_SECTIONS } from '../renderer/policy';
 import type { ChatEvent } from '../shared/types';
+import { modelDeps, sseBody, sseResponse } from './fakeCipher';
 
 // v1.22: write a file (native confirm + one-time token), checklist, memory one-tap, accent, reduce motion, find,
 // room Markdown, phone shows archived bots as hidden (403 on archive/restore).
@@ -229,14 +230,14 @@ test('2. the confirm is a native dialog in main (Cancel default), only for deskt
   assert.doesNotMatch(renderer, /api\.\w*[Ww]rite/, 'the window has no write call');
 });
 
-/** Scripted Ollama: round 1 asks for `calls`, round 2 answers plainly. Records the tools offered each round. */
+/** Scripted model server: round 1 asks for `calls`, round 2 answers plainly. Records the tools offered each round. */
 function scripted(calls: unknown[], offered: string[][]): typeof fetch {
   let round = 0;
   return (async (_u: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body));
     offered.push((body.tools ?? []).map((t: { function: { name: string } }) => t.function.name));
     const msg = round++ === 0 && calls.length ? { role: 'assistant', content: '', tool_calls: calls } : { role: 'assistant', content: 'ok' };
-    return new Response(`${JSON.stringify({ message: msg, done: false })}\n${JSON.stringify({ message: { role: 'assistant', content: '' }, done: true })}\n`, { status: 200 });
+    return sseResponse(msg);
   }) as unknown as typeof fetch;
 }
 
@@ -254,18 +255,18 @@ test('2/7. engine: desktop offers write_file + checklist_add; routines and phone
   const calls = [{ function: { name: 'write_file', arguments: { path: 'x.txt', content: 'hi' } } }, { function: { name: 'checklist_add', arguments: { text: 'milk' } } }];
   const events: ChatEvent[] = [];
   let offered: string[][] = [];
-  await runChatTurn({ db, model: 'm', emit: (e) => events.push(e), fetchImpl: scripted(calls, offered), actions }, chat.id, 'save it', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: (e) => events.push(e), fetchImpl: scripted(calls, offered), actions }, chat.id, 'save it', new AbortController().signal);
   assert.ok(offered[0].includes('write_file') && offered[0].includes('checklist_add'));
   assert.deepEqual(hits, ['write:x.txt', 'check:milk'], 'tool calls go to main\'s hooks (which ask first)');
   for (const extra of [{ fromRoutine: true }, { forceToolsOff: true }]) {
     hits.length = 0; offered = [];
-    await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(calls, offered), actions, ...extra }, chat.id, 'save it', new AbortController().signal);
+    await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(calls, offered), actions, ...extra }, chat.id, 'save it', new AbortController().signal);
     assert.ok(!offered.flat().includes('write_file') && !offered.flat().includes('checklist_add'), JSON.stringify(extra));
     assert.deepEqual(hits, [], `hooks never called for ${JSON.stringify(extra)}`);
   }
   // Without hooks (e.g. tests, or main never passing them) a call is refused and nothing is written.
   offered = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(calls, offered) }, chat.id, 'save it', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(calls, offered) }, chat.id, 'save it', new AbortController().signal);
   assert.ok(!offered.flat().includes('write_file'));
   assert.equal(fs.existsSync(path.join(d, 'x.txt')), false);
   db.close();

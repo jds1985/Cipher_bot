@@ -122,7 +122,7 @@ export function formatResultsForModel(query: string, results: readonly SearchRes
   return [`Web search results for "${query}":`, ...results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)].join('\n');
 }
 
-/** The web_search tool, in Ollama's tools format. Offered only while Online is on, in a bot's 1:1 chat. */
+/** The web_search tool, in the OpenAI-style tools format (offered only to models with toolCalling in their manifest). Offered only while Online is on, in a bot's 1:1 chat. */
 export const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {

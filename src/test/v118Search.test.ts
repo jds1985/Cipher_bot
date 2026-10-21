@@ -12,6 +12,7 @@ import { htmlToText, isHtmlPath } from '../main/htmlText';
 import { attachFromPath } from '../main/attachFile';
 import { CipherDb, SCHEMA_VERSION } from '../main/db';
 import { UNLOCKED_CHANNELS } from '../main/lock';
+import { modelDeps } from './fakeCipher';
 
 // v1.18: web search (Online on + Search pressed), kill switch, result links, dropped web pages, policy.
 const root = path.join(__dirname, '..', '..');
@@ -136,7 +137,7 @@ test('2. main issues tokens only from its own pending ask, only on Search, only 
   assert.match(main, /confirm: [\s\S]*?if \(!isOnline\(\) \|\| isLocked\(\) \|\| signal\.aborted\) \{ resolve\(null\); return; \}/);
   // v1.19: phone turns get search (confirm card on the phone too); routines never; rooms have no tools at all.
   assert.match(main, /forceToolsOff: toolsOff, search: searchHooks(, userExtras)?(, sharedFolder)? \}/);
-  assert.match(main, /runChatTurn\(\{ db, model: currentModel\(\), emit, forceToolsOff: true, fromRoutine: true \}/);
+  assert.match(main, /runChatTurn\(\{ db, model: currentModel\(\), endpoint: modelEndpoint, emit, forceToolsOff: true, fromRoutine: true \}/);
   assert.doesNotMatch(read('src/main/roomEngine.ts'), /web_search|search/i);
   assert.doesNotMatch(read('src/main/phoneServer.ts'), /web_search|searchHooks|webSearch\(/);
 });
@@ -150,7 +151,7 @@ function hooks(over: Partial<SearchHooks> & { log?: string[] } = {}): SearchHook
   };
 }
 const call = (query: unknown) => ({ function: { name: 'web_search', arguments: { query } } });
-const deps = (search?: SearchHooks, fromRoutine = false) => ({ db: {} as never, model: 'm', emit: () => undefined, fromRoutine, search }) as EngineDeps;
+const deps = (search?: SearchHooks, fromRoutine = false) => ({ db: {} as never, ...modelDeps(), emit: () => undefined, fromRoutine, search }) as EngineDeps;
 
 test('2. engine: asks first; Cancel / no answer → "User did not confirm the search" and nothing runs; no hooks → refused', async () => {
   const sig = new AbortController().signal;

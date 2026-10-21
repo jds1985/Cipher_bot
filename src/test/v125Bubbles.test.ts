@@ -17,6 +17,7 @@ import { SETTINGS_EXPORT } from '../main/settingsFile';
 import { floatToPcm16, localVoices, reactionCount, searchMemory } from '../renderer/view';
 import { WHATS_NEW } from '../renderer/whatsNew';
 import { POLICY_SECTIONS } from '../renderer/policy';
+import { modelDeps, sseBody, sseResponse } from './fakeCipher';
 
 // v1.25: bubbles (text + time, plus menu), compact mode, local voice input, local read-aloud, file drafts,
 // weekly report, drag-to-room, memory search.
@@ -281,21 +282,21 @@ test('7. draft_file in the engine: only offered with Files + Write on, a folder 
       const body = JSON.parse(String(init.body));
       offered.push((body.tools ?? []).map((t: { function: { name: string } }) => t.function.name));
       const msg = round++ === 0 ? { role: 'assistant', content: '', tool_calls: calls } : { role: 'assistant', content: 'ok' };
-      return new Response(`${JSON.stringify({ message: msg, done: false })}\n${JSON.stringify({ message: { role: 'assistant', content: '' }, done: true })}\n`, { status: 200 });
+      return sseResponse(msg);
     }) as unknown as typeof fetch;
   };
   let offered: string[][] = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(offered), actions }, chat.id, 'draft', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(offered), actions }, chat.id, 'draft', new AbortController().signal);
   assert.ok(!offered[0].includes('draft_file'), 'write switch off: not offered');
   assert.deepEqual(hits, [], 'write off: refused even when called');
   db.setToolSwitches(bot0.id, { write: true });
   offered = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(offered), actions }, chat.id, 'draft', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(offered), actions }, chat.id, 'draft', new AbortController().signal);
   assert.ok(offered[0].includes('draft_file'));
   assert.deepEqual(hits, ['x.txt']);
   assert.deepEqual(fs.readdirSync(d), [], 'no file written by the engine');
   offered = []; hits.length = 0;
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(offered) }, chat.id, 'draft', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(offered) }, chat.id, 'draft', new AbortController().signal);
   assert.ok(!offered[0].includes('draft_file'), 'no desktop actions (phone/routine): not offered');
   assert.deepEqual(hits, []);
   db.close();

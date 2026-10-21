@@ -5,3 +5,5 @@ release/
 *.db-*
 *.gguf
 .DS_Store
+resources/bin/
+resources/model/*.ctern

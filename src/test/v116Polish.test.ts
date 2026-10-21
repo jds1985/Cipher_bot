@@ -25,7 +25,7 @@ test('1. package screen says Cipher Bot, has the icon, and no lone "Cipher"; set
   assert.match(pkg.build.linux.synopsis, /^Cipher Bot\b/);
   assert.match(pkg.build.linux.description, /^Cipher Bot\b/);
   for (const t of [pkg.build.linux.synopsis, pkg.build.linux.description]) {
-    assert.deepEqual(t.match(/\bCipher\b(?! Bot\b)(?! bots?\b)/g) ?? [], [], t);
+    assert.deepEqual(t.match(/\bCipher\b(?! Bot\b)(?! bots?\b)(?! model\b)(?!'s model\b)/g) ?? [], [], t);
   }
   assert.equal(pkg.build.linux.icon, 'build/icons');
   assert.ok(fs.existsSync(path.join(root, 'build/icons/512x512.png')));

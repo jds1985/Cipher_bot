@@ -11,13 +11,13 @@
 // File reading is OFF in rooms, whatever each bot's own setting: requests carry no tools at all, and the
 // system prompt has no tool hint, so one bot's file contents can't reach the other bots.
 //
-// Streaming, friendly errors and Stop reuse the single-chat code path (streamChat in ollama.ts, the same
+// Streaming, friendly errors and Stop reuse the single-chat code path (streamChat in backend.ts, the same
 // event/abort pattern as runChatTurn in chatEngine.ts).
-import { replyOptions } from './chatEngine';
+import { replyTokens, type ModelProfile } from './chatEngine';
 import type { Bot, RoomEvent, RoomMessage } from '../shared/types';
 import type { EngineDeps } from './chatEngine';
-import { trimHistory } from './historyBudget';
-import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
+import { historyBudgetTokens, trimHistory } from './historyBudget';
+import { streamChat, type ChatMessage } from './backend';
 
 export interface RoomEngineDeps extends Omit<EngineDeps, 'emit'> {
   emit: (e: RoomEvent) => void;
@@ -59,26 +59,24 @@ export function planRound(members: readonly Bot[], userText: string): Bot[] {
 
 /** The short note each bot gets in a room, after its own job. */
 export function roomNote(bot: Bot, members: readonly Bot[]): string {
-  const names = members.map((m) => m.name).join(', ');
+  const names = members.filter((m) => m.id !== bot.id).map((m) => m.name).join(', ') || 'no other Cipher bots';
   return (
-    `You are ${bot.name}, one of several Cipher bots in a group chat with the user. ` +
-    `Cipher bots in this room: ${names}. ` +
-    'Messages from the user start with "User:" and messages from the other Cipher bots start with their name. ' +
-    `Reply once, as ${bot.name} only; don't write lines for the user or the other Cipher bots.`
+    `You are ${bot.name} in a group chat with the user and ${names}. ` +
+    `Reply once, as ${bot.name} only.`
   );
 }
 
 /** The room transcript as `bot` sees it: its own job + the room note, its own replies as assistant turns, everyone else attributed by name. */
-export function buildRoomHistory(bot: Bot, members: readonly Bot[], messages: readonly RoomMessage[], allBots: readonly Bot[] = members): OllamaMessage[] {
+export function buildRoomHistory(bot: Bot, members: readonly Bot[], messages: readonly RoomMessage[], model: ModelProfile, allBots: readonly Bot[] = members): ChatMessage[] {
   const nameOf = (id: number | null): string => allBots.find((b) => b.id === id)?.name ?? members.find((b) => b.id === id)?.name ?? 'A Cipher bot';
-  const out: OllamaMessage[] = [];
-  out.push({ role: 'system', content: [bot.systemPrompt.trim(), roomNote(bot, members)].filter(Boolean).join('\n\n') });
+  const out: ChatMessage[] = [];
+  out.push({ role: 'system', content: [model.systemPrompt, bot.systemPrompt.trim(), roomNote(bot, members)].filter(Boolean).join('\n\n') });
   for (const m of messages) {
     if (m.role === 'user') out.push({ role: 'user', content: `User: ${m.content}` });
     else if (m.botId === bot.id) out.push({ role: 'assistant', content: m.content });
     else out.push({ role: 'user', content: `${nameOf(m.botId)}: ${m.content}` });
   }
-  return trimHistory(out);
+  return trimHistory(out, historyBudgetTokens(model.nCtx, replyTokens(bot.replyLength, model)));
 }
 
 /**
@@ -106,11 +104,11 @@ export async function runRoomTurn(deps: RoomEngineDeps, roomId: number, userText
       emit({ roomId, type: 'speaker', botId: bot.id });
       // Deliberately no `tools`: file reading is off in rooms, regardless of the bot's own setting.
       const { content } = await streamChat({
-        model: deps.model,
-        options: replyOptions(bot.replyLength),
-        host: deps.host ?? OLLAMA_HOST,
+        endpoint: deps.endpoint(),
+        maxTokens: replyTokens(bot.replyLength, deps.model),
+        sampling: deps.model.sampling,
         fetchImpl: deps.fetchImpl,
-        messages: buildRoomHistory(bot, members, db.listRoomMessages(roomId)),
+        messages: buildRoomHistory(bot, members, db.listRoomMessages(roomId), deps.model),
         signal,
         onToken: (t) => { partial += t; emit({ roomId, type: 'token', botId: bot.id, text: t }); },
       });

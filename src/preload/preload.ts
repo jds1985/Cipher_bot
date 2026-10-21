@@ -57,7 +57,6 @@ const api: CipherApi = {
   getSetup: () => ipcRenderer.invoke('setup:get'),
   startSetup: () => ipcRenderer.invoke('setup:start'),
   checkSetup: () => ipcRenderer.invoke('setup:check'),
-  openEngineDownload: () => ipcRenderer.invoke('engine:openDownloadPage'),
   onSetupState: (cb) => {
     const listener = (_e: IpcRendererEvent, s: SetupState) => cb(s);
     ipcRenderer.on('setup:state', listener);

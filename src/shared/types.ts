@@ -161,15 +161,13 @@ export interface NewRoomForm {
   botIds: number[];
 }
 
-export interface OllamaStatus {
+export interface BackendStatus {
+  /** cipher-serve answered /health. */
   running: boolean;
-  modelPresent: boolean;
-  model: string;
-  host: string;
+  model: string | null;
+  nCtx: number | null;
   /** Plain-language problem description, or null if everything is fine. */
   problem: string | null;
-  /** What the user can do about it: get the engine, or rerun setup. */
-  action: 'get-engine' | 'setup' | null;
 }
 
 /** Events streamed from main to renderer while a reply is being generated. */
@@ -188,17 +186,17 @@ export type RoomEvent =
   | { roomId: number; type: 'done' }
   | { roomId: number; type: 'error'; error: string };
 
-export type SetupPhase = 'checking' | 'engine-missing' | 'model-missing' | 'downloading' | 'ready' | 'error';
+export type SetupPhase = 'checking' | 'starting' | 'ready' | 'error';
 
-/** First-run setup progress, pushed from main to renderer. */
+/** Model server state (bundled cipher-serve + Cipher model), pushed from main to renderer. */
 export interface SetupState {
   phase: SetupPhase;
-  /** 0–100 while downloading, or null when unknown. */
-  percent: number | null;
-  completed: number;
-  total: number;
-  /** Plain-language message for engine-missing / model-missing / error. */
+  /** Plain-language message for 'error' (and 'starting' when a restart is in progress), else null. */
   message: string | null;
+  /** The running model's display name, once known. */
+  model: string | null;
+  /** Whether this model may be offered tools (false on the 135M stand-in: tools are switched off, not faked). */
+  toolCalling: boolean;
 }
 
 /** Fields on the "Create a Cipher bot" screen. */
@@ -302,12 +300,10 @@ export interface CipherApi {
   stopRoom(roomId: number): Promise<void>;
   onRoomEvent(cb: (e: RoomEvent) => void): () => void;
   getSetup(): Promise<SetupState>;
-  /** Check and, if needed, download (used on launch, "Try again", "Set up again", "Check again"). */
+  /** (Re)start the bundled model server if it isn't running ("Try again"). */
   startSetup(): Promise<void>;
-  /** Check only, without downloading (used after a chat error). */
+  /** Health-check the model server (used after a chat error). */
   checkSetup(): Promise<void>;
-  /** Open the engine's download page in the system browser (explicit click only; blocked while Online is off). */
-  openEngineDownload(): Promise<void>;
   onSetupState(cb: (s: SetupState) => void): () => void;
   /** Tell main which bot's 1:1 chat is on screen (null: a room, another screen, or nothing), for the routine notice. */
   reportOpenBot(botId: number | null): void;

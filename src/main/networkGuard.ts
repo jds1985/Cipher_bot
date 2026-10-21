@@ -1,8 +1,7 @@
 /**
  * Online switch (v1.6): default OFF. While OFF, Cipher must not initiate outbound internet.
- * Allowed always: loopback (127.0.0.1 / ::1) — local Ollama and the phone-link LAN server.
- * Also always allowed (user click only): the engine download page (https://ollama.com/download),
- * so a new install can use "Get the engine" without turning Online on first.
+ * Allowed always: loopback (127.0.0.1 / ::1) — the bundled Cipher model server and the phone-link LAN server.
+ * There is no engine or model download: Cipher's model ships inside the app.
  * Phone link is LAN-only; it must never open external URLs or cloud endpoints.
  * v1.18: when Online is ON, the one thing Cipher Bot's own code may request is web search at
  * https://html.duckduckgo.com/html/ (after the user presses Search). Nothing else. No email, no logins.
@@ -25,23 +24,8 @@ export function isLoopbackHost(hostname: string): boolean {
   return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '0.0.0.0';
 }
 
-/** The one user-clicked engine download page allowed even when Online is off. */
-export function isEngineDownloadUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === 'https:' &&
-      parsed.hostname === 'ollama.com' &&
-      (parsed.pathname === '/download' || parsed.pathname === '/download/')
-    );
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Refuse non-loopback URLs while Online is off, except the engine download page
- * (so "Get the engine" works on a new install without turning Online on).
+ * Refuse non-loopback URLs while Online is off (no exceptions).
  * Phone-link and other app code must call this before any outbound fetch / openExternal.
  */
 export function assertOutboundAllowed(online: boolean, url: string): void {
@@ -52,7 +36,6 @@ export function assertOutboundAllowed(online: boolean, url: string): void {
     throw new Error('Invalid URL.');
   }
   if (isLoopbackHost(parsed.hostname)) return;
-  if (isEngineDownloadUrl(url)) return;
   if (!online) {
     throw new Error('Online is off. Cipher stays on this computer and will not open internet addresses.');
   }

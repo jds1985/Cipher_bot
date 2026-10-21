@@ -16,6 +16,7 @@ import { formatMessageTime, formatReminderAt, formatSize, plusMenuItems, SHORTCU
 import { WHATS_NEW } from '../renderer/whatsNew';
 import { POLICY_SECTIONS } from '../renderer/policy';
 import type { ChatEvent, Reminder } from '../shared/types';
+import { modelDeps, sseBody, sseResponse } from './fakeCipher';
 
 // v1.23: tool switches, paste a screenshot, undo delete, reminders, docx/txt, focus mode, disk used, overwrite confirm.
 const root = path.join(__dirname, '..', '..');
@@ -32,7 +33,7 @@ const policy = POLICY_SECTIONS.map((s) => `${s.heading}\n${s.paragraphs.join('\n
 function tmpDb(): string { return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cipher-v123-')), 'cipher.db'); }
 function folder(): string { return fs.mkdtempSync(path.join(os.tmpdir(), 'cipher-v123-dir-')); }
 
-/** Scripted Ollama: round 1 asks for `calls` (after `before()`), round 2 answers plainly. Records tools offered. */
+/** Scripted model server: round 1 asks for `calls` (after `before()`), round 2 answers plainly. Records tools offered. */
 function scripted(calls: unknown[], offered: string[][], before?: () => void): typeof fetch {
   let round = 0;
   return (async (_u: string, init: RequestInit) => {
@@ -41,7 +42,7 @@ function scripted(calls: unknown[], offered: string[][], before?: () => void): t
     const first = round++ === 0;
     if (first) before?.();
     const msg = first && calls.length ? { role: 'assistant', content: '', tool_calls: calls } : { role: 'assistant', content: 'ok' };
-    return new Response(`${JSON.stringify({ message: msg, done: false })}\n${JSON.stringify({ message: { role: 'assistant', content: '' }, done: true })}\n`, { status: 200 });
+    return sseResponse(msg);
   }) as unknown as typeof fetch;
 }
 
@@ -119,7 +120,7 @@ test('EVERY tool is refused at execution while its switch is off (even when the 
   const chat = db.getBotChat(bot.id);
   const hits: string[] = [];
   const offered: string[][] = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(ALL_CALLS, offered), ...hooks(hits) }, chat.id, 'go', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(ALL_CALLS, offered), ...hooks(hits) }, chat.id, 'go', new AbortController().signal);
   assert.deepEqual(offered[0], [], 'nothing offered');
   assert.deepEqual(hits, [], 'no hook ran');
   const tools = db.listMessages(chat.id).filter((m) => m.role === 'tool');
@@ -139,14 +140,14 @@ test('switches are re-checked at execution: offered while on, refused if turned 
   const hits: string[] = [];
   const offered: string[][] = [];
   const allOff = () => { db.setToolSwitches(bot.id, { files: false, search: false, calculator: false, checklist: false, write: false }); };
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(ALL_CALLS, offered, allOff), ...hooks(hits) }, chat.id, 'go', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(ALL_CALLS, offered, allOff), ...hooks(hits) }, chat.id, 'go', new AbortController().signal);
   assert.deepEqual([...offered[0]].sort(), ['calculator', 'checklist_add', 'read_file', 'web_search', 'write_file']);
   assert.deepEqual(hits, [], 'turned off before running: nothing ran');
   assert.deepEqual(offered[1], [], 'and nothing is offered on the next round');
   // With everything on, all five run (through main's hooks for search/write/checklist).
   db.setToolSwitches(bot.id, { files: true, search: true, calculator: true, checklist: true, write: true });
   const hits2: string[] = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(ALL_CALLS, []), ...hooks(hits2) }, chat.id, 'go', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(ALL_CALLS, []), ...hooks(hits2) }, chat.id, 'go', new AbortController().signal);
   assert.deepEqual(hits2, ['web_search', 'web_search:run', 'checklist_add', 'write_file']);
   const last = db.listMessages(chat.id).filter((m) => m.role === 'tool').slice(-5);
   assert.equal(last[0].content.includes('secret'), true, 'read_file ran');
@@ -170,7 +171,7 @@ test('reminders run like routines: no write/checklist/search, the bot switches s
   const hits: string[] = [];
   const offered: string[][] = [];
   // main passes no actions and no search for reminders, but even if it did, the engine refuses them.
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted(ALL_CALLS, offered), fromRoutine: true, reminder: true, ...hooks(hits) },
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted(ALL_CALLS, offered), fromRoutine: true, reminder: true, ...hooks(hits) },
     chat.id, 'remind', new AbortController().signal);
   assert.deepEqual(offered[0], ['read_file', 'calculator']);
   assert.deepEqual(hits, []);
@@ -178,11 +179,11 @@ test('reminders run like routines: no write/checklist/search, the bot switches s
   assert.equal(user.reminder, true);
   db.setToolSwitches(bot.id, { files: false, calculator: false });
   const off: string[][] = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted([], off), fromRoutine: true, reminder: true }, chat.id, 'x', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted([], off), fromRoutine: true, reminder: true }, chat.id, 'x', new AbortController().signal);
   assert.deepEqual(off[0], [], 'switched off: nothing offered');
   // main: reminder turns get no hooks for actions or search; notice skips muted bots; lock purge/order unchanged
   const fn = main.slice(main.indexOf('function runReminderTurn'), main.indexOf('// ---------- v1.23: undo'));
-  assert.match(fn, /runChatTurn\(\{ db, model: currentModel\(\), emit, forceToolsOff: false, fromRoutine: true, reminder: true, sharedFolder \}/);
+  assert.match(fn, /runChatTurn\(\{ db, model: currentModel\(\), endpoint: modelEndpoint, emit, forceToolsOff: false, fromRoutine: true, reminder: true, sharedFolder \}/);
   assert.doesNotMatch(fn, /actions|search:/);
   assert.match(fn, /routineNotifier\?\.notify\(r\.botId/);
   assert.match(main, /isMuted: \(botId\) => db\.isMuted\('bot', botId\)/);

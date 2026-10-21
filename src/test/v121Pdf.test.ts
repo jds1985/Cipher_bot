@@ -9,8 +9,9 @@ import { isUrlBlocked, normalizeSite } from '../main/blockedSites';
 import { MAX_PDF_BYTES, MAX_PDF_PAGES, PDF_OPTIONS, pdfBytesToText, readPdfInFolder } from '../main/pdfText';
 import { executeToolCall } from '../main/readFileTool';
 import { attachFromPath } from '../main/attachFile';
-import { buildHistory, replyOptions, REPLY_LENGTH_HINT } from '../main/chatEngine';
-import { streamChat } from '../main/ollama';
+import { buildHistory, replyTokens, REPLY_LENGTH_HINT } from '../main/chatEngine';
+import { streamChat } from '../main/backend';
+import { NO_TOOLS_MODEL, TEST_MODEL, endpointFor } from './fakeCipher';
 import { fetchPageText } from '../main/pageFetch';
 import { chatMarkdown } from '../main/chatMarkdown';
 import { SearchConsent } from '../main/searchConsent';
@@ -197,25 +198,26 @@ test('3. always on top: title-bar button and tray checkbox, saved locally, appli
   assert.match(html, /<button type="button" id="always-on-top" class="titlebar-btn" aria-pressed="false"[^>]*><img src="assets\/cipher-always-on-top\.svg"/);
 });
 
-test('4. reply length: stored per bot, in the system prompt, and num_predict sent to the local model', async () => {
+test('4. reply length: stored per bot, a short line in the system prompt, and a max_tokens cap that fits the context', async () => {
   const db = new CipherDb(tmpDb());
   const bot = db.createBot({ name: 'Brief', systemPrompt: 'Help.', toolsEnabled: false, folderPath: null });
   assert.equal(bot.replyLength, 'normal');
   const short = db.setReplyLength(bot.id, 'short');
   assert.throws(() => db.setReplyLength(bot.id, 'huge'), /short, normal or long/);
   db.close();
-  assert.match(buildHistory(short, [])[0].content as string, new RegExp(REPLY_LENGTH_HINT.short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.doesNotMatch(buildHistory({ ...short, replyLength: 'normal' }, [])[0].content as string, /Keep replies short|thorough/);
-  assert.deepEqual(replyOptions('short'), { num_predict: 256 });
-  assert.equal(replyOptions('normal'), undefined);
-  assert.deepEqual(replyOptions('long'), { num_predict: 2048 });
-  let body: { options?: unknown } = {};
+  assert.match(buildHistory(short, [], TEST_MODEL)[0].content as string, new RegExp(REPLY_LENGTH_HINT.short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(buildHistory({ ...short, replyLength: 'normal' }, [], TEST_MODEL)[0].content as string, /Keep replies short|detailed/);
+  // 135M stand-in (1,024 tokens, 300 reply cap): short 120, normal 300, long 512 (half the context).
+  assert.equal(replyTokens('short', NO_TOOLS_MODEL), 120);
+  assert.equal(replyTokens('normal', NO_TOOLS_MODEL), 300);
+  assert.equal(replyTokens('long', NO_TOOLS_MODEL), 512);
+  let body: { max_tokens?: unknown } = {};
   await streamChat({
-    model: 'm', messages: [], onToken: () => undefined, options: replyOptions('short'), host: 'http://127.0.0.1:1',
-    fetchImpl: (async (_u: string, init: RequestInit) => { body = JSON.parse(String(init.body)); return new Response('{"done":true}\n', { status: 200 }); }) as unknown as typeof fetch,
+    endpoint: endpointFor(), messages: [], onToken: () => undefined, maxTokens: replyTokens('short', NO_TOOLS_MODEL),
+    fetchImpl: (async (_u: string, init: RequestInit) => { body = JSON.parse(String(init.body)); return new Response('data: [DONE]\n\n', { status: 200 }); }) as unknown as typeof fetch,
   });
-  assert.deepEqual(body.options, { num_predict: 256 });
-  assert.match(read('src/main/roomEngine.ts'), /options: replyOptions\(bot\.replyLength\)/);
+  assert.equal(body.max_tokens, 120);
+  assert.match(read('src/main/roomEngine.ts'), /maxTokens: replyTokens\(bot\.replyLength, deps\.model\)/);
 });
 
 test('5. copy chat as Markdown: your messages and replies, quotes, image names, result links; to the clipboard only', () => {

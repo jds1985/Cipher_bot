@@ -5,7 +5,7 @@ import type { ToolCall } from '../shared/types';
 /** Largest file the tool will return to the model. */
 export const MAX_FILE_BYTES = 256 * 1024;
 
-/** Tool definition in Ollama's /api/chat `tools` format. */
+/** Tool definition in the OpenAI-style `tools` format (offered only to models with toolCalling). */
 export const READ_FILE_TOOL = {
   type: 'function',
   function: {

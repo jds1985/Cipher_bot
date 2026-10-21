@@ -17,6 +17,7 @@ import { parseBlocks } from '../renderer/markdownParse';
 import { WHATS_NEW } from '../renderer/whatsNew';
 import { POLICY_SECTIONS } from '../renderer/policy';
 import { UNLOCKED_CHANNELS } from '../main/lock';
+import { TEST_MODEL } from './fakeCipher';
 
 // v1.20: quote, pin, mute, dropped images, starter jobs, shortcuts, debug log, update check.
 const root = path.join(__dirname, '..', '..');
@@ -62,7 +63,7 @@ test('1. quote: snapshot of a message in the same chat, capped, user only, shown
   const other = db.getBotChat(db.createBot({ name: 'R', systemPrompt: '', toolsEnabled: false, folderPath: null }).id);
   assert.equal(db.getMessage(other.id, a.id), null, 'cannot quote across chats');
   assert.equal(db.getMessage(chat.id, a.id)!.content, 'The answer is 42.');
-  const hist = buildHistory(bot, [{ ...u, quote: 'The answer is 42.' }]);
+  const hist = buildHistory(bot, [{ ...u, quote: 'The answer is 42.' }], TEST_MODEL);
   assert.match(hist.at(-1)!.content as string, /^Quoting an earlier message:\n> The answer is 42\.\n\nWhy\?$/);
   assert.equal(userContentForModel({ content: 'hi', quote: null, image: 'pics/cat.png' }), '[The user attached an image: cat.png]\n\nhi');
   db.close();

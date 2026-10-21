@@ -14,13 +14,12 @@ export const POLICY_TITLE = 'Policy';
 
 export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
-    heading: 'Your chats and files stay on this computer, with four exceptions',
+    heading: 'Your chats and files stay on this computer, with three exceptions',
     paragraphs: [
-      'Cipher Bot keeps your chats and files on this computer, with four exceptions. ' +
+      'Cipher Bot keeps your chats and files on this computer, with three exceptions. ' +
         '1) Phone link: if you turn it on, your chats travel between this computer and your phone over your local network as plain HTTP, which is not encrypted. ' +
-        '2) Model download: on first launch (or whenever the model is missing), Ollama downloads the model from its online registry. Cipher Bot only asks Ollama for the model by name; your chats are not part of that request. ' +
-        '3) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo; and only after you choose Open as text on a search result and confirm its address, that one page is downloaded from its site. ' +
-        '4) Update check: only when Online is on, about once a day, Cipher Bot asks GitHub (api.github.com) for the latest Cipher Bot release; and only after you choose Download and confirm, that release\'s file is downloaded from GitHub. Nothing else from your chats or files is sent.',
+        '2) Web search: only when Online is on, and only after you press Search on the query your Cipher bot shows, that query goes to DuckDuckGo; and only after you choose Open as text on a search result and confirm its address, that one page is downloaded from its site. ' +
+        '3) Update check: only when Online is on, about once a day, Cipher Bot asks GitHub (api.github.com) for the latest Cipher Bot release; and only after you choose Download and confirm, that release\'s file is downloaded from GitHub. Nothing else from your chats or files is sent.',
       'Your Cipher bots, chats, rooms, routines and settings (except the app lock; see Lock) are saved in one database file, cipher.db, in Cipher Bot\'s user data folder on this computer ' +
         '(usually ~/.config/Cipher on Linux, %APPDATA%\\Cipher on Windows, ~/Library/Application Support/Cipher on macOS). ' +
         'The file is not encrypted: anyone who can open your user account\'s files can read it.',
@@ -54,8 +53,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'The model',
     paragraphs: [
-      'Replies come from a model running in Ollama on this computer. Cipher Bot talks to Ollama only at 127.0.0.1 (this computer).',
-      'Ollama is separate software that you install. Cipher Bot can\'t control what Ollama does on its own.',
+      'Replies come from the Cipher model, Jim\'s own model, which ships inside Cipher Bot and runs on this computer. Nothing is downloaded and no other model or service is used.',
+      'Cipher Bot starts the model as a small helper program (cipher-serve) when it opens and stops it when it quits. They talk only at 127.0.0.1 (this computer), with a secret that changes every launch.',
     ],
   },
   {
@@ -72,8 +71,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'Online switch',
     paragraphs: [
       'Online is off unless you turn it on. When it is on, the only new things are web search, opening a search result as text (see Web search) and the update check (see Updates). When it is off, none of these happens, and turning it off stops any search, page download, update check or update download that is on the way and closes any search question on screen, on the desktop and the phone. Only the desktop can turn Online on or off.',
-      'Online off does not mean Cipher Bot never touches the network. The model download and the "Get the engine" button (which opens ollama.com/download in your web browser) happen regardless of the switch, and Phone link uses your local network when you turn it on.',
-      'Apart from those, web search and the update check, Cipher Bot\'s own code connects only to Ollama on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
+      'Online off does not mean Cipher Bot never touches the network. Phone link uses your local network when you turn it on, regardless of the switch.',
+      'Apart from those, web search and the update check, Cipher Bot\'s own code connects only to its built-in model on this computer, and the Cipher Bot window is blocked from loading anything from the internet.',
     ],
   },
   {

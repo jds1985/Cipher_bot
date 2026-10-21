@@ -18,8 +18,8 @@ import { ACCENT_KEY, UI_PREFS, isUiPrefName, parseAccent, readUiPrefs } from './
 import { formToProfile, toNewBot } from './createBot';
 import { chatMarkdown, roomMarkdown } from './chatMarkdown';
 import { botChatExportLines, exportFileName, formatChatExport, roomExportLines } from './exportChat';
-import { configuredModel, ENGINE_DOWNLOAD_URL } from './ollama';
-import { SetupManager } from './setup';
+import { CipherServer, resolveServerPaths } from './cipherServe';
+import { FALLBACK_MODEL } from './modelManifest';
 import { ONLINE_SETTING_KEY, assertLinkOpenAllowed, assertOutboundAllowed, onlineSettingValue, parseOnlineSetting } from './networkGuard';
 import { webSearch, type SearchResult } from './webSearch';
 import { SearchConsent } from './searchConsent';
@@ -58,7 +58,7 @@ for (const level of ['error', 'warn'] as const) {
 }
 
 let db: CipherDb;
-let setup: SetupManager;
+let server: CipherServer;
 let phone: PhoneServer;
 let routines: RoutineScheduler | null = null;
 let reminders: ReminderScheduler | null = null;
@@ -68,8 +68,13 @@ const isLocked = (): boolean => appLock?.isLocked() ?? false;
 const activeTurns = new Map<number, AbortController>();
 /** Rooms with a round in progress (one round at a time per room). */
 const activeRooms = new Map<number, AbortController>();
-/** The one model (qwen2.5:7b), or the developer-only CIPHER_MODEL override. Never shown on screen. */
-const currentModel = (): string => configuredModel();
+/** The one model: Jim's Cipher (bundled, public build), described by resources/model/manifest.json. */
+const currentModel = () => server?.manifest ?? FALLBACK_MODEL;
+const modelEndpoint = () => server?.endpoint ?? null;
+function setupState(): SetupState {
+  const phase = !server || server.phase === 'stopped' ? 'checking' : server.phase;
+  return { phase, message: server?.message ?? null, model: server?.manifest?.name ?? null, toolCalling: currentModel().capabilities.toolCalling };
+}
 
 function isOnline(): boolean {
   return parseOnlineSetting(db.getSetting(ONLINE_SETTING_KEY));
@@ -208,7 +213,7 @@ function createTray(): void {
 const pickedFolders = new Set<string>();
 
 // Local-first: the renderer may only load bundled files. Everything else is blocked.
-// (The main process talks to Ollama on 127.0.0.1 only; see ollama.ts.)
+// (The main process talks to the bundled cipher-serve on 127.0.0.1 only; see cipherServe.ts and backend.ts.)
 function lockDownNetwork(): void {
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
     const url = details.url;
@@ -370,7 +375,7 @@ function beginChatTurn(chatId: number, text: string, emit: (e: ChatEvent) => voi
   // v1.19: phone turns get web search too (the confirm card shows on the phone and the desktop). Routines never do.
   // v1.22: write_file / checklist_add only on the desktop (toolsOff is true for the phone): the confirm is a native
   // dialog on this computer, so the phone can never approve a write or a checklist item.
-  const base = { db, model: currentModel(), emit, forceToolsOff: toolsOff, search: searchHooks, userExtras, sharedFolder };
+  const base = { db, model: currentModel(), endpoint: modelEndpoint, emit, forceToolsOff: toolsOff, search: searchHooks, userExtras, sharedFolder };
   return runChatTurn({ ...base, actions: toolsOff ? undefined : actionHooks }, chatId, text, signal);
 }
 
@@ -555,7 +560,7 @@ function runRoutineTurn(botId: number, chatId: number, prompt: string): void {
   // Note whether the turn failed, for the finished/failed notice (which never includes the prompt or reply).
   let failed = false;
   const emit = (ev: ChatEvent) => { if (ev.type === 'error') failed = true; broadcastChat(ev); };
-  void runChatTurn({ db, model: currentModel(), emit, forceToolsOff: true, fromRoutine: true }, chatId, prompt, controller.signal)
+  void runChatTurn({ db, model: currentModel(), endpoint: modelEndpoint, emit, forceToolsOff: true, fromRoutine: true }, chatId, prompt, controller.signal)
     .catch((err: unknown) => { failed = true; broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }); })
     .finally(() => {
       activeTurns.delete(chatId);
@@ -576,7 +581,7 @@ function runReminderTurn(r: Reminder, chatId: number): void {
   activeTurns.set(chatId, controller);
   let failed = false;
   const emit = (ev: ChatEvent) => { if (ev.type === 'error') failed = true; broadcastChat(ev); };
-  void runChatTurn({ db, model: currentModel(), emit, forceToolsOff: false, fromRoutine: true, reminder: true, sharedFolder }, chatId, r.prompt, controller.signal)
+  void runChatTurn({ db, model: currentModel(), endpoint: modelEndpoint, emit, forceToolsOff: false, fromRoutine: true, reminder: true, sharedFolder }, chatId, r.prompt, controller.signal)
     .catch((err: unknown) => { failed = true; broadcastChat({ chatId, type: 'error', error: err instanceof Error ? err.message : String(err) }); })
     .finally(() => {
       activeTurns.delete(chatId);
@@ -724,14 +729,9 @@ function registerIpc(): void {
     app.exit(0);
   });
 
-  handle('setup:get', () => setup.state);
-  handle('setup:start', () => { void setup.run(true); });
-  handle('setup:check', () => { void setup.run(false); });
-  // Opens the engine's download page. Allowed even when Online is off (user-clicked setup path).
-  handle('engine:openDownloadPage', () => {
-    assertOutboundAllowed(isOnline(), ENGINE_DOWNLOAD_URL);
-    return shell.openExternal(ENGINE_DOWNLOAD_URL);
-  });
+  handle('setup:get', () => setupState());
+  handle('setup:start', () => { void server.retry(); });
+  handle('setup:check', () => { void server.check(); });
 
   handle('online:get', () => isOnline());
   handle('online:set', (_e, on: unknown) => {
@@ -1301,9 +1301,9 @@ function registerIpc(): void {
       : undefined;
     const text = buildDebugLog({
       appVersion: app.getVersion(), electron: process.versions.electron ?? '', chrome: process.versions.chrome ?? '', node: process.versions.node,
-      platform: process.platform, arch: process.arch, osRelease: os.release(), schemaVersion: SCHEMA_VERSION, model: currentModel(),
+      platform: process.platform, arch: process.arch, osRelease: os.release(), schemaVersion: SCHEMA_VERSION, model: currentModel().id,
       online: isOnline(), locked: isLocked(), lockEnabled: appLock.state().enabled, phoneRunning: phone.status().running,
-      setupPhase: setup.state.phase,
+      setupPhase: setupState().phase,
       counts: { bots: bots.length, rooms: rooms.length, routines: db.listRoutines().length, 'bots with a folder': bots.filter((b) => b.folderPath).length, 'muted bots': bots.filter((b) => b.muted).length },
       prefs: readPrefsForLog((k) => db.getSetting(k)), lastUpdateCheck: db.getSetting(UPDATE_LAST_CHECK_KEY),
     }, recentLogLines(), chats);
@@ -1333,7 +1333,7 @@ function registerIpc(): void {
     if (activeRooms.has(roomId)) throw new Error('This room is still replying.');
     const controller = new AbortController();
     activeRooms.set(roomId, controller);
-    void runRoomTurn({ db, model: currentModel(), emit: broadcastRoom }, roomId, text, controller.signal)
+    void runRoomTurn({ db, model: currentModel(), endpoint: modelEndpoint, emit: broadcastRoom }, roomId, text, controller.signal)
       .catch((err: unknown) => broadcastRoom({ roomId, type: 'error', error: err instanceof Error ? err.message : String(err) }))
       .finally(() => { activeRooms.delete(roomId); noteReplyFinished({ kind: 'room', id: roomId }, controller.signal.aborted); });
   });
@@ -1361,7 +1361,12 @@ if (!app.requestSingleInstanceLock()) {
     appLock = new AppLock(new LockStore(app.getPath('userData')));
     // Online defaults off: do not seed '1'. Absence means off.
     lockDownNetwork();
-    setup = new SetupManager({ model: currentModel(), onChange: broadcastSetup });
+    // The bundled cipher-serve (public Cipher model only) runs as a child process for the app's lifetime.
+    server = new CipherServer({
+      ...resolveServerPaths({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }),
+      onChange: () => broadcastSetup(setupState()),
+      log: (line) => recordLogLine('warn', [line]),
+    });
     phoneUnlock = new PhoneUnlock({ record: () => { const r = new LockStore(app.getPath('userData')).read(); return r && r !== 'invalid' ? r : null; } });
     // v1.24: idle lock (Settings → Lock after) and scheduled backups, both checked locally on a timer.
     setInterval(() => {
@@ -1384,7 +1389,7 @@ if (!app.requestSingleInstanceLock()) {
       phoneUnlock,
       db,
       staticDir: phoneStaticDir(),
-      model: currentModel(),
+      model: 'cipher',
       isLocked,
       onStatus: () => broadcastPhone(),
       // v1.19: a paired, unlocked phone session may answer a confirm card main put up (same rules as the desktop).
@@ -1413,7 +1418,7 @@ if (!app.requestSingleInstanceLock()) {
         signal.addEventListener('abort', onAbort, { once: true });
         activeRooms.set(roomId, controller);
         const fanout = (ev: RoomEvent) => { emit(ev); broadcastRoom(ev); };
-        return runRoomTurn({ db, model: currentModel(), emit: fanout }, roomId, text, controller.signal)
+        return runRoomTurn({ db, model: currentModel(), endpoint: modelEndpoint, emit: fanout }, roomId, text, controller.signal)
           .finally(() => {
             signal.removeEventListener('abort', onAbort);
             activeRooms.delete(roomId);
@@ -1452,7 +1457,7 @@ if (!app.requestSingleInstanceLock()) {
     updateTimer = setInterval(() => void maybeCheckForUpdate(), UPDATE_TIMER_MS);
     createWindow();
     createTray();
-    void setup.run(true); // first launch: download the model through the local engine if it's missing
+    void server.start(); // start the bundled model server (health-checked; restarts on crash)
     app.on('activate', () => void showWindow());
   });
 
@@ -1463,6 +1468,9 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'darwin') app.quit();
   });
 
+  // Last resort: never leave the model server running if the app process exits some other way.
+  process.on('exit', () => server?.killNow());
+
   app.on('will-quit', () => {
     finishUndo(); // v1.23: a pending delete is purged for real before quitting
     routines?.stop();
@@ -1472,6 +1480,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const c of activeTurns.values()) c.abort();
     for (const c of activeRooms.values()) c.abort();
     phone?.stop();
+    void server?.stop(1500);
     tray?.destroy();
     tray = null;
     db?.close();

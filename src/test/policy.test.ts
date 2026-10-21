@@ -22,30 +22,31 @@ test('policy has the contact placeholder for the user to fill in', () => {
   assert.equal(policy.POLICY_CONTACT, 'Contact: [to be added]');
 });
 
-test('"stays on this computer" names all four exceptions right there: plain-HTTP phone link, the model download, web search, update check', () => {
+test('"stays on this computer" names all three exceptions right there: plain-HTTP phone link, web search, update check (no model download any more)', () => {
   const first = policy.POLICY_SECTIONS[0];
-  assert.match(first.heading, /stay on this computer, with four exceptions/);
+  assert.match(first.heading, /stay on this computer, with three exceptions/);
   assert.match(first.paragraphs[0], /only when Online is on, and only after you press Search[^.]*DuckDuckGo/);
   const p = first.paragraphs[0];
   assert.match(p, /stay|keeps/);
   assert.match(p, /Phone link/);
   assert.match(p, /plain HTTP/);
   assert.match(p, /not encrypted/);
-  assert.match(p, /Ollama downloads the model from its online registry/);
+  assert.doesNotMatch(p, /download[^.]*model|model[^.]*download|registry|Ollama/i);
   // Every sentence that says "stays on this computer" must sit in a paragraph that names both exceptions.
   for (const s of policy.POLICY_SECTIONS) for (const para of s.paragraphs) {
-    if (/stays? on this computer/i.test(para)) assert.ok(/plain HTTP/.test(para) && /registry/.test(para) && /DuckDuckGo/.test(para), para);
+    if (/stays? on this computer/i.test(para)) assert.ok(/plain HTTP/.test(para) && /DuckDuckGo/.test(para) && /GitHub/.test(para), para);
   }
 });
 
-test('required points: local database and where, files only from the chosen folder, local model, Ollama is separate', () => {
+test('required points: local database and where, files only from the chosen folder, the bundled Cipher model on this computer', () => {
   assert.match(all, /cipher\.db/);
   assert.match(all, /user data folder/);
   assert.match(all, /not encrypted: anyone who can open your user account/);
   assert.match(section(/^Files$/), /only from the folders you choose for a Cipher bot: its read folder and, if you add one, a second folder/);
   assert.match(section(/^Files$/), /Read files on/);
-  assert.match(section(/model/i), /Ollama on this computer/);
-  assert.match(section(/model/i), /can't control what Ollama does/);
+  assert.match(section(/model/i), /Cipher model, Jim's own model, which ships inside Cipher Bot and runs on this computer/);
+  assert.match(section(/model/i), /Nothing is downloaded and no other model or service is used/);
+  assert.match(section(/model/i), /only at 127\.0\.0\.1 \(this computer\), with a secret that changes every launch/);
 });
 
 test('phone link: a window to this desktop, off until turned on, pairing code, plain HTTP not encrypted', () => {
@@ -64,7 +65,7 @@ test('Online: off unless turned on, enables only web search, and does not claim 
   assert.match(p, /turning it off stops any search, page download, update check or update download that is on the way and closes any search question/);
   assert.match(p, /Only the desktop can turn Online on or off/);
   assert.match(p, /does not mean Cipher Bot never touches the network/);
-  assert.match(p, /model download and the "Get the engine" button/);
+  assert.doesNotMatch(p, /Get the engine|ollama/i);
   assert.match(p, /regardless of the switch/);
   // Apart from the sentence that denies it, nothing claims Cipher Bot never uses the network.
   assert.doesNotMatch(all.replace('does not mean Cipher Bot never touches the network', ''), /no network ever|never (connects to|touches|uses) the (internet|network)/i);

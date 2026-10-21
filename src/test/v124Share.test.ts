@@ -21,6 +21,7 @@ import { parseReminderLine, validateReminder } from '../main/reminders';
 import { REACTION_CHOICES, allTags, autoTitle, dockSections, formatActivity, plusMenuItems, tokensPerSecond } from '../renderer/view';
 import { WHATS_NEW } from '../renderer/whatsNew';
 import { POLICY_SECTIONS } from '../renderer/policy';
+import { modelDeps, sseBody, sseResponse } from './fakeCipher';
 
 // v1.24: shared folder, lock timeout, tokens/s, reactions, auto-title, scheduled backup, activity, reminder import,
 // dock folders, tags, summarize folder, edit history, fonts, phone unlock, settings export/import.
@@ -49,7 +50,7 @@ function scripted(calls: unknown[], offered: string[][]): typeof fetch {
     offered.push((body.tools ?? []).map((t: { function: { name: string } }) => t.function.name));
     const first = round++ === 0;
     const msg = first && calls.length ? { role: 'assistant', content: '', tool_calls: calls } : { role: 'assistant', content: 'ok' };
-    return new Response(`${JSON.stringify({ message: msg, done: false })}\n${JSON.stringify({ message: { role: 'assistant', content: '' }, done: true })}\n`, { status: 200 });
+    return sseResponse(msg);
   }) as unknown as typeof fetch;
 }
 
@@ -99,7 +100,7 @@ test('shared folder: refused when the Files switch is off (not offered, never re
   const off = db.createBot({ name: 'Off', systemPrompt: '', toolsEnabled: false, folderPath: null });
   const chat = db.getBotChat(off.id);
   const offered: string[][] = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted([{ function: { name: 'read_file', arguments: { path: 'team.txt', folder: 'shared' } } }], offered), sharedFolder: () => shared },
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted([{ function: { name: 'read_file', arguments: { path: 'team.txt', folder: 'shared' } } }], offered), sharedFolder: () => shared },
     chat.id, 'read the shared folder', new AbortController().signal);
   assert.ok(offered.every((o) => !o.includes('read_file')));
   assert.ok(db.listMessages(chat.id).every((m) => !m.content.includes('SHARED-CONTENT')));
@@ -109,13 +110,13 @@ test('shared folder: refused when the Files switch is off (not offered, never re
   const offered2: string[][] = [];
   let round = 0;
   const f = (async (u: string, init: RequestInit) => { if (round++ === 0) db.setToolSwitches(on.id, { files: false }); return scripted([{ function: { name: 'read_file', arguments: { path: 'team.txt', folder: 'shared' } } }], offered2)(u, init); }) as unknown as typeof fetch;
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: f, sharedFolder: () => shared }, chat2.id, 'x', new AbortController().signal);
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: f, sharedFolder: () => shared }, chat2.id, 'x', new AbortController().signal);
   assert.ok(db.listMessages(chat2.id).every((m) => !m.content.includes('SHARED-CONTENT')));
   // Files on: read works and the hint is in the system prompt.
   const on2 = db.createBot({ name: 'On2', systemPrompt: '', toolsEnabled: true, folderPath: null });
   const chat3 = db.getBotChat(on2.id);
   const offered3: string[][] = [];
-  await runChatTurn({ db, model: 'm', emit: () => undefined, fetchImpl: scripted([{ function: { name: 'read_file', arguments: { path: 'team.txt', folder: 'shared' } } }], offered3), sharedFolder: () => shared },
+  await runChatTurn({ db, ...modelDeps(), emit: () => undefined, fetchImpl: scripted([{ function: { name: 'read_file', arguments: { path: 'team.txt', folder: 'shared' } } }], offered3), sharedFolder: () => shared },
     chat3.id, 'x', new AbortController().signal);
   assert.ok(offered3[0].includes('read_file'));
   assert.ok(db.listMessages(chat3.id).some((m) => m.role === 'tool' && m.content.includes('SHARED-CONTENT')));
