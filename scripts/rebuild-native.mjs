@@ -5,6 +5,13 @@
 import { spawnSync } from 'node:child_process';
 
 if (process.env.CIPHER_SKIP_NATIVE_REBUILD === '1') { console.log('[cipher] native rebuild skipped'); process.exit(0); }
+// Newer npm versions can skip dependency install scripts (allowScripts), which leaves Electron without its binary.
+import { existsSync } from 'node:fs';
+if (!existsSync('node_modules/electron/path.txt') && existsSync('node_modules/electron/install.js')) {
+  console.log('[cipher] fetching the Electron binary');
+  const e = spawnSync(process.execPath, ['node_modules/electron/install.js'], { stdio: 'inherit' });
+  if (e.status !== 0) { console.error('[cipher] Electron download failed; run `node node_modules/electron/install.js`'); process.exit(e.status ?? 1); }
+}
 const bin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const r = spawnSync(bin, ['electron-builder', 'install-app-deps'], { stdio: 'inherit', shell: process.platform === 'win32' });
 if (r.status === 0) process.exit(0);
