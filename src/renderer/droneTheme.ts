@@ -22,14 +22,14 @@ export const DRONE_THEMES: Theme[] = [
   { name: 'fire', words: ['fire', 'flame', 'flames', 'hot', 'burn', 'lava', 'volcano', 'blaze', 'spicy', 'dragon'], spec: { shell: 'cracked', palette: 'ember', eye: 'iris', fins: 'wing', crystal: 'shard', accessories: ['flame'] } },
   { name: 'ocean', words: ['ocean', 'sea', 'water', 'wave', 'waves', 'surf', 'beach', 'fish', 'fishing', 'dive', 'diving', 'sail', 'boat', 'marine'], spec: { shell: 'glass', palette: 'ocean', eye: 'ring', fins: 'wing', crystal: 'drop', accessories: [] } },
   { name: 'coding', words: ['code', 'coding', 'coder', 'program', 'programming', 'developer', 'dev', 'software', 'hack', 'hacker', 'debug', 'python', 'javascript', 'typescript', 'computer'], spec: { shell: 'plain', palette: 'lime', eye: 'visor', fins: 'blade', crystal: 'gem', accessories: [] } },
-  { name: 'chess', words: ['chess', 'checkmate', 'king', 'queen', 'strategy', 'strategic', 'gambit', 'board', 'boardgame'], spec: { shell: 'armored', palette: 'obsidian', eye: 'hex', fins: 'panel', crystal: 'prism', accessories: ['chess-crown'] } },
+  { name: 'chess', words: ['chess', 'checkmate', 'king', 'queen', 'strategy', 'strategic', 'gambit', 'board', 'boardgame'], spec: { shell: 'armored', palette: 'obsidian', eye: 'iris', fins: 'panel', crystal: 'prism', accessories: ['chess-crown'] } },
   { name: 'coffee', words: ['coffee', 'espresso', 'latte', 'cafe', 'barista', 'tea', 'brew', 'mocha', 'cappuccino', 'morning'], spec: { shell: 'plain', palette: 'coffee', eye: 'ring', fins: 'panel', crystal: 'drop', accessories: ['steam'] } },
   { name: 'writing', words: ['write', 'writer', 'writing', 'poem', 'poetry', 'story', 'novel', 'author', 'journal', 'blog', 'essay', 'book', 'books'], spec: { shell: 'plain', palette: 'violet', eye: 'ring', fins: 'quill', crystal: 'gem', accessories: ['quill'] } },
   { name: 'planning', words: ['plan', 'planner', 'planning', 'schedule', 'calendar', 'travel', 'trip', 'map', 'navigate', 'compass', 'explore', 'adventure', 'hike', 'hiking'], spec: { shell: 'armored', palette: 'bronze', eye: 'ring', fins: 'panel', crystal: 'gem', accessories: ['compass'] } },
   { name: 'scout', words: ['scout', 'news', 'search', 'radar', 'signal', 'watch', 'alert', 'monitor', 'spy'], spec: { shell: 'plain', palette: 'coral', eye: 'ring', fins: 'blade', crystal: 'gem', accessories: ['antenna'] } },
   { name: 'angel', words: ['angel', 'heaven', 'kind', 'kindness', 'calm', 'meditation', 'meditate', 'zen', 'yoga', 'peace', 'wellness', 'health', 'therapy'], spec: { shell: 'glass', palette: 'ice', eye: 'ring', fins: 'wing', crystal: 'drop', accessories: ['halo'] } },
-  { name: 'royal', words: ['royal', 'crown', 'boss', 'leader', 'ceo', 'manager', 'money', 'finance', 'gold', 'rich', 'invest', 'investing', 'business'], spec: { shell: 'armored', palette: 'gold', eye: 'hex', fins: 'panel', crystal: 'prism', accessories: ['crown'] } },
-  { name: 'winter', words: ['winter', 'snow', 'ice', 'frost', 'cold', 'ski', 'skiing', 'arctic'], spec: { shell: 'glass', palette: 'ice', eye: 'hex', fins: 'blade', crystal: 'shard', accessories: [] } },
+  { name: 'royal', words: ['royal', 'crown', 'boss', 'leader', 'ceo', 'manager', 'money', 'finance', 'gold', 'rich', 'invest', 'investing', 'business'], spec: { shell: 'armored', palette: 'gold', eye: 'ring', fins: 'panel', crystal: 'prism', accessories: ['crown'] } },
+  { name: 'winter', words: ['winter', 'snow', 'ice', 'frost', 'cold', 'ski', 'skiing', 'arctic'], spec: { shell: 'glass', palette: 'ice', eye: 'ring', fins: 'blade', crystal: 'shard', accessories: [] } },
   { name: 'gentleman', words: ['gentleman', 'fancy', 'classy', 'magic', 'magician', 'error', 'glitch', 'bug', 'chaos', 'villain'], spec: { shell: 'cracked', palette: 'obsidian', eye: 'iris', fins: 'wing', crystal: 'prism', accessories: ['tophat', 'monocle-cracked'] } },
   { name: 'cipher', words: ['cipher', 'crypto', 'security', 'secure', 'privacy', 'encrypt', 'encryption', 'circuit', 'tech', 'ai', 'robot'], spec: { shell: 'circuit', palette: 'cipher', eye: 'hex', fins: 'panel', crystal: 'gem', accessories: [] } },
 ];
@@ -51,19 +51,48 @@ export function hashedSpec(prompt: string): DroneSpec {
   return sanitizeSpec({ shell: at(DRONE_SHELLS, 0), palette: at(DRONE_PALETTE_KEYS, 4), eye: at(DRONE_EYES, 9), fins: at(DRONE_FINS, 12), crystal: at(DRONE_CRYSTALS, 15), accessories });
 }
 
-/** The offline keyword chooser. Scores each theme by matched words; earliest word in the prompt wins ties. */
-export const keywordChooser: DroneThemeChooser = (prompt) => {
-  const toks = tokenize(prompt);
-  let best: { t: Theme; score: number; first: number; matched: string[] } | null = null;
-  for (const t of DRONE_THEMES) {
-    const matched = toks.filter((w) => t.words.includes(w));
-    if (!matched.length) continue;
-    const first = toks.findIndex((w) => t.words.includes(w));
-    const score = new Set(matched).size;
-    if (!best || score > best.score || (score === best.score && first < best.first)) best = { t, score, first, matched: [...new Set(matched)] };
+/** Negation cues. A cue cancels the next few words, up to a comma/period or 'but' ("not into music", "don't like coffee", "hate fire", "no hats"). */
+const NEG_WORDS = new Set(['not', 'no', 'never', 'hate', 'hates', 'dislike', 'dislikes', 'without', 'except', 'nor', 'dont', 'doesnt', 'isnt', 'aint', 'cant', 'wont']);
+const NEG_SPAN = 3;
+
+/** Theme scores for a prompt: distinct matched words per theme, minus negated hits; plus first-position for ties. */
+export function scoreThemes(prompt: string): { theme: Theme; score: number; first: number; matched: string[]; negated: string[] }[] {
+  const raw = String(prompt ?? '').toLowerCase().replace(/[’']/g, '').replace(/[,.;:!?]+/g, ' but ').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
+  // per raw word: negated? then expand stems
+  const words: { w: string; neg: boolean; i: number }[] = [];
+  let negLeft = 0;
+  raw.forEach((w, i) => {
+    if (NEG_WORDS.has(w)) { negLeft = NEG_SPAN; return; }
+    if (w === 'but') { negLeft = 0; return; }
+    const neg = negLeft > 0; if (negLeft > 0) negLeft--;
+    for (const t of tokenize(w)) words.push({ w: t, neg, i });
+  });
+  const out = [];
+  for (const theme of DRONE_THEMES) {
+    const hits = words.filter((x) => theme.words.includes(x.w));
+    if (!hits.length) continue;
+    const pos = [...new Set(hits.filter((x) => !x.neg).map((x) => x.w))], neg = [...new Set(hits.filter((x) => x.neg).map((x) => x.w))];
+    out.push({ theme, score: pos.length - neg.length * 2, first: hits.filter((x) => !x.neg)[0]?.i ?? 1e9, matched: pos, negated: neg });
   }
-  if (best) return { spec: sanitizeSpec(best.t.spec), theme: best.t.name, source: 'keyword', matched: best.matched };
-  return { spec: hashedSpec(prompt), theme: 'hashed', source: 'hash', matched: [] };
+  return out.sort((x, y) => y.score - x.score || x.first - y.first);
+}
+
+/** The offline keyword chooser: strongest theme wins; a second positive theme lends one accessory. */
+export const keywordChooser: DroneThemeChooser = (prompt) => {
+  const ranked = scoreThemes(prompt).filter((r) => r.score > 0);
+  const negated = scoreThemes(prompt).filter((r) => r.score <= 0).map((r) => r.theme.name);
+  if (!ranked.length) {
+    const spec = hashedSpec(prompt);
+    // a hashed accessory should not be one the user just said no to
+    const banned = new Set(DRONE_THEMES.filter((t) => negated.includes(t.name)).flatMap((t) => t.spec.accessories ?? []));
+    spec.accessories = spec.accessories.filter((a) => !banned.has(a));
+    return { spec, theme: 'hashed', source: 'hash', matched: [] };
+  }
+  const [best, second] = ranked;
+  const spec = sanitizeSpec(best.theme.spec);
+  const extra = second?.theme.spec.accessories?.find((a) => !spec.accessories.includes(a));
+  if (extra && spec.accessories.length < 3) spec.accessories.push(extra);
+  return { spec, theme: second && extra ? `${best.theme.name}+${second.theme.name}` : best.theme.name, source: 'keyword', matched: [...best.matched, ...(second && extra ? second.matched : [])] };
 };
 
 /** Map a word/prompt to a drone. Synchronous offline path. */

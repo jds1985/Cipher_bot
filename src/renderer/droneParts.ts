@@ -2,10 +2,13 @@
 // A drone is a sphere shell with panel seams, ONE glowing ring eye in a bezel, two angled side fins,
 // a faceted crystal pendant on a short cable, and optional accessories.
 // DroneSpec -> SVG string. Same spec (and uid) -> byte-identical SVG. No DOM, no network.
-// Colors: emitted as presentation attributes (the app CSP forbids inline styles), and every colored element
-// also carries a token class (dr-f-<token> / dr-k-<token> / dr-s-<token>), so drone.css can recolor a drone
-// from CSS variables when it has the .dr-themed class (--d-body, --d-deep, --d-hi, --d-glow, --d-glow2, --d-metal).
+// Colors: emitted as presentation attributes (the app CSP forbids inline styles) so a drone renders without any CSS,
+// and every palette-colored element also carries a token class (dr-f-<token> fill / dr-k-<token> stroke / dr-s-<token> stop).
+// drone.css maps those classes to var(--d-<token>, var(--dp-<token>)), where .pal-<key> on the root svg sets --dp-*.
+// So: set --d-glow (etc.) on the drone or ANY ancestor via a stylesheet class to recolor; no inline style needed.
 // Geometry lives in a 256x256 box: sphere at (128,118) r68, eye at (114,122), pendant below to y~248.
+
+import { HEX_MARK, HEX_MARK_SMALL } from './hexMark.js';
 
 export const DRONE_SHELLS = ['plain', 'circuit', 'cracked', 'striped', 'basketball', 'ringed', 'armored', 'glass'] as const;
 export const DRONE_EYES = ['ring', 'hex', 'visor', 'iris'] as const;
@@ -40,7 +43,7 @@ export const DRONE_PALETTES = {
   bronze:   { body: '#6b5236', deep: '#1f170e', hi: '#b08a5c', glow: '#ffb547', glow2: '#ff9a2e', metal: '#3a3026', label: 'Planner bronze' },
   coral:    { body: '#c4505a', deep: '#3a1218', hi: '#ff8c94', glow: '#ff7a7a', glow2: '#ff5c6a', metal: '#4a2a30', label: 'Scout coral' },
   magenta:  { body: '#a43592', deep: '#300c2c', hi: '#f17ad8', glow: '#ff8cf0', glow2: '#e05ad8', metal: '#40243e', label: 'Musician magenta' },
-  obsidian: { body: '#1c1c24', deep: '#060608', hi: '#4a4658', glow: '#a066ff', glow2: '#8b4cff', metal: '#2a2630', label: 'Error obsidian' },
+  obsidian: { body: '#262430', deep: '#08080c', hi: '#5e5872', glow: '#b07aff', glow2: '#8b4cff', metal: '#2a2630', label: 'Error obsidian' },
   orange:   { body: '#d06a1e', deep: '#3a1606', hi: '#ffa458', glow: '#ffd27a', glow2: '#ff8a2a', metal: '#3a2a20', label: 'Court orange' },
   ember:    { body: '#a8301a', deep: '#2a0804', hi: '#ff7040', glow: '#ffc04a', glow2: '#ff5a1e', metal: '#3a2018', label: 'Ember' },
   ocean:    { body: '#145a86', deep: '#04182c', hi: '#40a8e0', glow: '#5af0e0', glow2: '#1ec8c0', metal: '#1e3446', label: 'Ocean' },
@@ -144,6 +147,8 @@ function defs(P: Ctx): string {
 <linearGradient id="${P.id('gem')}" x1="0" y1="0" x2="1" y2="1">${stop(P, 0, '#ffffff', 0.9)}${stop(P, 0.3, 'glow')}${stop(P, 1, 'glow2')}</linearGradient>
 <linearGradient id="${P.id('prism')}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb347"/><stop offset="0.35" stop-color="#ff5ca8"/><stop offset="0.6" stop-color="#7b6cff"/><stop offset="1" stop-color="#19b8a8"/></linearGradient>
 <radialGradient id="${P.id('aura')}" cx="0.5" cy="0.5" r="0.5">${stop(P, 0, 'glow', 0.22)}${stop(P, 0.6, 'glow2', 0.06)}${stop(P, 1, 'glow2', 0)}</radialGradient>
+<radialGradient id="${P.id('ao')}" cx="0.42" cy="0.36" r="0.66"><stop offset="0.72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/></radialGradient>
+<filter id="${P.id('grain')}" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="7"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 -1.6 1.05"/></filter>
 <clipPath id="${P.id('clip')}"><circle cx="${CX}" cy="${CY}" r="${R}"/></clipPath>
 <filter id="${P.id('glow')}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${P.small ? 2.4 : 3.2}"/></filter>
 <filter id="${P.id('soft')}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.4"/></filter>
@@ -155,29 +160,61 @@ function defs(P: Ctx): string {
 const glowLine = (P: Ctx, d: string, w: number, t: Tok = 'glow', a = 0.9): string =>
   `<path d="${d}" ${stroke(P, t, w * 2.6, ` opacity="${a * 0.55}" filter="url(#${P.id('glow')})" stroke-linecap="round"`)}/>`
   + `<path d="${d}" ${stroke(P, t, w, ` opacity="${a}" stroke-linecap="round" stroke-linejoin="round"`)}/>`;
-const seam = (P: Ctx, d: string, w = 1.8): string =>
-  `<path d="${d}" fill="none" stroke="#02040a" stroke-width="${P.small ? w * 1.5 : w}" stroke-linecap="round" opacity=".7"/>`
-  + `<path d="${d}" ${stroke(P, 'hi', 0.8, ' opacity=".35" transform="translate(0.6 1.3)"')}/>`
-  + (P.small ? '' : `<path d="${d}" ${stroke(P, 'glow', 2.4, ` opacity=".16" filter="url(#${P.id('soft')})"`)}/>`);
+// ----- sphere projection: seams are real circles on a 3D sphere, tilted toward the viewer, so they wrap convincingly.
+type V3 = [number, number, number];
+const TILT = 0.32, YAW = -0.22; // look slightly down onto the drone; turn it a little to its right
+function view([x, y, z]: V3): V3 {
+  const cy = Math.cos(YAW), sy = Math.sin(YAW); const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  const ct = Math.cos(TILT), st = Math.sin(TILT); return [x1, y * ct - z1 * st, y * st + z1 * ct];
+}
+const norm = (v: V3): V3 => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+/** Visible arcs of the circle on the unit sphere with axis n at angular radius a (PI/2 = great circle). */
+export function sphereCirclePath(n0: V3, a: number, r = R): string {
+  const n = norm(n0); const u = norm(Math.abs(n[1]) < 0.9 ? cross(n, [0, 1, 0]) : cross(n, [1, 0, 0])); const v = cross(n, u);
+  const ca = Math.cos(a), sa = Math.sin(a); let d = ''; let pen = false;
+  for (let i = 0; i <= 96; i++) {
+    const t = (i / 96) * Math.PI * 2;
+    const p = view([ca * n[0] + sa * (Math.cos(t) * u[0] + Math.sin(t) * v[0]), ca * n[1] + sa * (Math.cos(t) * u[1] + Math.sin(t) * v[1]), ca * n[2] + sa * (Math.cos(t) * u[2] + Math.sin(t) * v[2])]);
+    if (p[2] > 0.04) { d += `${pen ? 'L' : 'M'}${(CX + p[0] * r).toFixed(1)},${(CY - p[1] * r).toFixed(1)}`; pen = true; } else pen = false;
+  }
+  return d;
+}
+const lat = (deg: number): string => sphereCirclePath([0, 1, 0], ((90 - deg) * Math.PI) / 180);
+const lon = (deg: number): string => { const f = (deg * Math.PI) / 180; return sphereCirclePath([Math.cos(f), 0, -Math.sin(f)], Math.PI / 2); };
+/** Screen point of a lat/lon surface point, or null when it faces away. */
+function surf(latD: number, lonD: number): [number, number] | null {
+  const la = (latD * Math.PI) / 180, lo = (lonD * Math.PI) / 180;
+  const p = view([Math.cos(la) * Math.sin(lo), Math.sin(la), Math.cos(la) * Math.cos(lo)]);
+  return p[2] > 0.15 ? [CX + p[0] * R, CY - p[1] * R] : null;
+}
 
-const SEAMS = {
-  meridian: 'M150,51 C186,82 190,150 154,186',
-  meridianL: 'M96,54 C72,82 68,136 88,176',
-  upper: 'M61,102 C100,90 160,90 196,104',
-  lower: 'M62,144 C100,164 160,162 195,140',
-};
+const seam = (P: Ctx, d: string, w = 1.8): string =>
+  `<path d="${d}" fill="none" stroke="#02040a" stroke-width="${P.small ? w * 1.4 : w}" stroke-linecap="round" stroke-linejoin="round" opacity=".72"/>`
+  + `<path d="${d}" ${stroke(P, 'hi', 0.8, ' opacity=".38" transform="translate(0.5 1.2)" stroke-linecap="round"')}/>`
+  + (P.small ? '' : `<path d="${d}" ${stroke(P, 'glow', 2.6, ` opacity=".14" filter="url(#${P.id('soft')})"`)}/>`);
 
 // ----- shells ------------------------------------------------------------------------------------------------
 function sphereBase(P: Ctx, opts: { glass?: boolean } = {}): string {
   const a = opts.glass ? ' opacity=".55"' : '';
   return `<circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#${P.id('shell')})"${a}/>`;
 }
+/** Texture and wear (full detail only): fine noise grain plus a few faint scuffs. */
+function surface(P: Ctx): string {
+  if (P.small) return '';
+  return `<rect x="${CX - R}" y="${CY - R}" width="${2 * R}" height="${2 * R}" filter="url(#${P.id('grain')})" opacity=".07"/>`
+    + `<path d="M92,80 l9,-3 M160,150 l10,-6 M150,70 l6,4 M84,150 l7,5 M172,98 l3,8" stroke="#fff" stroke-opacity=".12" stroke-width="0.8" stroke-linecap="round"/>`;
+}
 function sphereShade(P: Ctx): string {
-  return `<g clip-path="url(#${P.id('clip')})">`
-    + `<ellipse cx="${CX + 26}" cy="${CY + 40}" rx="70" ry="46" fill="#000" opacity=".35" filter="url(#${P.id('shadow')})"/>`
-    + `<ellipse cx="${CX - 26}" cy="${CY - 38}" rx="30" ry="18" fill="url(#${P.id('spec')})" transform="rotate(-28 ${CX - 26} ${CY - 38})" opacity="${P.small ? 0.5 : 0.75}"/>`
+  return `<g clip-path="url(#${P.id('clip')})">${surface(P)}`
+    + `<ellipse cx="${CX + 24}" cy="${CY + 42}" rx="72" ry="48" fill="#000" opacity=".38" filter="url(#${P.id('shadow')})"/>`
+    + `<circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#${P.id('ao')})"/>`
+    + `<ellipse cx="${CX + 10}" cy="${CY + 58}" rx="40" ry="10" ${fill(P, 'glow', ` opacity=".16" filter="url(#${P.id('soft')})"`)}/>`
+    + `<ellipse cx="${CX - 24}" cy="${CY - 38}" rx="32" ry="19" fill="url(#${P.id('spec')})" transform="rotate(-30 ${CX - 24} ${CY - 38})" opacity="${P.small ? 0.55 : 0.8}"/>`
+    + `<ellipse cx="${CX - 32}" cy="${CY - 44}" rx="7" ry="4" fill="#fff" opacity="${P.small ? 0.35 : 0.5}" transform="rotate(-30 ${CX - 32} ${CY - 44})"/>`
     + `</g>`
-    + `<circle cx="${CX}" cy="${CY}" r="${R - 1.2}" fill="none" stroke="url(#${P.id('rim')})" stroke-width="${P.small ? 3.4 : 2.6}"/>`
+    + `<circle cx="${CX}" cy="${CY}" r="${R - 1.2}" fill="none" stroke="url(#${P.id('rim')})" stroke-width="${P.small ? 4.2 : 2.8}"/>`
+    + (P.small ? `<circle cx="${CX}" cy="${CY}" r="${R - 1}" ${stroke(P, 'glow', 2.4, ' opacity=".4"')}/>` : '')
     + `<circle cx="${CX}" cy="${CY}" r="${R - 1}" fill="none" stroke="url(#${P.id('rimtop')})" stroke-width="1.6"/>`
     + `<circle cx="${CX}" cy="${CY}" r="${R + 0.6}" fill="none" stroke="#000" stroke-opacity=".6" stroke-width="1.2"/>`;
 }
@@ -185,7 +222,7 @@ function clipped(P: Ctx, s: string): string { return `<g clip-path="url(#${P.id(
 
 function shell(P: Ctx, k: DroneShell): Layers {
   const base = sphereBase(P, { glass: k === 'glass' });
-  const std = seam(P, SEAMS.meridian) + seam(P, SEAMS.upper) + (P.small ? '' : seam(P, SEAMS.lower) + seam(P, SEAMS.meridianL, 1.8));
+  const std = seam(P, lon(38)) + seam(P, lat(24)) + (P.small ? '' : seam(P, lat(-20)) + seam(P, lon(-62), 1.5));
   switch (k) {
     case 'plain': return { mid: base + clipped(P, std) + sphereShade(P) };
     case 'circuit': {
@@ -198,17 +235,18 @@ function shell(P: Ctx, k: DroneShell): Layers {
     }
     case 'cracked': {
       const cracks = 'M120,51 l5,13 l-9,9 l11,12 l-4,8 M168,62 l-8,12 l6,9 l-10,10 M186,140 l-14,4 l-6,12 l-12,2 M74,96 l12,6 l2,12 M96,176 l8,-12 l12,-2';
-      return { mid: base + clipped(P, seam(P, SEAMS.meridian, 2) + `<path d="${cracks}" fill="none" stroke="#000" stroke-width="2.6" stroke-linejoin="round"/>`
-        + glowLine(P, cracks, P.small ? 1.6 : 0.9, 'glow', 0.7)) + sphereShade(P) };
+      return { mid: base + clipped(P, seam(P, lon(38), 2) + `<path d="${cracks}" fill="none" stroke="#000" stroke-width="2.6" stroke-linejoin="round"/>`
+        + glowLine(P, cracks, P.small ? 1.8 : 0.9, 'glow', P.small ? 0.9 : 0.7)) + sphereShade(P) };
     }
     case 'striped': {
       const band = (d: string, w: number): string => `<path d="${d}" ${stroke(P, 'glow2', w, ' opacity=".55"')}/>` + glowLine(P, d, 1.2, 'glow', 0.8);
-      return { mid: base + clipped(P, std + band('M60,112 C100,124 160,124 196,110', P.small ? 6 : 5) + (P.small ? '' : band('M64,130 C100,144 160,144 194,128', 3))) + sphereShade(P) };
+      return { mid: base + clipped(P, std + band(lat(4), P.small ? 6 : 5) + (P.small ? '' : band(lat(-8), 3))) + sphereShade(P) };
     }
     case 'basketball': {
-      const d = 'M128,50 C112,90 112,146 128,186 M60,118 C100,128 156,128 196,118 M76,72 C104,98 104,140 78,166 M180,72 C152,98 152,140 178,166';
-      return { mid: base + clipped(P, `<path d="${d}" fill="none" stroke="#120804" stroke-width="${P.small ? 4.4 : 3.4}" stroke-linecap="round"/>`
-        + `<path d="${d}" ${stroke(P, 'glow', 0.8, ' opacity=".25" transform="translate(0 1.6)"')}/>`) + sphereShade(P) };
+      const d = lon(0) + lat(0) + sphereCirclePath([1, 0, 0], 0.95) + sphereCirclePath([-1, 0, 0], 0.95);
+      return { mid: base + clipped(P, `<path d="${d}" fill="none" stroke="#120804" stroke-width="${P.small ? 4.6 : 3.4}" stroke-linecap="round" stroke-linejoin="round"/>`
+        + `<path d="${d}" ${stroke(P, 'hi', 0.9, ' opacity=".35" transform="translate(0.6 1.6)"')}/>`
+        + (P.small ? '' : pebble(P))) + sphereShade(P) };
     }
     case 'ringed': {
       const tr = `rotate(-14 ${CX} ${CY})`;
@@ -220,18 +258,25 @@ function shell(P: Ctx, k: DroneShell): Layers {
       return { back: ring('back'), mid: base + clipped(P, std) + sphereShade(P), front: ring('front') };
     }
     case 'armored': {
-      const plates = seam(P, SEAMS.meridian, 3.4) + seam(P, SEAMS.upper, 3.4) + seam(P, SEAMS.lower, 3.4) + seam(P, 'M84,64 C72,90 68,130 82,170', 3)
-        + `<path d="M72,96 C96,80 140,78 170,90" ${stroke(P, 'hi', 5, ' opacity=".25" stroke-linecap="round"')}/>`;
-      const rivets = P.small ? '' : [[150, 62], [176, 84], [186, 120], [174, 158], [70, 112], [92, 160], [120, 92], [150, 94]]
-        .map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.1" fill="#0a0806"/><circle cx="${x - 0.5}" cy="${y - 0.6}" r="1" ${fill(P, 'hi', ' opacity=".8"')}/>`).join('');
+      const plates = seam(P, lon(40), 3.2) + seam(P, lon(-40), 3.2) + seam(P, lat(30), 3.2) + seam(P, lat(-26), 3.2)
+        + `<path d="${sphereCirclePath([0, 1, 0], 0.62)}" ${stroke(P, 'hi', 5, ' opacity=".18" stroke-linecap="round"')}/>`;
+      const pts: [number, number][] = [];
+      if (!P.small) for (const la of [30, -26]) for (let lo = -80; lo <= 80; lo += 20) { const q = surf(la + (la > 0 ? -5 : 5), lo); if (q) pts.push(q); }
+      const rivets = pts.map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="#0a0806"/><circle cx="${(x - 0.5).toFixed(1)}" cy="${(y - 0.6).toFixed(1)}" r="0.9" ${fill(P, 'hi', ' opacity=".85"')}/>`).join('');
       return { mid: base + clipped(P, plates + rivets) + sphereShade(P) };
     }
     case 'glass': {
       const core = `<circle cx="${CX}" cy="${CY}" r="40" ${fill(P, 'glow', ` opacity=".28" filter="url(#${P.id('shadow')})"`)}/>`
         + `<circle cx="${CX}" cy="${CY}" r="${R - 8}" ${stroke(P, 'glow', 1, ' opacity=".3"')}/>`;
-      return { mid: base + core + clipped(P, seam(P, SEAMS.upper, 1.6)) + sphereShade(P) };
+      return { mid: base + core + clipped(P, seam(P, lat(20), 1.4)) + sphereShade(P) };
     }
   }
+}
+/** Basketball pebble grain: small dark dots on the visible surface. */
+function pebble(P: Ctx): string {
+  let d = '';
+  for (let la = -70; la <= 70; la += 9) for (let lo = -90; lo <= 90; lo += 9) { const q = surf(la, lo + (la % 18 ? 4.5 : 0)); if (q) d += `M${q[0].toFixed(1)},${q[1].toFixed(1)}h.01`; }
+  return `<path d="${d}" stroke="#2a0e02" stroke-width="1.6" stroke-linecap="round" opacity=".35"/>`;
 }
 
 // ----- eyes ----------------------------------------------------------------------------------------------
@@ -263,11 +308,16 @@ function eye(P: Ctx, k: DroneEye): Layers {
     case 'ring':
       return { front: `<g class="dr-eye">${roundBezel(32)}${ticks(P, 19, 23)}${ringGlow(P, 13)}<circle cx="${EX}" cy="${EY}" r="6" fill="#030510"/>${glint}</g>` };
     case 'hex': {
-      const hex = `<polygon points="${hexPts(EX, EY, 34)}" fill="url(#${P.id('bezel')})" stroke="#000" stroke-width="1"/>`
-        + `<polygon points="${hexPts(EX, EY, 29)}" fill="#05070d"/><circle cx="${EX}" cy="${EY}" r="24" fill="url(#${P.id('lens')})"/>`
-        + `<polygon points="${hexPts(EX, EY, 31.5)}" ${stroke(P, 'glow', 1.2, ' opacity=".7"')}/>`
-        + (P.small ? '' : `<path d="M${EX + 28},${EY - 14} l10,-6 M${EX + 29},${EY + 12} l9,6" ${stroke(P, 'glow', 1.4, ' opacity=".8"')}/>`);
-      return { front: `<g class="dr-eye">${shadow}${hex}${ticks(P, 18, 21)}${ringGlow(P, 13)}<circle cx="${EX}" cy="${EY}" r="6" fill="#030510"/>${glint}</g>` };
+      // The real Cipher Hex Circuit mark (brand files, verbatim paths) glowing inside a hex bezel.
+      const m = P.small ? HEX_MARK_SMALL : HEX_MARK;
+      const sc = P.small ? 0.86 : 0.8, tx = (EX - 31.75 * sc).toFixed(2), ty = (EY - 32.3 * sc).toFixed(2);
+      const mark = (extra: string): string => `<g transform="translate(${tx} ${ty}) scale(${sc})"${extra}>${m.body.replaceAll('{G}', `url(#${P.id('mark')})`)}</g>`;
+      const hex = `<polygon points="${hexPts(EX, EY, 37)}" fill="url(#${P.id('bezel')})" stroke="#000" stroke-width="1"/>`
+        + `<polygon points="${hexPts(EX, EY, 32)}" fill="#04060c"/><polygon points="${hexPts(EX, EY, 30)}" fill="url(#${P.id('lens')})"/>`
+        + `<polygon points="${hexPts(EX, EY, 34.5)}" ${stroke(P, 'glow', 1, ' opacity=".55"')}/>`;
+      return { front: `<g class="dr-eye"><linearGradient id="${P.id('mark')}" ${m.grad}>${m.stops}</linearGradient>${shadow}${hex}`
+        + `<g class="dr-lid">${mark(` opacity=".75" filter="url(#${P.id('glow')})"`)}${mark('')}</g>`
+        + `<circle class="dr-scan" cx="${EX}" cy="${EY}" r="27" ${stroke(P, 'glow', 1.6, ' stroke-dasharray="14 150" stroke-linecap="round"')}/>${glint}</g>` };
     }
     case 'visor': {
       const x = EX - 40, y = EY - 19, w = 84, h = 38;
@@ -282,7 +332,8 @@ function eye(P: Ctx, k: DroneEye): Layers {
     }
     case 'iris':
       return { front: `<g class="dr-eye">${roundBezel(32)}`
-        + `<g class="dr-lid"><circle cx="${EX}" cy="${EY}" r="21" fill="url(#${P.id('iris')})" opacity=".95"/>`
+        + `<g class="dr-lid"><circle cx="${EX}" cy="${EY}" r="${P.small ? 23 : 21}" fill="url(#${P.id('iris')})"/>`
+        + (P.small ? `<circle cx="${EX}" cy="${EY}" r="23" ${fill(P, 'glow', ` opacity=".6" filter="url(#${P.id('glow')})"`)}/><circle cx="${EX}" cy="${EY}" r="15" ${fill(P, 'glow', ' opacity=".55"')}/>` : '')
         + `<circle cx="${EX}" cy="${EY}" r="21" ${stroke(P, 'glow', 6, ` opacity=".5" filter="url(#${P.id('glow')})"`)}/>`
         + (P.small ? '' : ticks(P, 10, 19))
         + `<circle cx="${EX}" cy="${EY}" r="8" fill="#0a0418"/><circle cx="${EX}" cy="${EY}" r="8" ${stroke(P, 'glow2', 1.4)}/></g>`
@@ -323,13 +374,15 @@ function fins(P: Ctx, k: DroneFins): Layers {
       break;
   }
   const bevel = (d: string): string => `<path d="${d}" fill="url(#${P.id('finshade')})"/><path d="${d}" fill="none" stroke="${P.c.hi}" class="dr-k-hi" stroke-width="1" stroke-opacity=".55"/>`;
-  return { back: `<path d="${left}" ${fg}/>${bevel(left)}${hubL}` + `<path d="${right}" ${fg}/>${bevel(right)}${detail}`, front: hubR };
+  // Small optical variant: fins tucked in toward their hubs so the sphere and eye dominate.
+  const tuck = (x: number, y: number, inner: string): string => P.small ? `<g transform="translate(${x} ${y}) scale(.58 .7) translate(${-x} ${-y})">${inner}</g>` : inner;
+  return { back: tuck(61, 120, `<path d="${left}" ${fg}/>${bevel(left)}`) + hubL + tuck(196, 114, `<path d="${right}" ${fg}/>${bevel(right)}${detail}`), front: hubR };
 }
 
 // ----- crystal --------------------------------------------------------------------------------------------
 function crystal(P: Ctx, k: DroneCrystal): string {
-  const top = P.small ? 200 : 212;
-  const cab = P.small ? `M128,184 C128,190 132,192 131,196 C130,198 128,198 128,${top - 2}` : `M128,184 C128,194 134,198 132,206 C131,210 128,210 128,${top - 2}`;
+  const top = P.small ? 194 : 212;
+  const cab = P.small ? `M128,184 C128,188 131,189 130,191 C129,192 128,192 128,${top - 2}` : `M128,184 C128,194 134,198 132,206 C131,210 128,210 128,${top - 2}`;
   const cable = `<path d="${cab}" fill="none" stroke="#05070c" stroke-width="3" stroke-linecap="round"/>`
     + `<path d="${cab}" fill="none" stroke="#6a7488" stroke-width="1" stroke-opacity=".6"/>`
     + `<rect x="123" y="${top - 4}" width="10" height="5" rx="1.5" fill="url(#${P.id('bezel')})"/>`;
@@ -347,7 +400,8 @@ function crystal(P: Ctx, k: DroneCrystal): string {
       body = `<polygon points="128,${top} 134,${top + 8} 131,${top + 38} 123,${top + 10}" fill="${g}"/><polygon points="128,${top} 134,${top + 8} 128,${top + 12} 123,${top + 10}" fill="#fff" opacity=".4"/>`; break;
   }
   const glow = `<ellipse cx="128" cy="${top + 16}" rx="12" ry="16" ${fill(P, k === 'prism' ? 'glow' : 'glow2', ` opacity=".45" filter="url(#${P.id('glow')})"`)}/>`;
-  return `<g class="dr-pendant">${cable}${glow}${body}</g>`;
+  const inner = P.small ? `<g transform="translate(128 ${top}) scale(.8) translate(-128 ${-top})">${glow}${body}</g>` : glow + body;
+  return `<g class="dr-pendant">${cable}${inner}</g>`;
 }
 
 // ----- accessories ------------------------------------------------------------------------------------------
@@ -358,7 +412,7 @@ function accessory(P: Ctx, k: DroneAccessory): Layers {
       return { front: `<g transform="rotate(-6 128 52)"><ellipse cx="128" cy="56" rx="42" ry="9" fill="#0b0b10" stroke="#3a3644" stroke-width="1.2"/>`
         + `<path d="M104,54 L106,16 Q128,10 150,16 L152,54 Q128,60 104,54 Z" fill="#111116" stroke="#34303c" stroke-width="1.2"/>`
         + `<path d="M105,44 Q128,49 151,44 L151.6,52 Q128,57 104.4,52 Z" fill="#2a2630"/><path d="M110,20 Q112,34 111,48" stroke="#fff" stroke-opacity=".12" stroke-width="3" fill="none"/>`
-        + `<path d="M106,16 Q128,10 150,16" ${stroke(P, 'glow', 1, ' opacity=".4"')}/></g>` };
+        + `<path d="M106,16 Q128,10 150,16 M104,54 L106,16 M152,54 L150,16 M86,56 Q128,70 170,56" ${stroke(P, 'glow', P.small ? 3 : 1, ` opacity="${P.small ? 0.8 : 0.4}"`)}/></g>` };
     case 'monocle-cracked': case 'monocle-magnifier': {
       const mx = 150, my = 126, r = 19;
       const crack = k === 'monocle-cracked' ? `<path d="M${mx - 12},${my - 6} l8,3 l3,-9 M${mx - 4},${my - 3} l4,8 l9,2 M${mx},${my + 5} l-6,9 M${mx + 9},${my + 7} l4,-10" fill="none" stroke="#e8e0c8" stroke-opacity=".7" stroke-width="0.9"/>` : '';
@@ -438,14 +492,14 @@ export function composeDrone(specIn: DroneSpec, opts: ComposeOptions = {}): stri
   const P: Ctx = { id: (n) => `${pre}-${n}`, url: (n) => `url(#${pre}-${n})`, c: { ...DRONE_PALETTES[spec.palette] }, small };
   const parts: Layers[] = [shell(P, spec.shell), fins(P, spec.fins), eye(P, spec.eye)];
   const accs = small ? spec.accessories.slice(0, 2) : spec.accessories;
-  const accL = accs.map((a) => accessory(P, a));
+  const accL = accs.map((a) => { const l = accessory(P, a); const w = (x?: string): string | undefined => x ? `<g class="dr-acc dr-acc-${a}">${x}</g>` : x; return { back: w(l.back), front: w(l.front) }; });
   // Layer order: aura, accessory backs, shell back (planet ring), fins, shell, eye, fin hubs, accessory fronts, shell front.
   const sh = parts[0], fi = parts[1], ey = parts[2];
   const body = [accL.map((l) => l.back ?? '').join(''), sh.back ?? '', fi.back ?? '', sh.mid ?? '', fi.front ?? '', ey.front ?? '',
     accL.map((l) => l.front ?? '').join(''), sh.front ?? ''].join('');
-  const vb = small ? '20 8 222 228' : '0 0 256 256';
+  const vb = small ? '20 6 220 220' : '0 0 256 256';
   const wh = opts.size ? ` width="${opts.size}" height="${opts.size}"` : '';
-  const cls = ['drone', `dr-shell-${spec.shell}`, small ? 'dr-sm' : '', opts.className ?? ''].filter(Boolean).join(' ');
+  const cls = ['drone', `pal-${spec.palette}`, `dr-shell-${spec.shell}`, small ? 'dr-sm' : '', opts.className ?? ''].filter(Boolean).join(' ');
   const title = opts.title ? `<title>${opts.title.replace(/[<&>"]/g, '')}</title>` : '';
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}"${wh} class="${cls}" role="img" focusable="false">${title}${defs(P)}`
     + `<circle class="dr-aura" cx="${CX}" cy="${CY}" r="118" fill="url(#${P.id('aura')})"/>`
