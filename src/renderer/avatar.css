@@ -1,0 +1,87 @@
+/* v2 animated bot avatars (see avatar.ts). CSS-only motion; JS only flips data-state and the beat-a/b classes. */
+svg.avatar-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+.avatar { flex: none; display: block; overflow: visible;
+  --av-dur: 5.2s; --av-delay: 0s; --av-blink: 6.1s; --av-gaze: 13s; --av-orbit: 26s; }
+.avatar .av-figure, .avatar .av-aura, .avatar .av-eyes > circle, .avatar .av-mouth, .avatar .av-face {
+  transform-box: fill-box; transform-origin: center; }
+.avatar .av-orbit { transform-box: view-box; transform-origin: 128px 128px; }
+
+/* Per-bot phase: offsets and slightly different periods, so bots never move in lockstep. */
+.avatar.ph-0 { --av-delay: 0s;    --av-blink: 6.1s; --av-gaze: 13s;  --av-dur: 5.2s; --av-orbit: 26s; }
+.avatar.ph-1 { --av-delay: -1.3s; --av-blink: 4.7s; --av-gaze: 15s;  --av-dur: 5.8s; --av-orbit: 31s; }
+.avatar.ph-2 { --av-delay: -2.9s; --av-blink: 7.3s; --av-gaze: 11s;  --av-dur: 4.9s; --av-orbit: 23s; }
+.avatar.ph-3 { --av-delay: -0.7s; --av-blink: 5.5s; --av-gaze: 17s;  --av-dur: 6.1s; --av-orbit: 29s; }
+.avatar.ph-4 { --av-delay: -3.6s; --av-blink: 6.7s; --av-gaze: 12s;  --av-dur: 5.5s; --av-orbit: 34s; }
+.avatar.ph-5 { --av-delay: -2.1s; --av-blink: 4.3s; --av-gaze: 14s;  --av-dur: 4.6s; --av-orbit: 21s; }
+.avatar.ph-6 { --av-delay: -4.4s; --av-blink: 8.1s; --av-gaze: 16s;  --av-dur: 6.4s; --av-orbit: 27s; }
+.avatar.ph-7 { --av-delay: -1.8s; --av-blink: 5.1s; --av-gaze: 10s;  --av-dur: 5.0s; --av-orbit: 33s; }
+
+/* ---------- idle: breathing, aura shimmer, slow orbit, random-looking blinks, gaze drift ---------- */
+.avatar .av-figure { animation: av-breathe var(--av-dur) ease-in-out var(--av-delay) infinite; }
+.avatar .av-aura { opacity: .75; animation: av-aura var(--av-dur) ease-in-out var(--av-delay) infinite; }
+.avatar .av-orbit { animation: av-orbit var(--av-orbit) linear var(--av-delay) infinite; }
+.avatar .av-ring { opacity: .55; transition: opacity .4s; }
+.avatar .av-sat { opacity: .9; }
+.avatar .av-eyes > circle { animation: av-blink var(--av-blink) ease-in-out var(--av-delay) infinite; }
+.avatar.ph-2 .av-eyes > circle, .avatar.ph-5 .av-eyes > circle { animation-name: av-blink2; }
+.avatar .av-face { animation: av-gaze var(--av-gaze) ease-in-out var(--av-delay) infinite; }
+@keyframes av-breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3px) scale(1.035); } }
+@keyframes av-aura { 0%, 100% { opacity: .6; transform: scale(.94); } 50% { opacity: .95; transform: scale(1.04); } }
+@keyframes av-orbit { to { transform: rotate(360deg); } }
+@keyframes av-blink { 0%, 93%, 100% { transform: scaleY(1); } 95.5% { transform: scaleY(.08); } }
+@keyframes av-blink2 { 0%, 88%, 93%, 100% { transform: scaleY(1); } 90% { transform: scaleY(.08); } 95% { transform: scaleY(.08); } 91.5% { transform: scaleY(1); } }
+@keyframes av-gaze {
+  0%, 100% { transform: translate(0, 0); } 18% { transform: translate(5px, -1px); } 30% { transform: translate(5px, -1px); }
+  52% { transform: translate(-4px, 2px); } 66% { transform: translate(-4px, 2px); } 80% { transform: translate(1px, -3px); } }
+
+/* ---------- thinking: fast ring, eyes glance up and aside, brighter aura, small mouth ---------- */
+.avatar[data-state="thinking"] .av-orbit { animation-duration: 2.2s; }
+.avatar[data-state="thinking"] .av-ring { opacity: 1; }
+.avatar[data-state="thinking"] .av-aura { animation-duration: 1.6s; }
+.avatar[data-state="thinking"] .av-face { animation: av-glance 2.4s ease-in-out infinite; }
+.avatar[data-state="thinking"] .av-mouth { transform: scale(.6, .7); transition: transform .3s; }
+@keyframes av-glance { 0%, 100% { transform: translate(6px, -6px); } 45% { transform: translate(6px, -6px); } 55%, 90% { transform: translate(-6px, -5px); } }
+
+/* ---------- speaking: mouth moves with streamed tokens (beat-a/b restart a short pop), lively aura ---------- */
+.avatar[data-state="speaking"] .av-ring { opacity: .9; }
+.avatar[data-state="speaking"] .av-orbit { animation-duration: 6s; }
+.avatar[data-state="speaking"] .av-aura { animation-duration: 1.1s; }
+.avatar[data-state="speaking"] .av-mouth { animation: av-talk .26s ease-in-out infinite alternate; }
+.avatar[data-state="speaking"].beat-a .av-mouth { animation: av-pop-a .22s ease-out, av-talk .26s ease-in-out .22s infinite alternate; }
+.avatar[data-state="speaking"].beat-b .av-mouth { animation: av-pop-b .22s ease-out, av-talk .26s ease-in-out .22s infinite alternate; }
+@keyframes av-talk { from { transform: scale(1, 1); } to { transform: scale(.92, 1.7); } }
+@keyframes av-pop-a { 0% { transform: scale(1, 1); } 50% { transform: scale(.88, 2.1); } 100% { transform: scale(1, 1); } }
+@keyframes av-pop-b { 0% { transform: scale(1, 1); } 50% { transform: scale(.88, 2.1); } 100% { transform: scale(1, 1); } }
+
+/* ---------- muted / archived: dimmed and slowed ---------- */
+.avatar.is-muted { opacity: .7; filter: saturate(.45); }
+.avatar.is-archived { opacity: .5; filter: grayscale(.8); }
+.avatar.is-muted .av-orbit, .avatar.is-archived .av-orbit, .avatar.is-archived .av-figure { animation-play-state: paused; }
+
+/* ---------- sizes ---------- */
+/* Small avatars (room message speakers, member pickers) drop the ring so the face stays readable. */
+.avatar.av-sm .av-orbit { display: none; }
+.avatar.av-hero .av-ring { stroke-width: 2.5; }
+
+/* ---------- pausing ---------- */
+/* Offscreen (IntersectionObserver), window in the background, or a picker option that is neither hovered nor selected. */
+.avatar.av-off, .avatar.av-off *, :root.unfocused .bot-icon, :root.unfocused .bot-icon * { animation-play-state: paused !important; }
+label.shape-opt:not(:hover):not(:has(input:checked)) .avatar *,
+label.member-opt:not(:hover):not(:has(input:checked)) .avatar * { animation: none !important; }
+/* Room transcript: only the bot speaking right now animates; earlier replies show a still avatar. */
+.room-msg:not(.live) .avatar * { animation: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar, .avatar * { animation: none !important; transition: none !important; }
+}
+:root.reduce-motion .avatar, :root.reduce-motion .avatar * { animation: none !important; transition: none !important; }
+
+/* Color picker swatches show each avatar palette's two tones. */
+label.color-opt.c-blue .swatch { background: linear-gradient(135deg, #1F6BFF 15%, #22C8E8 85%); }
+label.color-opt.c-cyan .swatch { background: linear-gradient(135deg, #22C8E8 15%, #8CEF60 85%); }
+label.color-opt.c-green .swatch { background: linear-gradient(135deg, #2FDDCF 15%, #D4EA48 85%); }
+label.color-opt.c-yellow .swatch { background: linear-gradient(135deg, #D4EA48 15%, #FFB547 85%); }
+label.color-opt.c-orange .swatch { background: linear-gradient(135deg, #FFA24C 15%, #FF5C8A 85%); }
+label.color-opt.c-coral .swatch { background: linear-gradient(135deg, #FF6B7A 15%, #8B6CFF 85%); }
+label.color-opt.c-pink .swatch { background: linear-gradient(135deg, #F17AD8 15%, #8B6CFF 85%); }
+label.color-opt.c-violet .swatch { background: linear-gradient(135deg, #8B6CFF 15%, #D08CFF 85%); }
