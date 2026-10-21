@@ -4,7 +4,7 @@
 // prompt and the parts catalog (DRONE_LIBRARY) and returns JSON, which sanitizeSpec() turns into a valid spec.
 import {
   DRONE_ACCESSORIES, DRONE_CRYSTALS, DRONE_EYES, DRONE_FINS, DRONE_LIBRARY, DRONE_PALETTE_KEYS, DRONE_SHELLS,
-  hash32, sanitizeSpec, type DroneSpec,
+  DRONE_PRESET_KEYS, hash32, presetSpec, sanitizeSpec, type DroneSpec,
 } from './droneParts.js';
 
 export interface DroneThemeResult { spec: DroneSpec; theme: string; source: 'keyword' | 'hash' | 'llm'; matched: string[]; }
@@ -102,4 +102,29 @@ export function themeDrone(prompt: string): DroneThemeResult { return keywordCho
 export function llmPartPrompt(prompt: string): string {
   return `Design a drone avatar for: "${prompt.slice(0, 200)}". Choose ONLY ids from this catalog and answer with JSON `
     + `{"shell","palette","eye","fins","crystal","accessories":[up to 3]}.\n${JSON.stringify(DRONE_LIBRARY)}`;
+}
+
+/**
+ * The drone an existing or new bot gets when it has none stored. Deterministic from id, name and job:
+ * a name mentioning Cipher -> Cipher preset; a name that is a preset's role (Researcher, Writer, …) -> that preset;
+ * a keyword theme in the name, then in the job -> that theme; otherwise a preset picked by id (never Error).
+ */
+export function defaultDroneFor(bot: { id?: number; name?: string; systemPrompt?: string }): DroneSpec {
+  const name = String(bot.name ?? '').toLowerCase();
+  if (/\bcipher\b/.test(name)) return presetSpec('cipher');
+  const role = DRONE_PRESET_KEYS.find((k) => k !== 'error' && new RegExp(`\\b${k}`).test(name));
+  if (role) return presetSpec(role);
+  for (const text of [bot.name, String(bot.systemPrompt ?? '').slice(0, 400)]) {
+    const r = keywordChooser(String(text ?? ''), DRONE_LIBRARY) as DroneThemeResult;
+    if (r.source === 'keyword') return r.spec;
+  }
+  const pool = DRONE_PRESET_KEYS.filter((k) => k !== 'error' && k !== 'cipher');
+  const n = typeof bot.id === 'number' && bot.id > 0 ? bot.id - 1 : hash32(name);
+  return presetSpec(pool[n % pool.length]);
+}
+
+/** Parse a stored drone (JSON text) into a valid spec, or null when missing/garbled. */
+export function parseStoredDrone(v: unknown): DroneSpec | null {
+  if (typeof v !== 'string' || !v.trim()) return null;
+  try { const o = JSON.parse(v) as unknown; return o && typeof o === 'object' ? sanitizeSpec(o) : null; } catch { return null; }
 }

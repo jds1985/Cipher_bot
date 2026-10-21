@@ -58,7 +58,7 @@ function setup(opts: { tools?: boolean } = {}) {
 }
 
 const fakeBot = (id: number, name: string): Bot =>
-  ({ id, name, systemPrompt: '', toolsEnabled: false, folderPath: null, secondFolderPath: null, memoryNote: "", muted: false, archived: false, replyLength: 'normal' as const, unread: false, createdAt: '', shape: 'hex', color: 'blue' });
+  ({ id, name, systemPrompt: '', toolsEnabled: false, folderPath: null, secondFolderPath: null, memoryNote: "", muted: false, archived: false, replyLength: 'normal' as const, unread: false, createdAt: '', shape: 'hex', color: 'blue', drone: { shell: 'plain' as const, palette: 'cipher' as const, eye: 'ring' as const, fins: 'blade' as const, crystal: 'gem' as const, accessories: [] } });
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

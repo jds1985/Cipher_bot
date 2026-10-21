@@ -8,7 +8,7 @@
     />
     <title>Cipher Bot</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="avatar.css" />
+    <link rel="stylesheet" href="drone.css" />
   </head>
   <body>
     <div id="titlebar"><div class="titlebar-area"><span class="titlebar-title">Cipher Bot</span><button type="button" id="always-on-top" class="titlebar-btn" aria-pressed="false" title="Always on top" aria-label="Always on top"><img src="assets/cipher-always-on-top.svg" alt="" width="20" height="20" /></button><button type="button" id="focus-toggle" class="titlebar-btn" aria-pressed="false" title="Focus mode (Esc exits)" aria-label="Focus mode"><span class="ico ico-focus" aria-hidden="true"></span></button></div></div>
@@ -70,6 +70,20 @@
               <textarea id="bot-job" rows="5" placeholder="What should this Cipher bot do? e.g. Help me plan my week and keep answers short."></textarea>
             </label>
             <p class="muted auto-title-hint">The name fills in from the job until you type one. You can always change it.</p>
+            <fieldset class="picker drone-builder">
+              <legend>Drone</legend>
+              <div class="db-top">
+                <div id="db-preview" class="db-preview" aria-hidden="true"></div>
+                <div class="db-side">
+                  <label class="db-theme-label">Theme
+                    <input id="db-theme" type="text" maxlength="120" autocomplete="off" placeholder="basketball, music, space, not coffee…" />
+                  </label>
+                  <p id="db-why" class="muted db-why" aria-live="polite"></p>
+                  <button type="button" id="db-surprise" class="secondary">Surprise me</button>
+                </div>
+              </div>
+              <div id="db-pickers" class="db-pickers"></div>
+            </fieldset>
             <label><span class="row"><span class="ico ico-tags" aria-hidden="true"></span>Tags</span>
               <input id="bot-tags" maxlength="120" placeholder="e.g. work, writing (up to 5, comma separated)" />
             </label>
@@ -94,14 +108,6 @@
               <input id="memory-search" type="search" maxlength="100" placeholder="Search this bot's memory" aria-label="Search this bot's memory" />
               <ul id="memory-results" class="memory-results" aria-live="polite"></ul>
             </div>
-            <fieldset class="picker">
-              <legend>Icon shape</legend>
-              <div id="shape-picker" class="shape-grid" role="radiogroup" aria-label="Icon shape"></div>
-            </fieldset>
-            <fieldset class="picker">
-              <legend>Icon color</legend>
-              <div id="color-picker" class="color-row" role="radiogroup" aria-label="Icon color"></div>
-            </fieldset>
             <p id="bot-form-error" class="error" hidden></p>
             <div class="row end">
               <button type="button" id="bot-cancel" class="secondary">Cancel</button>

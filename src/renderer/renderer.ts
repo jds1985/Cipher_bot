@@ -5,7 +5,9 @@ import { decideView, formatReminderAt, formatSize, formatMessageTime, plusMenuIt
   REACTION_CHOICES, allTags, localVoices, searchMemory, reactionCount, floatToPcm16, autoTitle, dockSections, formatActivity, tokensPerSecond } from './view.js';
 import { POLICY_CONTACT, POLICY_SECTIONS, POLICY_TITLE } from './policy.js';
 import { avatarToken, createAvatar, setBotActivity } from './avatar.js';
-import { BOT_COLORS, BOT_SHAPES, COLOR_LABELS, DEFAULT_COLOR, SHAPE_LABELS, colorClass, colorOf, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
+import { DEFAULT_COLOR, colorClass, leastUsedShape, shapeOf, shapeSvg } from './botIcon.js';
+import { DRONE_ACCESSORIES, DRONE_CRYSTALS, DRONE_EYES, DRONE_FINS, DRONE_PALETTE_KEYS, DRONE_PALETTES, DRONE_SHELLS, presetSpec, sanitizeSpec, type DroneSpec } from '../shared/droneParts.js';
+import { defaultDroneFor, hashedSpec, themeDrone } from '../shared/droneTheme.js';
 
 declare global {
   interface Window { cipher: CipherApi }
@@ -28,7 +30,7 @@ const el = {
   newBot: $<HTMLButtonElement>('new-bot'), newRoom: $<HTMLButtonElement>('new-room'), newRoomMark: $('new-room-mark'),
   formView: $('bot-form-view'), roomFormView: $('room-form-view'), chatView: $('chat-view'), setupView: $('setup-view'),
   form: $<HTMLFormElement>('bot-form'), botName: $<HTMLInputElement>('bot-name'), botJob: $<HTMLTextAreaElement>('bot-job'),
-  shapePicker: $('shape-picker'), colorPicker: $('color-picker'),
+  dbPreview: $('db-preview'), dbPickers: $('db-pickers'), dbTheme: $<HTMLInputElement>('db-theme'), dbWhy: $('db-why'), dbSurprise: $<HTMLButtonElement>('db-surprise'),
   botFormError: $('bot-form-error'), botCancel: $<HTMLButtonElement>('bot-cancel'),
   botFormArt: $('bot-form-art'), botFormTitle: $('bot-form-title'), botSubmit: $<HTMLButtonElement>('bot-submit'),
   roomForm: $<HTMLFormElement>('room-form'), roomName: $<HTMLInputElement>('room-name'), roomMembers: $('room-members'),
@@ -122,6 +124,9 @@ const state = {
   activity: '',
   /** v1.24: the name was typed by the user (auto-title stops filling it in). */
   nameTouched: false,
+  /** v1.26: the drone being built in the create/edit form, and whether the user changed it there. */
+  builderSpec: presetSpec('cipher') as DroneSpec,
+  builderTouched: false,
   editingMsg: null as number | null,
   bots: [] as Bot[],
   rooms: [] as Room[],
@@ -225,7 +230,7 @@ function iconSvg(shape: unknown, color: unknown, size: number, extraClass = 'bot
 
 /** v2: a bot's live, animated avatar (avatar.ts). Small sizes drop the orbit ring. */
 const botIcon = (b: Bot, size: number, extraClass?: string): SVGSVGElement =>
-  createAvatar({ shape: b.shape, color: b.color, size, botId: b.id, muted: b.muted, archived: b.archived, extraClass: extraClass ?? (size <= 30 ? 'av-sm' : undefined) });
+  createAvatar({ spec: b.drone, size, botId: b.id, muted: b.muted, archived: b.archived, extraClass: extraClass ?? (size <= 30 ? 'av-sm' : undefined) });
 
 /** Mark a bot as replying (or not): the rail dot and the avatar state. Returns true when it changed. */
 function markSpeaking(botId: number, on: boolean): boolean {
@@ -1346,56 +1351,85 @@ function onRoomEvent(ev: RoomEvent): void {
   if (viewing) renderChat();
 }
 
-// ---------- create a Cipher bot (name, job, icon shape + color) ----------
-function pickedShape(): string {
-  return (el.shapePicker.querySelector('input:checked') as HTMLInputElement | null)?.value ?? BOT_SHAPES[0];
-}
-function pickedColor(): string {
-  return (el.colorPicker.querySelector('input:checked') as HTMLInputElement | null)?.value ?? DEFAULT_COLOR;
+// ---------- create a Cipher bot (name, job, drone avatar) ----------
+// v1.26 drone builder: live preview, a theme text box (offline keyword mapper), part pickers and palette swatches.
+// The picked DroneSpec is saved with the bot (bots.drone). Until the user touches the builder on create, the drone
+// follows the name and job (defaultDroneFor), so a bot named "Coach" with a basketball job gets the basketball drone.
+const PICKER_PARTS: { key: 'shell' | 'eye' | 'fins' | 'crystal'; label: string; list: readonly string[] }[] = [
+  { key: 'shell', label: 'Shell', list: DRONE_SHELLS }, { key: 'eye', label: 'Eye', list: DRONE_EYES },
+  { key: 'fins', label: 'Fins', list: DRONE_FINS }, { key: 'crystal', label: 'Crystal', list: DRONE_CRYSTALS },
+];
+const titleCase = (k: string): string => k.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
+
+function setBuilderSpec(spec: DroneSpec, why = ''): void {
+  state.builderSpec = sanitizeSpec(spec);
+  el.dbWhy.textContent = why;
+  renderBuilder();
 }
 
-/** Recolor the shape picker's icons to the picked color. */
-function recolorShapePicker(): void {
-  const color = pickedColor();
-  for (const label of el.shapePicker.querySelectorAll('label.shape-opt')) {
-    const shape = label.querySelector('input')?.value;
-    label.querySelector('svg')?.replaceWith(createAvatar({ shape, color, size: 46, botId: BOT_SHAPES.indexOf(shapeOf(shape)) }));
+function renderBuilder(): void {
+  const spec = state.builderSpec;
+  el.dbPreview.replaceChildren(createAvatar({ spec, size: 150, extraClass: 'av-builder' }));
+  const rows: HTMLElement[] = [];
+  const optButton = (label: string, on: boolean, preview: DroneSpec, onPick: () => void): HTMLButtonElement => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'db-opt' + (on ? ' on' : ''); b.title = label;
+    b.setAttribute('aria-label', label); b.setAttribute('aria-pressed', String(on));
+    b.append(createAvatar({ spec: preview, size: 40 }));
+    b.addEventListener('click', () => { state.builderTouched = true; onPick(); });
+    return b;
+  };
+  for (const part of PICKER_PARTS) {
+    const opts = node('div', 'db-opts');
+    for (const v of part.list) {
+      const preview = { ...spec, accessories: [], [part.key]: v } as DroneSpec;
+      opts.append(optButton(`${part.label}: ${titleCase(v)}`, spec[part.key] === v, preview, () => setBuilderSpec({ ...spec, [part.key]: v } as DroneSpec)));
+    }
+    rows.push(node('div', 'db-row'), opts);
+    rows[rows.length - 2].append(node('span', 'db-label', part.label));
   }
+  const acc = node('div', 'db-opts');
+  for (const a of DRONE_ACCESSORIES) {
+    const on = spec.accessories.includes(a);
+    acc.append(optButton(`Accessory: ${titleCase(a)}`, on, { ...spec, accessories: [a] }, () =>
+      setBuilderSpec({ ...spec, accessories: on ? spec.accessories.filter((x) => x !== a) : [...spec.accessories, a].slice(-3) })));
+  }
+  rows.push(node('div', 'db-row'), acc); rows[rows.length - 2].append(node('span', 'db-label', 'Accessories (up to 3)'));
+  const pal = node('div', 'db-opts db-palettes');
+  for (const k of DRONE_PALETTE_KEYS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = `dr-swatch pal-${k}` + (spec.palette === k ? ' on' : '');
+    b.title = DRONE_PALETTES[k].label; b.setAttribute('aria-label', `Palette: ${DRONE_PALETTES[k].label}`); b.setAttribute('aria-pressed', String(spec.palette === k));
+    b.addEventListener('click', () => { state.builderTouched = true; setBuilderSpec({ ...spec, palette: k }); });
+    pal.append(b);
+  }
+  rows.push(node('div', 'db-row'), pal); rows[rows.length - 2].append(node('span', 'db-label', 'Palette'));
+  el.dbPickers.replaceChildren(...rows);
+}
+
+function applyThemeText(): void {
+  const text = el.dbTheme.value.trim();
+  if (!text) return;
+  state.builderTouched = true;
+  const r = themeDrone(text);
+  setBuilderSpec(r.spec, r.source === 'hash' ? 'No theme matched, so these parts were picked from the word.' : `Theme: ${r.theme.replace('+', ' + ')}`);
+}
+
+/** Create mode: the drone follows the name and job until the builder is touched. */
+function followNameAndJob(): void {
+  if (state.editBotId !== null || state.builderTouched) return;
+  setBuilderSpec(defaultDroneFor({ id: state.bots.length + 1, name: el.botName.value, systemPrompt: el.botJob.value }));
 }
 
 function buildPickers(): void {
-  el.shapePicker.replaceChildren(...BOT_SHAPES.map((shape) => {
-    const label = node('label', 'shape-opt') as HTMLLabelElement;
-    label.title = SHAPE_LABELS[shape];
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'shape';
-    input.value = shape;
-    input.className = 'sr-only';
-    input.setAttribute('aria-label', SHAPE_LABELS[shape]);
-    label.append(input, createAvatar({ shape, color: DEFAULT_COLOR, size: 46, botId: BOT_SHAPES.indexOf(shape) }));
-    return label;
-  }));
-  el.colorPicker.replaceChildren(...BOT_COLORS.map((color) => {
-    const label = node('label', `color-opt ${colorClass(color)}`) as HTMLLabelElement;
-    label.title = COLOR_LABELS[color];
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'color';
-    input.value = color;
-    input.className = 'sr-only';
-    input.setAttribute('aria-label', COLOR_LABELS[color]);
-    label.append(input, node('span', 'swatch'));
-    return label;
-  }));
-  el.colorPicker.addEventListener('change', recolorShapePicker);
+  el.dbTheme.addEventListener('input', applyThemeText);
+  el.dbSurprise.addEventListener('click', () => { state.builderTouched = true; setBuilderSpec(hashedSpec(`${Date.now()}`), 'Surprise parts.'); });
 }
 
 function resetPickers(): void {
-  const shape = leastUsedShape(state.bots.map((b) => b.shape)); // so a new bot looks different by default
-  for (const i of el.shapePicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === shape;
-  for (const i of el.colorPicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === colorOf(DEFAULT_COLOR);
-  recolorShapePicker();
+  state.builderTouched = false;
+  el.dbTheme.value = '';
+  setBuilderSpec(defaultDroneFor({ id: state.bots.length + 1, name: '', systemPrompt: '' }));
 }
 
 /** Labels for the shared bot form: "Create a Cipher bot" or "Edit <name>". */
@@ -1439,12 +1473,9 @@ function openEditBot(): void {
   el.botGroup.value = bot.group ?? '';
   state.nameTouched = true;
   fillGroupList();
-  // A bad stored shape/color shows (and saves) as the default, same as everywhere else.
-  const shape = shapeOf(bot.shape);
-  const color = colorOf(bot.color);
-  for (const i of el.shapePicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === shape;
-  for (const i of el.colorPicker.querySelectorAll('input')) (i as HTMLInputElement).checked = i.value === color;
-  recolorShapePicker();
+  el.dbTheme.value = '';
+  state.builderTouched = true;
+  setBuilderSpec(bot.drone);
   setBotFormMode(bot.name);
   el.botFormError.hidden = true;
   state.editBotId = bot.id;
@@ -1461,7 +1492,10 @@ function closeEditBot(): void {
 async function submitBotForm(e: Event): Promise<void> {
   e.preventDefault();
   el.botFormError.hidden = true;
-  const form = { name: el.botName.value, job: el.botJob.value, shape: shapeOf(pickedShape()), color: colorOf(pickedColor()) };
+  // shape/color are the retired v1.5 icon fields: an edited bot keeps its stored ones; a new bot gets the least-used shape.
+  const editing = state.editBotId !== null ? state.bots.find((b) => b.id === state.editBotId) : undefined;
+  const form = { name: el.botName.value, job: el.botJob.value, shape: editing ? editing.shape : leastUsedShape(state.bots.map((b) => b.shape)),
+    color: editing ? editing.color : DEFAULT_COLOR, drone: state.builderSpec };
   if (state.editBotId !== null) {
     try {
       let updated = await api.updateBot(state.editBotId, form);
@@ -2468,6 +2502,7 @@ function buildStarterJobs(): void {
       el.botName.value = j.name;
       el.botJob.value = j.job;
       for (const b of el.starterJobs.querySelectorAll('button')) b.classList.toggle('active', b === btn);
+      followNameAndJob();
       el.botName.focus();
     });
     return btn;
@@ -2908,11 +2943,12 @@ async function saveTagsAndGroup(bot: Bot): Promise<Bot> {
 }
 
 // Auto-title: the name follows the job until the user types a name (always editable).
-el.botName.addEventListener('input', () => { state.nameTouched = el.botName.value.trim().length > 0; });
-el.botJob.addEventListener('input', () => {
+el.botName.addEventListener('input', () => { state.nameTouched = el.botName.value.trim().length > 0; followNameAndJob(); });
+function autoTitleFromJob(): void {
   if (state.editBotId !== null || state.nameTouched) return;
   el.botName.value = autoTitle(el.botJob.value);
-});
+}
+el.botJob.addEventListener('input', () => { autoTitleFromJob(); followNameAndJob(); });
 
 async function refreshActivity(): Promise<void> {
   const id = state.botId;

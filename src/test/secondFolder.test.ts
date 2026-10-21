@@ -106,7 +106,7 @@ test('second folder: plus menu item next to Choose folder, gated by Read files; 
 });
 
 test('second folder: the model is told about it only with Read files on and a folder attached', () => {
-  const bot = { id: 1, name: 'x', systemPrompt: '', toolsEnabled: true, folderPath: main, secondFolderPath: second, memoryNote: "", muted: false, archived: false, replyLength: 'normal' as const, unread: false, createdAt: '', shape: 'hex', color: 'blue' };
+  const bot = { id: 1, name: 'x', systemPrompt: '', toolsEnabled: true, folderPath: main, secondFolderPath: second, memoryNote: "", muted: false, archived: false, replyLength: 'normal' as const, unread: false, createdAt: '', shape: 'hex', color: 'blue', drone: { shell: 'plain' as const, palette: 'cipher' as const, eye: 'ring' as const, fins: 'blade' as const, crystal: 'gem' as const, accessories: [] } };
   assert.match(buildHistory(bot, [])[0].content, /folder set to "second"/);
   assert.doesNotMatch(buildHistory({ ...bot, secondFolderPath: null }, [])[0].content, /second/);
   assert.equal(buildHistory({ ...bot, toolsEnabled: false }, []).length, 0);

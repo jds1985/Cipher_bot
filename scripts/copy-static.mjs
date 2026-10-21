@@ -1,5 +1,5 @@
 // Copies non-TS renderer assets (HTML/CSS and assets/) into dist/, plus the phone thin-client UI.
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const src = 'src/renderer';
@@ -8,6 +8,9 @@ mkdirSync(out, { recursive: true });
 for (const f of readdirSync(src)) {
   if (f.endsWith('.html') || f.endsWith('.css')) cpSync(join(src, f), join(out, f));
 }
+// dist/shared is emitted as ES modules (renderer build runs last); main require()s them (drone parts).
+mkdirSync('dist/shared', { recursive: true });
+writeFileSync('dist/shared/package.json', '{ "type": "module" }\n');
 const assetsSrc = join(src, 'assets');
 if (existsSync(assetsSrc)) {
   cpSync(assetsSrc, join(out, 'assets'), { recursive: true });

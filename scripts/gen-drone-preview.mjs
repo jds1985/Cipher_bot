@@ -9,7 +9,7 @@ const anim = args.includes('--anim');
 const bi = args.indexOf('--before');
 const before = bi >= 0 && existsSync(args[bi + 1]) ? JSON.parse(readFileSync(args[bi + 1], 'utf8')) : null;
 const strip = (f) => readFileSync(f, 'utf8').replace(/^import [\s\S]*?from .*;$/gm, '').replace(/^export \{\};?$/gm, '').replace(/^export /gm, '');
-const js = ['dist/renderer/hexMark.js', 'dist/renderer/droneParts.js', 'dist/renderer/droneTheme.js'].map(strip).join('\n');
+const js = ['dist/shared/hexMark.js', 'dist/shared/droneParts.js', 'dist/shared/droneTheme.js'].map(strip).join('\n');
 const css = readFileSync('src/renderer/drone.css', 'utf8');
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cipher Bot drones</title><style>
 ${css}

@@ -148,7 +148,7 @@ function defs(P: Ctx): string {
 <linearGradient id="${P.id('prism')}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb347"/><stop offset="0.35" stop-color="#ff5ca8"/><stop offset="0.6" stop-color="#7b6cff"/><stop offset="1" stop-color="#19b8a8"/></linearGradient>
 <radialGradient id="${P.id('aura')}" cx="0.5" cy="0.5" r="0.5">${stop(P, 0, 'glow', 0.22)}${stop(P, 0.6, 'glow2', 0.06)}${stop(P, 1, 'glow2', 0)}</radialGradient>
 <radialGradient id="${P.id('ao')}" cx="0.42" cy="0.36" r="0.66"><stop offset="0.72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/></radialGradient>
-<filter id="${P.id('grain')}" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="7"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 -1.6 1.05"/></filter>
+${P.small ? '' : `<filter id="${P.id('grain')}" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="7"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 -1.6 1.05"/></filter>`}
 <clipPath id="${P.id('clip')}"><circle cx="${CX}" cy="${CY}" r="${R}"/></clipPath>
 <filter id="${P.id('glow')}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${P.small ? 2.4 : 3.2}"/></filter>
 <filter id="${P.id('soft')}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.4"/></filter>
@@ -501,7 +501,18 @@ export function composeDrone(specIn: DroneSpec, opts: ComposeOptions = {}): stri
   const wh = opts.size ? ` width="${opts.size}" height="${opts.size}"` : '';
   const cls = ['drone', `pal-${spec.palette}`, `dr-shell-${spec.shell}`, small ? 'dr-sm' : '', opts.className ?? ''].filter(Boolean).join(' ');
   const title = opts.title ? `<title>${opts.title.replace(/[<&>"]/g, '')}</title>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}"${wh} class="${cls}" role="img" focusable="false">${title}${defs(P)}`
+  return mergeClasses(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}"${wh} class="${cls}" role="img" focusable="false">${title}${defs(P)}`
     + `<circle class="dr-aura" cx="${CX}" cy="${CY}" r="118" fill="url(#${P.id('aura')})"/>`
-    + `<g class="dr-float"><g class="dr-body">${body}</g>${crystal(P, spec.crystal)}</g></svg>`;
+    + `<g class="dr-float"><g class="dr-body">${body}</g>${crystal(P, spec.crystal)}</g></svg>`);
+}
+
+/** Well-formed XML: a tag that got two class attributes (part class + color token class) gets them merged. */
+function mergeClasses(svg: string): string {
+  return svg.replace(/<[a-zA-Z][^>]*>/g, (tag) => {
+    const all = [...tag.matchAll(/ class="([^"]*)"/g)];
+    if (all.length < 2) return tag;
+    const merged = all.map((m) => m[1]).join(' ');
+    let first = true;
+    return tag.replace(/ class="[^"]*"/g, () => (first ? (first = false, ` class="${merged}"`) : ''));
+  });
 }

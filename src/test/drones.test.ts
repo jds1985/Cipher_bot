@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const dp = require('../renderer/droneParts.js') as typeof import('../renderer/droneParts.js');
-const dt = require('../renderer/droneTheme.js') as typeof import('../renderer/droneTheme.js');
+const dp = require('../shared/droneParts.js') as typeof import('../shared/droneParts.js');
+const dt = require('../shared/droneTheme.js') as typeof import('../shared/droneTheme.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
 const css = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'drone.css'), 'utf8');
 
-const allSpecs = (): import('../renderer/droneParts.js').DroneSpec[] => {
+const allSpecs = (): import('../shared/droneParts.js').DroneSpec[] => {
   const out = [];
   for (const shell of dp.DRONE_SHELLS) for (const eye of dp.DRONE_EYES) out.push(dp.sanitizeSpec({ shell, eye, palette: 'cipher', fins: 'blade', crystal: 'gem' }));
   for (const fins of dp.DRONE_FINS) for (const crystal of dp.DRONE_CRYSTALS) out.push(dp.sanitizeSpec({ fins, crystal }));
@@ -105,7 +105,7 @@ test('drone.css: states, phases, pendant sway and reduced motion', () => {
 // ---------- v2 polish ----------
 const brandDir = path.join(__dirname, '..', '..', 'art', 'brand');
 /* eslint-disable @typescript-eslint/no-require-imports */
-const hm = require('../renderer/hexMark.js') as typeof import('../renderer/hexMark.js');
+const hm = require('../shared/hexMark.js') as typeof import('../shared/hexMark.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 test('small sizes: fins tucked, sphere+eye dominate, identifying accessories kept, Error lifted', () => {
@@ -178,4 +178,13 @@ test('theme mapper: multi-word picks strongest match and borrows an accessory fr
   const s = dt.themeDrone('music songs beats with a little space');
   assert.equal(s.spec.shell, 'striped'); assert.ok(s.spec.accessories.includes('star'));
   assert.deepEqual(dt.themeDrone('basketball and music'), r, 'deterministic');
+});
+
+test('composed SVG is well-formed XML: no tag repeats an attribute (DOMParser image/svg+xml in the app)', () => {
+  for (const s of allSpecs()) for (const detail of ['full', 'small'] as const) {
+    for (const tag of dp.composeDrone(s, { detail }).match(/<[a-zA-Z][^>]*>/g) ?? []) {
+      const names = [...tag.matchAll(/\s([a-zA-Z:-]+)="/g)].map((m) => m[1]);
+      assert.equal(new Set(names).size, names.length, `${dp.specKey(s)} ${detail}: ${tag.slice(0, 80)}`);
+    }
+  }
 });

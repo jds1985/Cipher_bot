@@ -1,3 +1,4 @@
+import type { DroneSpec } from './droneParts';
 // Types shared between main, preload and renderer (type-only; no runtime code).
 
 export interface Bot {
@@ -31,6 +32,8 @@ export interface Bot {
   shape: string;
   /** Icon color key from the fixed palette (blue = #5b8cff, …). Always a known key: unknown values come through as 'blue'. */
   color: string;
+  /** The bot's drone avatar (shell, palette, eye, fins, crystal, accessories). Always valid (sanitized on load). */
+  drone: DroneSpec;
 }
 
 export interface Chat {
@@ -118,6 +121,8 @@ export interface NewBot {
   shape?: string;
   /** Icon color key; anything not on the whitelist is stored as the default. */
   color?: string;
+  /** Drone avatar; sanitized. Omitted -> a default from the name and job. */
+  drone?: unknown;
 }
 
 /** A group chat: two or more Cipher bots and the user. */
@@ -205,6 +210,8 @@ export interface NewBotForm {
   shape: string;
   /** Picked icon color key. */
   color: string;
+  /** Drone avatar picked in the builder (sanitized in main). Omitted on edit -> unchanged. */
+  drone?: DroneSpec;
 }
 
 /** Phone link panel status from main. */

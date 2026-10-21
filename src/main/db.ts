@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import type { Bot, Chat, Message, NewBot, Role, Room, RoomMessage, Routine, ToolCall } from '../shared/types';
+import { defaultDroneFor, parseStoredDrone } from '../shared/droneTheme';
 import { normalizeBotColor, normalizeBotIcon, normalizeBotShape, pickLeastUsedIcon, DEFAULT_BOT_COLOR } from './botIcons';
 import { validateBotProfile } from './createBot';
 import { validateRoutine } from './routine';
@@ -34,7 +35,7 @@ interface BotRow {
   reply_length?: string | null;
   tags?: string | null; dock_group?: string | null;
   tool_search?: number; tool_calc?: number; tool_checklist?: number; tool_write?: number;
-  icon: string | null; shape: string | null; color: string | null;
+  icon: string | null; shape: string | null; color: string | null; drone?: string | null;
 }
 interface ChatRow { id: number; bot_id: number; title: string; created_at: string; updated_at: string }
 interface MessageRow { id: number; chat_id: number; role: Role; content: string; tool_calls: string | null; tool_name: string | null; created_at: string; routine: number; search_results?: string | null; quote_text?: string | null; pinned?: number; image_path?: string | null; reminder?: number; reaction?: string | null; edited?: number }
@@ -48,6 +49,7 @@ const toBot = (r: BotRow): Bot => ({
   tools: { files: r.tools_enabled === 1, search: r.tool_search === 1, calculator: r.tool_calc === 1, checklist: r.tool_checklist === 1, write: r.tool_write === 1 },
   tags: r.tags ? r.tags.split(',').filter(Boolean) : [], group: r.dock_group ?? '',
   createdAt: r.created_at, shape: normalizeBotShape(r.shape), color: normalizeBotColor(r.color),
+  drone: parseStoredDrone(r.drone) ?? defaultDroneFor({ id: r.id, name: r.name, systemPrompt: r.system_prompt }),
 });
 export const parseReplyLength = (v: unknown): ReplyLength => (REPLY_LENGTHS as readonly unknown[]).includes(v) ? (v as ReplyLength) : 'normal';
 
@@ -170,6 +172,10 @@ export class CipherDb {
     this.addColumnIfMissing('bots', 'shape', 'shape TEXT');
     this.addColumnIfMissing('bots', 'color', 'color TEXT');
     this.backfillShapes();
+    // - bots.drone (v1.26): the drone avatar as JSON. Existing bots get a deterministic default (Cipher bot ->
+    //   Cipher preset; role names -> their preset; keyword themes from name/job; else a preset by id).
+    this.addColumnIfMissing('bots', 'drone', 'drone TEXT');
+    this.backfillDrones();
     // - chats.hidden: one chat per bot. Each bot's most recent chat stays its chat; older chats are only
     //   flagged hidden (rows and their messages are kept).
     this.addColumnIfMissing('chats', 'hidden', 'hidden INTEGER NOT NULL DEFAULT 0');
@@ -262,6 +268,19 @@ export class CipherDb {
   private addColumnIfMissing(table: 'bots' | 'chats' | 'messages' | 'rooms', column: string, definition: string): void {
     const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+
+  /** Bots without a stored (or with a garbled) drone get their deterministic default. Idempotent. */
+  private backfillDrones(): void {
+    const rows = this.db.prepare('SELECT id, name, system_prompt, drone FROM bots').all() as { id: number; name: string; system_prompt: string; drone: string | null }[];
+    const update = this.db.prepare('UPDATE bots SET drone = ? WHERE id = ?');
+    this.db.transaction(() => {
+      for (const r of rows) {
+        const cur = parseStoredDrone(r.drone);
+        const next = JSON.stringify(cur ?? defaultDroneFor({ id: r.id, name: r.name, systemPrompt: r.system_prompt }));
+        if (next !== r.drone) update.run(next, r.id);
+      }
+    })();
   }
 
   /** Bots without a shape/color (older databases) get their v1.4 icon as the shape and the default color. */
@@ -681,23 +700,26 @@ export class CipherDb {
   createBot(input: NewBot): Bot {
     // Same validation as edit (validateBotProfile): name, job, and whitelisted shape/color (unknown → default).
     // The v1.4 icon column gets the shape key too, so an older Cipher still shows a matching icon.
-    const { name, systemPrompt: prompt, shape, color } = validateBotProfile(input);
+    const { name, systemPrompt: prompt, shape, color, drone } = validateBotProfile(input);
     const info = this.db
       .prepare('INSERT INTO bots (name, system_prompt, tools_enabled, folder_path, icon, shape, color) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(name, prompt, input.toolsEnabled ? 1 : 0, input.folderPath ?? null, shape, shape, color);
-    return this.getBot(Number(info.lastInsertRowid))!;
+    const id = Number(info.lastInsertRowid);
+    this.db.prepare('UPDATE bots SET drone = ? WHERE id = ?').run(JSON.stringify(drone ?? defaultDroneFor({ id, name, systemPrompt: prompt })), id);
+    return this.getBot(id)!;
   }
 
   /**
    * Edit a Cipher bot's name, job (system prompt), icon shape and color. Uses the same validator as createBot.
    * File reading, folder and chats are left as they are. The v1.4 icon column follows the shape, as on create.
    */
-  updateBot(id: number, input: { name?: unknown; systemPrompt?: unknown; shape?: unknown; color?: unknown }): Bot {
+  updateBot(id: number, input: { name?: unknown; systemPrompt?: unknown; shape?: unknown; color?: unknown; drone?: unknown }): Bot {
     if (!this.getBot(id)) throw new Error('Cipher bot not found.');
-    const { name, systemPrompt, shape, color } = validateBotProfile(input);
+    const { name, systemPrompt, shape, color, drone } = validateBotProfile(input);
     this.db
       .prepare('UPDATE bots SET name = ?, system_prompt = ?, icon = ?, shape = ?, color = ? WHERE id = ?')
       .run(name, systemPrompt, shape, shape, color, id);
+    if (drone) this.db.prepare('UPDATE bots SET drone = ? WHERE id = ?').run(JSON.stringify(drone), id);
     return this.getBot(id)!;
   }
 
