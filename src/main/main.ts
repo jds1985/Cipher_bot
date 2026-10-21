@@ -117,6 +117,8 @@ let quitting = false;
 
 const dbPath = (): string => path.join(app.getPath('userData'), 'cipher.db');
 const appIconPath = (): string => path.join(__dirname, '..', 'renderer', 'assets', 'icon.png');
+/** Tray icon: small Hex Circuit variant (tray.png 16px + tray@2x.png 32px picked by Electron per scale factor; Linux scales the 32px one to 22px). */
+const trayIconPath = (): string => path.join(__dirname, '..', 'renderer', 'assets', process.platform === 'linux' ? 'tray@2x.png' : 'tray.png');
 
 /** Show and focus the (possibly hidden or minimized) window, or create it if there is none. */
 async function showWindow(): Promise<void> {
@@ -191,9 +193,9 @@ function rebuildTrayMenu(): void {
 function createTray(): void {
   try {
     const size = process.platform === 'linux' ? 22 : 16;
-    const icon = nativeImage.createFromPath(appIconPath());
+    const icon = nativeImage.createFromPath(trayIconPath());
     if (icon.isEmpty()) return;
-    tray = new Tray(icon.resize({ width: size, height: size, quality: 'best' }));
+    tray = new Tray(process.platform !== 'linux' ? icon : icon.resize({ width: size, height: size, quality: 'best' }));
     tray.setToolTip('Cipher Bot');
     rebuildTrayMenu();
     tray.on('click', () => void showWindow());
