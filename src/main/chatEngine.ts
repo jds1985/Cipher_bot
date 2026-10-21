@@ -1,6 +1,7 @@
 import type { Bot, ChatEvent, Message, ToolCall } from '../shared/types';
 import type { CipherDb } from './db';
 import { executeToolCall, READ_FILE_TOOL } from './readFileTool';
+import { trimHistory } from './historyBudget';
 import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
 import { CALCULATOR_TOOL, runCalculator } from './calculator';
 import { WRITE_FILE_TOOL } from './fileWrite';
@@ -118,7 +119,7 @@ export function buildHistory(bot: Bot, messages: Message[], searchOn = false, ac
       out.push({ role: 'user', content: userContentForModel(m) });
     }
   }
-  return out;
+  return trimHistory(out);
 }
 
 /**
@@ -183,7 +184,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       partial = '';
       // Calls to any of Cipher Bot's tools count (offered or not: a call to a switched-off tool gets a refusal below);
       // calls to names that are not Cipher Bot tools are ignored (as before).
-      const wantsTools = toolCalls.some((c) => isToolName(c?.function?.name ?? 'read_file'));
+      // A call without a name is ignored (never treated as a file read).
+      const wantsTools = toolCalls.some((c) => isToolName(c?.function?.name));
       if (wantsTools && round >= MAX_TOOL_ROUNDS) {
         const note = content || '(Stopped: your Cipher bot kept trying to read files. Try rephrasing your question.)';
         emit({ chatId, type: 'message', message: db.addMessage({ chatId, role: 'assistant', content: note }) });
@@ -195,8 +197,8 @@ export async function runChatTurn(deps: EngineDeps, chatId: number, userText: st
       }
       if (!wantsTools) break;
       for (const call of toolCalls) {
-        const callName = call?.function?.name ?? 'read_file';
-        if (!isToolName(callName)) continue;
+        const callName = call?.function?.name;
+        if (!isToolName(callName)) continue; // unnamed or unknown: ignored
         // v1.23: execution-time switch check, for every tool. Nothing runs while its switch is off.
         if (!allowed(callName)) {
           const refusal = callName === 'read_file' ? 'Error: File reading is off for this Cipher bot.' : `Error: ${TOOL_LABELS[callName]} is switched off for this Cipher bot. Do not try again.`;

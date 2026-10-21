@@ -16,6 +16,7 @@
 import { replyOptions } from './chatEngine';
 import type { Bot, RoomEvent, RoomMessage } from '../shared/types';
 import type { EngineDeps } from './chatEngine';
+import { trimHistory } from './historyBudget';
 import { OLLAMA_HOST, streamChat, type OllamaMessage } from './ollama';
 
 export interface RoomEngineDeps extends Omit<EngineDeps, 'emit'> {
@@ -77,7 +78,7 @@ export function buildRoomHistory(bot: Bot, members: readonly Bot[], messages: re
     else if (m.botId === bot.id) out.push({ role: 'assistant', content: m.content });
     else out.push({ role: 'user', content: `${nameOf(m.botId)}: ${m.content}` });
   }
-  return out;
+  return trimHistory(out);
 }
 
 /**

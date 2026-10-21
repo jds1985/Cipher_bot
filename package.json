@@ -19,7 +19,7 @@
     "dev": "npm run build && electron .",
     "start": "electron .",
     "test": "npm run build && cross-env ELECTRON_RUN_AS_NODE=1 electron --test \"dist/test/**/*.test.js\"",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/rebuild-native.mjs",
     "dist": "npm run build && electron-builder",
     "dist:dir": "npm run build && electron-builder --dir"
   },

@@ -48,9 +48,15 @@ $env:CIPHER_MODEL="llama3.1:8b"; npm run dev  # Windows PowerShell
 ```sh
 git clone https://github.com/jds1985/Cipher_bot.git
 cd Cipher_bot
-npm install      # also fetches the Electron build of better-sqlite3
+npm install      # postinstall builds better-sqlite3 for Electron (needs a C++ toolchain if no prebuild exists)
 npm run dev      # compiles TypeScript and launches the app
 ```
+
+If `npm ci` stops with "Could not build better-sqlite3 for Electron", install a C++ toolchain
+(`sudo apt install build-essential python3`, `xcode-select --install`, or VS Build Tools on Windows) and run `npm rebuild`.
+
+Chat history sent to the model is limited to the system prompt plus the newest turns that fit in
+`CIPHER_HISTORY_CHARS` characters (default 24000), so long chats never overflow the model's context.
 
 Other scripts:
 
