@@ -35,7 +35,7 @@ test('the app name a person sees is "Cipher Bot": window title, HTML titles, tit
   assert.match(main, /title: 'Restore Cipher Bot from a backup'/);
   const html = read('src/renderer/index.html');
   assert.match(html, /<title>Cipher Bot<\/title>/);
-  assert.match(html, /<span class="titlebar-title">Cipher Bot<\/span>/);
+  assert.match(html, /<span class="titlebar-title brand-pill" title="Cipher Bot">.*<span class="brand-word">CIPHER<\/span><span class="sr-only"> Bot<\/span><\/span>/);
   assert.match(html, /<img src="assets\/splash\.png" alt="Cipher Bot" \/>/);
   assert.match(html, /<h2 id="lock-title">Cipher Bot is locked<\/h2>/);
   assert.deepEqual(routineNoticeContent('finished', 'Ada'), { title: 'Cipher Bot', body: 'Routine finished: Ada' });

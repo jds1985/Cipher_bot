@@ -385,7 +385,7 @@ test('overwrite: the v1.22 token-based confirm still runs, with a clear separate
 
 test('focus mode hides the dock, search bar and frames; Esc exits; Liz icons via CSS mask (currentColor → accent)', () => {
   assert.match(css, /:root\.focus-mode #sidebar, :root\.focus-mode #search-bar, :root\.focus-mode #bottombar \{ display: none !important; \}/);
-  assert.match(css, /:root\.focus-mode #titlebar \{ background: var\(--bg\); \}/);
+  assert.match(css, /:root\.focus-mode #titlebar \{ background: transparent; \}/);
   assert.match(renderer, /if \(e\.key === 'Escape' && inFocusMode\(\) && !e\.defaultPrevented\) setFocusMode\(false\);/);
   assert.ok(SHORTCUTS.some((s) => s.keys === 'Ctrl+Shift+F'));
   for (const f of ['focus-mode', 'reminder', 'tool-files', 'tool-search', 'tool-calculator', 'tool-checklist', 'tool-write-file']) {

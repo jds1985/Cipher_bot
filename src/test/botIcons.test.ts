@@ -252,20 +252,19 @@ test('bot icon animation pauses when unfocused and is off with reduced motion; C
   assert.match(js, /extraClass = 'bot-icon'/);
 });
 
-test('Liz\'s frames ship as plain static SVG (40px top, 28px bottom) and are mounted as full-width bars', () => {
-  const dir = path.join(rendererDir, 'assets', 'frames');
-  assert.deepEqual(fs.readdirSync(dir).sort(), ['cipher-frame-bottom.svg', 'cipher-frame-top.svg']);
-  for (const [f, h] of [['cipher-frame-top.svg', 40], ['cipher-frame-bottom.svg', 28]] as const) {
-    const svg = fs.readFileSync(path.join(dir, f), 'utf8');
-    assert.equal(svg.trim(), fs.readFileSync(path.join(repoRoot, 'art', 'v1.5', 'frames', f), 'utf8').trim(), `${f} is Liz's file`);
-    assertStaticSvg(f, svg, ['preserveAspectRatio', 'overflow']);
-    assert.match(svg, new RegExp(`^<svg [^>]*width="100%" height="${h}"`));
-  }
+test('the old circuit-line frames are retired: a transparent title strip carries the Hex Circuit CIPHER pill', () => {
+  assert.equal(fs.existsSync(path.join(rendererDir, 'assets', 'frames')), false);
   const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
+  assert.doesNotMatch(css, /cipher-frame-(top|bottom)\.svg/);
   assert.match(css, /--titlebar-h: env\(titlebar-area-height, 40px\)/);
-  assert.match(css, /#titlebar \{[^}]*url\("assets\/frames\/cipher-frame-top\.svg"\) no-repeat 0 0 \/ 100% 100%;\s*-webkit-app-region: drag;/);
-  assert.match(css, /#bottombar \{ height: var\(--bottombar-h\); background: var\(--bg\) url\("assets\/frames\/cipher-frame-bottom\.svg"\)/);
+  assert.match(css, /#titlebar \{[^}]*background: transparent;\s*-webkit-app-region: drag;/);
   assert.match(css, /#app \{ display: flex; height: calc\(100vh - var\(--titlebar-h\) - var\(--bottombar-h\)\); \}/);
+  const html = fs.readFileSync(path.join(rendererDir, 'index.html'), 'utf8');
+  assert.match(html, /<span class="titlebar-title brand-pill"[^>]*><img class="brand-mark" src="assets\/brand\/hex_circuit_small\.svg" alt=""/);
+  assert.match(html, /<span class="brand-word">CIPHER<\/span>/);
+  for (const f of ['hex_circuit.svg', 'hex_circuit_small.svg']) {
+    assert.equal(fs.readFileSync(path.join(rendererDir, 'assets', 'brand', f), 'utf8'), fs.readFileSync(path.join(repoRoot, 'art', 'brand', f), 'utf8'));
+  }
   const main = fs.readFileSync(path.join(__dirname, '..', 'main', 'main.js'), 'utf8');
   assert.match(main, /TITLE_BAR_HEIGHT = 40/);
   assert.match(main, /titleBarOverlay: \{ color: FRAME_BG, symbolColor: FRAME_ACCENT, height: TITLE_BAR_HEIGHT \}/);

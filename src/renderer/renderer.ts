@@ -2278,14 +2278,14 @@ function onSearchInput(): void {
 
 // ---------- wiring ----------
 buildPickers();
-// The "create a room" button's mark: two muted icons from the set plus a "+" badge (not bot icons, so no animation).
-const roomPlusMark = ['hex', 'circle'].map((shape) => {
-  const svg = iconSvg(shape, DEFAULT_COLOR, 25);
-  svg.setAttribute('class', 'mark c-muted');
-  return svg;
-});
-el.newRoomMark.replaceChildren(...roomPlusMark);
-el.newRoomMark.classList.add('n2');
+// The "create a room" button's mark: the Hex Circuit brand mark plus a "+" badge (static, no animation).
+const roomPlusMark = document.createElement('img');
+roomPlusMark.src = 'assets/brand/hex_circuit_small.svg';
+roomPlusMark.alt = '';
+roomPlusMark.width = 28;
+roomPlusMark.height = 28;
+roomPlusMark.className = 'room-hex-mark';
+el.newRoomMark.replaceChildren(roomPlusMark);
 el.newBot.addEventListener('click', openBotForm);
 el.newRoom.addEventListener('click', openRoomForm);
 el.openSettings.addEventListener('click', openSettings);

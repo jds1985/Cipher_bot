@@ -140,12 +140,10 @@ label.member-opt .bot-icon { width: 30px; height: 30px; }
 .c-pink   { color: #f17ad8; --glow: 241, 122, 216; }
 .c-violet { color: #8b6cff; --glow: 139, 108, 255; }
 
-/* ---------- Cipher window frame: Liz's top frame is the draggable title strip under the window controls ---------- */
-/* cipher-frame-top.svg / -bottom.svg stretch to the full width: the long lines stretch, the tracer ends stay
-   fixed at the left and right edges (the SVGs draw in px from each edge). */
-#titlebar { height: var(--titlebar-h); background: var(--bg) url("assets/frames/cipher-frame-top.svg") no-repeat 0 0 / 100% 100%;
+/* ---------- Cipher window frame: a transparent draggable title strip under the window controls (brand.css styles it) ---------- */
+#titlebar { height: var(--titlebar-h); background: transparent;
   -webkit-app-region: drag; user-select: none; }
-#bottombar { height: var(--bottombar-h); background: var(--bg) url("assets/frames/cipher-frame-bottom.svg") no-repeat 0 0 / 100% 100%; user-select: none; }
+#bottombar { height: var(--bottombar-h); background: transparent; user-select: none; }
 /* Keep content inside the title bar area, clear of the min/max/close controls; the title sits just right of the
    left tracer end so it doesn't cross Liz's lines. */
 #titlebar .titlebar-area { display: flex; align-items: center; height: 100%; padding: 0 12px 2px 326px;
@@ -532,7 +530,7 @@ mark.find-hit.current { background: var(--accent); color: #fff; }
 /* Focus mode: the dock, the search bar and Liz's frames are hidden; only the chat stays. Esc exits. */
 :root.focus-mode { --bottombar-h: 0px; }
 :root.focus-mode #sidebar, :root.focus-mode #search-bar, :root.focus-mode #bottombar { display: none !important; }
-:root.focus-mode #titlebar { background: var(--bg); }
+:root.focus-mode #titlebar { background: transparent; }
 :root.focus-mode #titlebar .titlebar-title { visibility: hidden; }
 /* v1.23: the last visible chip (attach, quote or image/paste) sits above the floating composer instead of under it. */
 .image-chip:not([hidden]),
