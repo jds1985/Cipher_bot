@@ -20,51 +20,23 @@ from collections import defaultdict
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "lib"))
+from mix_rules import (  # noqa: E402
+    apply_answer_policy,
+    assistant_audit,
+    clone_match,
+    drop_val_substantial_overlap,
+    load_frozen,
+    norm,
+    pin_unanswerable_to_train,
+)
+
 GATE = HERE / "lib" / "sft_data_gate.py"
 CATALOG = json.loads((HERE / "fixtures" / "sources_catalog.json").read_text(encoding="utf-8"))
-STOP = {
-    "a", "an", "the", "of", "to", "and", "in", "on", "is", "are", "was", "were", "be",
-    "what", "how", "many", "which", "who", "when", "where", "why", "do", "does", "did",
-    "this", "that", "these", "those", "into", "only", "just", "for", "with", "from", "by",
-    "or", "if", "you", "your", "it", "its", "at", "as", "than", "then", "so", "not", "no",
-    "can", "cannot", "know", "say", "have", "has", "about", "there", "all", "every",
-    "use", "using", "read", "paragraph", "question", "write", "tell", "short", "clean",
-    "explain", "sentence", "sentences", "answer", "reply", "exactly", "nothing", "else",
-}
 PROBLEM = re.compile(
     r"as an ai language model|chatgpt|openai|claude|anthropic|\bjailbreak\b|front desk|call 911|on file for this hotel",
     re.I,
 )
-
-
-def norm(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
-
-
-def tokens(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOP}
-
-
-def jaccard(a: set[str], b: set[str]) -> float:
-    if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
-
-
-def near_clone(user: str, frozen: list[tuple[str, set[str]]]) -> bool:
-    n = norm(user)
-    got = tokens(user)
-    for raw, fr in frozen:
-        if n == norm(raw):
-            return True
-        if len(n) > 20 and (n in norm(raw) or norm(raw) in n):
-            return True
-        if jaccard(got, fr) >= 0.5:
-            return True
-        small = min(len(got), len(fr))
-        if small >= 4 and len(got & fr) / small >= 0.8:
-            return True
-    return False
 
 
 def catalog_for(path: Path) -> dict | None:
@@ -91,7 +63,7 @@ def jsonl_records(path: Path):
 
 def load_file(path: Path, src: dict, cap: int) -> list[dict]:
     rows = []
-    for line in jsonl_records(path):
+    for source_line, line in enumerate(jsonl_records(path), start=1):
         obj = json.loads(line)
         msgs = obj.get("messages")
         if not isinstance(msgs, list):
@@ -108,6 +80,7 @@ def load_file(path: Path, src: dict, cap: int) -> list[dict]:
             "user": user,
             "assistant": assistant,
             "source_file": path.name,
+            "source_line": source_line,
             "dataset_id": src["dataset_id"],
             "card_url": src["card_url"],
             "license": src["license"],
@@ -175,16 +148,6 @@ def cap_share(rows: list[dict], max_share: float, seed: int) -> list[dict]:
     return out
 
 
-def frozen_pairs() -> list[tuple[str, set[str]]]:
-    pairs = []
-    for name in ("general-v1.json", "general-v2.json"):
-        doc = json.loads((HERE / "fixtures" / name).read_text(encoding="utf-8"))
-        for prompt in doc["prompts"]:
-            text = prompt["text"]
-            pairs.append((text, tokens(text)))
-    return pairs
-
-
 def quality(train: list[dict], val: list[dict]) -> dict:
     def side(rows):
         by = defaultdict(int)
@@ -229,21 +192,28 @@ def main() -> int:
     if got != held:
         print("heldout_changed")
         return 2
-    frozen = frozen_pairs()
+    frozen = load_frozen([HERE / "fixtures" / "general-v1.json", HERE / "fixtures" / "general-v2.json"])
     kept = []
     skipped = []
-    dropped_clone = 0
+    lexical_excluded = []
     for path in sorted(args.sources.glob("*.jsonl")):
         src = catalog_for(path)
         if src is None:
             skipped.append(path.name)
             continue
-        rows = load_file(path, src, args.per_source * 5)
-        before = len(rows)
-        rows = [r for r in rows if not near_clone(r["user"], frozen)]
-        dropped_clone += before - len(rows)
-        kept.extend(rows[: args.per_source * 5])
+        for row in load_file(path, src, args.per_source * 5):
+            hit = clone_match(row["user"], frozen)
+            if hit:
+                lexical_excluded.append({
+                    "kind": "lexical_clone",
+                    "source_file": row["source_file"],
+                    "source_line": row["source_line"],
+                    **hit,
+                })
+                continue
+            kept.append(row)
     kept = dedup(kept)
+    kept, answer_excluded, answer_impact = apply_answer_policy(kept)
     human = [r for r in kept if r["domain"] == "human_general"]
     math = [r for r in kept if r["domain"] == "math"]
     human = cap_share(human, args.max_share, args.seed)
@@ -252,15 +222,28 @@ def main() -> int:
     rng.shuffle(math)
     math = math[:max(0, math_cap)]
     train, val = assign_split(human + math, args.seed)
+    train, val, pinned = pin_unanswerable_to_train(train, val)
+    val, val_dropped = drop_val_substantial_overlap(train, val)
     args.out.mkdir(parents=True, exist_ok=True)
+    exclusions = lexical_excluded + answer_excluded + pinned + val_dropped
+    (args.out / "exclusions.jsonl").write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in exclusions),
+        encoding="utf-8",
+    )
     for name, rows in (("train", train), ("val", val)):
         (args.out / f"{name}.jsonl").write_text(
             "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
     report = quality(train, val)
     report["skipped_files"] = skipped
-    report["dropped_near_clone"] = dropped_clone
+    report["dropped_near_clone"] = len(lexical_excluded)
+    report["lexical_exclusions"] = lexical_excluded
+    report["answer_policy"] = answer_impact
+    report["unanswerable_pinned_to_train"] = len(pinned)
+    report["val_substantial_dropped"] = len(val_dropped)
+    report["assistant_audit"] = assistant_audit(train, val)[0]
     report["heldout_sha256"] = held
     report["seed"] = args.seed
+    report["fixture_selftest_is_not_real_data"] = bool(args.self_test)
     proc = subprocess.run(
         [sys.executable, str(GATE), "--train", str(args.out / "train.jsonl"), "--val", str(args.out / "val.jsonl"),
          "--frozen", str(HERE / "fixtures" / "general-v1.json"),
@@ -279,7 +262,7 @@ def main() -> int:
     (args.out / "quality.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(proc.stdout)
     print("quality_gate", report["gate"])
-    print("skipped", len(skipped), "dropped_near_clone", dropped_clone)
+    print("skipped", len(skipped), "dropped_near_clone", len(lexical_excluded), "answer_excluded", len(answer_excluded))
     return 0 if report["gate"] == "ok" else 2
 
 

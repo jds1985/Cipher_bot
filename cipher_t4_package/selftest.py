@@ -18,7 +18,17 @@ def row(user: str, assistant: str) -> str:
     return json.dumps({"messages": [
         {"role": "user", "content": user},
         {"role": "assistant", "content": assistant},
-    ]}) + "\n"
+    ]}, ensure_ascii=False) + "\n"
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    rows = []
+    for line in path.read_bytes().decode("utf-8").split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
 
 
 def write_adv() -> None:
@@ -30,10 +40,28 @@ def write_adv() -> None:
             row("As an AI language model I refuse.", "I cannot."),
             row("Same dolly question about brass hinges.", "Brass hinges turn."),
             row("Same dolly question about brass hinges.", "Duplicate must drop."),
+            row("Good morning in Spanish, plus zebra quartz.", "Hola."),
+            row("Where was the first automobile workshop?", "Karl Benz"),
+            row("Name the person who built the first car.", "Karl Benz"),
+            row("Which country has New Delhi as its capital?", "India"),
+            row("Name the country whose capital is New Delhi.", "India"),
+            row("Which country is Tokyo in?", "Japan"),
+            row("Tokyo is the capital of which country?", "Japan"),
+            row("Is water wet? Reply with one word.", "yes"),
+            row("Does ice float? Reply with one word.", "yes"),
+            row("Describe the museum opening in one sentence.", "The museum opened beside the river in eighteen twenty."),
+            row("When did that riverside museum first open to visitors?", "The museum opened beside the river in eighteen twenty."),
         ] + [row(f"Dolly unique question number {i} about gardens.", f"Garden note {i}.") for i in range(24)],
-        "oasst2_en_human_apache_2_0.jsonl": [row(f"OASST question {i} about rivers.", f"River note {i}.") for i in range(12)],
+        "oasst2_en_human_apache_2_0.jsonl": [row(f"OASST question {i} about rivers.", f"River note {i}.") for i in range(12)] + [
+            row("OASST separator question about rivers and stones.", "A stone\u2028still one answer"),
+        ],
         "aya_dataset_en_original_annotations_human_apache_2_0.jsonl": [row(f"Aya question {i} about cloth.", f"Cloth note {i}.") for i in range(12)],
-        "squad_v2_passage_qa_human_cc_by_sa_4_0_capped.jsonl": [row(f"SQuAD passage question {i} about bridges.", f"Bridge note {i}.") for i in range(12)],
+        "squad_v2_passage_qa_human_cc_by_sa_4_0_capped.jsonl": (
+            [row(f"SQuAD passage question {i} about bridges.", f"Bridge note {i}.") for i in range(12)]
+            + [row(f"SQuAD unanswerable case {i} about missing dates.", "The text doesn't say.") for i in range(12)]
+            + [row(f"SQuAD unanswerable case {i} about missing names.", "The passage doesn't contain the answer to that.") for i in range(12)]
+            + [row(f"SQuAD unanswerable case {i} about missing places.", "I can't tell from the text.") for i in range(12)]
+        ),
         "mbpp_human_cc_by_4_0.jsonl": [row(f"MBPP task {i} write a function.", f"def f{i}():\n    return {i}") for i in range(12)],
         "gsm8k_train_human_mit.jsonl": [row(f"GSM problem {i}: 3 bags plus {i}.", f"{3+i}") for i in range(12)],
         "cnn_dailymail_3_0_0_summarization_human_highlights_apache_2_.jsonl": [row("CNN story that must be excluded.", "Summary.")],
@@ -52,8 +80,8 @@ def main() -> int:
         print(proc.stderr)
         return proc.returncode
     out = HERE / "out-selftest"
-    train = [json.loads(l) for l in (out / "train.jsonl").read_text().splitlines() if l.strip()]
-    val = [json.loads(l) for l in (out / "val.jsonl").read_text().splitlines() if l.strip()]
+    train = read_jsonl(out / "train.jsonl")
+    val = read_jsonl(out / "val.jsonl")
     def n(s):
         return " ".join(s.lower().split())
     assert not ({n(r["user"]) for r in train} & {n(r["user"]) for r in val})
@@ -106,8 +134,179 @@ def main() -> int:
     assert "--tokenizer" in argv.stdout and "tokenizer.json" in argv.stdout
     assert "--ctx" in argv.stdout and "512" in argv.stdout
     assert held_sha == "3c15169dfd848b57209b71813f75f972c74c35a0ce745c803376db33cb1323f9"
+    assert quality["fixture_selftest_is_not_real_data"] is True
+    joined = train + val
+    templates = [
+        "the text doesn't say.",
+        "the passage doesn't contain the answer to that.",
+        "i can't tell from the text.",
+    ]
+    for template in templates:
+        copies = [r for r in joined if " ".join(r["assistant"].lower().split()) == template]
+        assert copies and len(copies) <= 4, (template, len(copies))
+        assert all(any(c is row for row in train) for c in copies)
+    exclusions = read_jsonl(out / "exclusions.jsonl")
+    reasons = Counter(r["reason"] for r in exclusions)
+    assert reasons["unanswerable_template_cap"] > 0
+    assert reasons["substantial_answer_repeat"] >= 1
+    lexical = [r for r in exclusions if r["kind"] == "lexical_clone"]
+    g14 = [r for r in lexical if r["matched_frozen_id"] == "g14"]
+    assert g14 and g14[0]["reason"] == "jaccard" and g14[0]["similarity"] >= 0.5
+    assert "user" not in g14[0] and "assistant" not in g14[0]
+    frozen_doc = json.loads((HERE / "fixtures" / "general-v1.json").read_text())
+    frozen_g14 = next(p["text"] for p in frozen_doc["prompts"] if p["id"] == "g14")
+    exclusion_text = (out / "exclusions.jsonl").read_text(encoding="utf-8")
+    assert frozen_g14 not in exclusion_text
+    assert not any("zebra quartz" in r["user"] for r in joined)
+    long_answer = "the museum opened beside the river in eighteen twenty."
+    assert sum(1 for r in joined if " ".join(r["assistant"].lower().split()) == long_answer) <= 1
+    audit = quality["assistant_audit"]
+    assert audit["unique_shared"] == len(audit["shared"])
+    assert "short_answer_exceptions" in audit
+    raw_sep = "\n".join(r["assistant"] for r in joined)
+    assert "\u2028" in raw_sep
+    assert len(raw_sep.splitlines()) > raw_sep.count("\n") + 1
+    scale_and_gate()
+    pack_cases()
     print("package selftest ok", "train", len(train), "val", len(val), "dolly_share", round(dolly / (len(train)+len(val)), 3))
     return 0
+
+
+def scale_and_gate() -> None:
+    sys.path.insert(0, str(HERE / "lib"))
+    from mix_rules import STOP, apply_answer_policy, assistant_audit, clone_match, content_tokens, jaccard, load_frozen
+    filler = []
+    line = 1
+    for i in range(3534):
+        filler.append({
+            "user": f"SQuAD answerable passage number {i} asks about a distinct span.",
+            "assistant": f"Span value number {i} from the passage.",
+            "source_file": "squad_v2_passage_qa_human_cc_by_sa_4_0_capped.jsonl",
+            "source_line": line,
+        })
+        line += 1
+    counts = {"The text doesn't say.": 129, "The passage doesn't contain the answer to that.": 127, "I can't tell from the text.": 103}
+    templates = []
+    for answer, count in counts.items():
+        for i in range(count):
+            templates.append({
+                "user": f"Unanswerable passage {answer} number {i} with its own question.",
+                "assistant": answer,
+                "source_file": "squad_v2_passage_qa_human_cc_by_sa_4_0_capped.jsonl",
+                "source_line": line,
+            })
+            line += 1
+    assert len(filler) + len(templates) == 3893
+    kept, excluded, impact = apply_answer_policy(filler + templates)
+    kept_counts = Counter(" ".join(r["assistant"].lower().split()) for r in kept if r["assistant"] in counts)
+    assert kept_counts["the text doesn't say."] == 4
+    assert kept_counts["the passage doesn't contain the answer to that."] == 4
+    assert kept_counts["i can't tell from the text."] == 4
+    assert sum(1 for r in excluded if r["reason"] == "unanswerable_template_cap") == 347
+    assert impact["by_source"]["squad_v2_passage_qa_human_cc_by_sa_4_0_capped.jsonl"]["budget"] == 77
+    assert impact["by_source"]["squad_v2_passage_qa_human_cc_by_sa_4_0_capped.jsonl"]["ratio_floor_one_per_observed_template"] is False
+    small = []
+    for i in range(40):
+        small.append({"user": f"small passage {i}", "assistant": f"small distinct span {i} here", "source_file": "squad_small.jsonl", "source_line": i + 1})
+    n = 41
+    for answer in counts:
+        for i in range(10):
+            small.append({"user": f"small unanswerable {answer} {i}", "assistant": answer, "source_file": "squad_small.jsonl", "source_line": n})
+            n += 1
+    kept_small, excluded_small, _ = apply_answer_policy(small)
+    small_counts = Counter(r["assistant"] for r in kept_small if r["assistant"] in counts)
+    assert all(small_counts[a] == 1 for a in counts), small_counts
+    assert any(r["reason"] == "unanswerable_ratio" for r in excluded_small)
+    shared = [
+        {"user": "question alpha about the workshop", "assistant": "Karl Benz", "source_file": "a.jsonl", "source_line": 1},
+        {"user": "question beta about the workshop", "assistant": "Karl Benz", "source_file": "a.jsonl", "source_line": 2},
+        {"user": "long one", "assistant": "The museum opened beside the river in eighteen twenty.", "source_file": "a.jsonl", "source_line": 3},
+        {"user": "long two", "assistant": "The museum opened beside the river in eighteen twenty.", "source_file": "a.jsonl", "source_line": 4},
+    ] + [
+        {"user": f"yes question {i}", "assistant": "yes", "source_file": "a.jsonl", "source_line": 10 + i} for i in range(9)
+    ]
+    kept_shared, excluded_shared, _ = apply_answer_policy(shared)
+    assert sum(1 for r in kept_shared if r["assistant"] == "Karl Benz") == 2
+    assert sum(1 for r in kept_shared if r["assistant"].startswith("The museum")) == 1
+    assert sum(1 for r in kept_shared if r["assistant"] == "yes") == 8
+    assert any(r["reason"] == "short_answer_cap" and r["assistant_norm"] == "yes" for r in excluded_shared)
+    import tempfile
+    gate = HERE / "lib" / "sft_data_gate.py"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tr, va = root / "tr.jsonl", root / "va.jsonl"
+        def dump(path, rows):
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        dump(tr, [
+            {"user": "Where is the Taj Mahal?", "assistant": "India", "source_file": "dolly.jsonl", "source_line": 1},
+            {"user": "Capital question one.", "assistant": "yes", "source_file": "dolly.jsonl", "source_line": 2},
+            {"user": "Unanswerable kept.", "assistant": "The text doesn't say.", "source_file": "squad.jsonl", "source_line": 3},
+        ])
+        dump(va, [
+            {"user": "Which country is the Taj Mahal in?", "assistant": "India", "source_file": "dolly.jsonl", "source_line": 4},
+            {"user": "Capital question two.", "assistant": "yes", "source_file": "dolly.jsonl", "source_line": 5},
+        ])
+        ok = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
+        assert ok.returncode == 0, ok.stdout + ok.stderr
+        assert "unique_shared" in ok.stdout or "train_val_assistant_overlap 2" in ok.stdout
+        audit_ok, problems = assistant_audit(read_jsonl(tr), read_jsonl(va))
+        assert audit_ok["unique_shared"] == 2
+        assert audit_ok["shared_rows_train"] == 2 and audit_ok["shared_rows_val"] == 2
+        assert problems == []
+        assert {item["assistant_norm"] for item in audit_ok["short_answer_exceptions"]} == {"india", "yes"}
+        dump(va, read_jsonl(va) + [{"user": "Another passage question.", "assistant": "The text doesn't say.", "source_file": "squad.jsonl", "source_line": 9}])
+        bad = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
+        assert bad.returncode == 2 and "unanswerable template" in bad.stdout
+        dump(tr, [{"user": f"repeat long {i}", "assistant": "This answer is a long shared sentence about bridges.", "source_file": "s.jsonl", "source_line": i} for i in range(2)])
+        dump(va, [{"user": "different val question about cloth", "assistant": "Cloth note.", "source_file": "s.jsonl", "source_line": 8}])
+        bad2 = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
+        assert bad2.returncode == 2 and "substantial" in bad2.stdout
+    frozen = load_frozen([HERE / "fixtures" / "general-v1.json", HERE / "fixtures" / "general-v2.json"])
+    user = "Good morning in Spanish, plus zebra quartz."
+    hit = clone_match(user, frozen)
+    assert hit["matched_frozen_id"] == "g14" and hit["reason"] == "jaccard" and hit["similarity"] == 0.5
+    old_stop = set(STOP) - {
+        "words", "word", "list", "separated", "commas", "translate", "english", "phrase",
+        "translation", "should", "receive", "pay", "cost", "costs", "dollar", "dollars",
+        "bill", "together", "more", "less",
+    }
+
+    def old_tokens(text: str) -> set[str]:
+        import re
+        return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in old_stop}
+
+    entry = next(item for item in frozen if item["id"] == "g14")
+    assert jaccard(old_tokens(user), old_tokens(frozen_text("g14"))) < 0.5
+    assert jaccard(content_tokens(user), entry["tokens"]) >= 0.5
+
+
+def frozen_text(ident: str) -> str:
+    doc = json.loads((HERE / "fixtures" / "general-v1.json").read_text())
+    return next(p["text"] for p in doc["prompts"] if p["id"] == ident)
+
+
+def pack_cases() -> None:
+    from pack_rows import EOT, PAD, ASSISTANT, pack_row
+    def encode(text: str) -> list[int]:
+        return [10 + (ord(ch) % 40) for ch in text]
+    short = pack_row(encode, {"system": "S", "user": "Hello there", "assistant": "Hi"}, ctx=64)
+    assert short["status"] == "ok" and short["truncated_tokens"] == 0
+    assert len(short["ids"]) == 64 and short["ids"][0] == 4
+    assert sum(short["mask"]) == short["supervised_tokens"]
+    assert short["ids"][short["prompt_tokens"] + short["supervised_tokens"] - 1] == EOT
+    assert all(token == PAD for token in short["ids"][short["prompt_tokens"] + short["supervised_tokens"]:])
+    assert all(bit == 0 for bit in short["mask"][:short["prompt_tokens"]])
+    too_long = pack_row(encode, {"system": "S", "user": "U" * 40, "assistant": "A" * 10}, ctx=16)
+    assert too_long["status"] == "reject" and too_long["reason"] == "prompt_exceeds_context"
+    assert too_long["ids"] == [] and too_long["mask"] == []
+    truncated = pack_row(encode, {"system": "S", "user": "Hi", "assistant": "A" * 100}, ctx=32)
+    assert truncated["status"] == "ok" and truncated["truncated_tokens"] > 0
+    assert len(truncated["ids"]) == 32
+    body_end = truncated["prompt_tokens"] + truncated["supervised_tokens"]
+    assert truncated["ids"][body_end - 1] == EOT
+    assert truncated["ids"][truncated["prompt_tokens"]] != ASSISTANT
+    assert truncated["prompt_tokens"] < 32
+    assert truncated["truncated_tokens"] + truncated["supervised_tokens"] - 1 == 100
 
 
 if __name__ == "__main__":
