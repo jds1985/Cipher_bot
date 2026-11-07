@@ -3,6 +3,17 @@
 {"messages": [{"role": "user", "content": "As an AI language model I refuse."}, {"role": "assistant", "content": "I cannot."}]}
 {"messages": [{"role": "user", "content": "Same dolly question about brass hinges."}, {"role": "assistant", "content": "Brass hinges turn."}]}
 {"messages": [{"role": "user", "content": "Same dolly question about brass hinges."}, {"role": "assistant", "content": "Duplicate must drop."}]}
+{"messages": [{"role": "user", "content": "Good morning in Spanish, plus zebra quartz."}, {"role": "assistant", "content": "Hola."}]}
+{"messages": [{"role": "user", "content": "Where was the first automobile workshop?"}, {"role": "assistant", "content": "Karl Benz"}]}
+{"messages": [{"role": "user", "content": "Name the person who built the first car."}, {"role": "assistant", "content": "Karl Benz"}]}
+{"messages": [{"role": "user", "content": "Which country has New Delhi as its capital?"}, {"role": "assistant", "content": "India"}]}
+{"messages": [{"role": "user", "content": "Name the country whose capital is New Delhi."}, {"role": "assistant", "content": "India"}]}
+{"messages": [{"role": "user", "content": "Which country is Tokyo in?"}, {"role": "assistant", "content": "Japan"}]}
+{"messages": [{"role": "user", "content": "Tokyo is the capital of which country?"}, {"role": "assistant", "content": "Japan"}]}
+{"messages": [{"role": "user", "content": "Is water wet? Reply with one word."}, {"role": "assistant", "content": "yes"}]}
+{"messages": [{"role": "user", "content": "Does ice float? Reply with one word."}, {"role": "assistant", "content": "yes"}]}
+{"messages": [{"role": "user", "content": "Describe the museum opening in one sentence."}, {"role": "assistant", "content": "The museum opened beside the river in eighteen twenty."}]}
+{"messages": [{"role": "user", "content": "When did that riverside museum first open to visitors?"}, {"role": "assistant", "content": "The museum opened beside the river in eighteen twenty."}]}
 {"messages": [{"role": "user", "content": "Dolly unique question number 0 about gardens."}, {"role": "assistant", "content": "Garden note 0."}]}
 {"messages": [{"role": "user", "content": "Dolly unique question number 1 about gardens."}, {"role": "assistant", "content": "Garden note 1."}]}
 {"messages": [{"role": "user", "content": "Dolly unique question number 2 about gardens."}, {"role": "assistant", "content": "Garden note 2."}]}

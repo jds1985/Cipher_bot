@@ -10,3 +10,4 @@
 {"messages": [{"role": "user", "content": "OASST question 9 about rivers."}, {"role": "assistant", "content": "River note 9."}]}
 {"messages": [{"role": "user", "content": "OASST question 10 about rivers."}, {"role": "assistant", "content": "River note 10."}]}
 {"messages": [{"role": "user", "content": "OASST question 11 about rivers."}, {"role": "assistant", "content": "River note 11."}]}
+{"messages": [{"role": "user", "content": "OASST separator question about rivers and stones."}, {"role": "assistant", "content": "A stone still one answer"}]}

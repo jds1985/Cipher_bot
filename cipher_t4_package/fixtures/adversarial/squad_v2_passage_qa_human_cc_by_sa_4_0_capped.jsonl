@@ -10,3 +10,39 @@
 {"messages": [{"role": "user", "content": "SQuAD passage question 9 about bridges."}, {"role": "assistant", "content": "Bridge note 9."}]}
 {"messages": [{"role": "user", "content": "SQuAD passage question 10 about bridges."}, {"role": "assistant", "content": "Bridge note 10."}]}
 {"messages": [{"role": "user", "content": "SQuAD passage question 11 about bridges."}, {"role": "assistant", "content": "Bridge note 11."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 0 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 1 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 2 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 3 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 4 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 5 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 6 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 7 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 8 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 9 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 10 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 11 about missing dates."}, {"role": "assistant", "content": "The text doesn't say."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 0 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 1 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 2 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 3 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 4 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 5 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 6 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 7 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 8 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 9 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 10 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 11 about missing names."}, {"role": "assistant", "content": "The passage doesn't contain the answer to that."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 0 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 1 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 2 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 3 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 4 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 5 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 6 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 7 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 8 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 9 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 10 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
+{"messages": [{"role": "user", "content": "SQuAD unanswerable case 11 about missing places."}, {"role": "assistant", "content": "I can't tell from the text."}]}
