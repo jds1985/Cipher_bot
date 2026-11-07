@@ -1,0 +1,60 @@
+{
+  "id": "general-v1",
+  "experimental": true,
+  "notReadyToMerge": true,
+  "model": {
+    "key": "targeted",
+    "url": "models/cipher2m_concierge_targeted.ctern",
+    "size": 144672788,
+    "sha256": "13790c5a9d76d9ce226181d75840bfbb92e32ab1fa66722975ef401f5571c1d6",
+    "label": "Targeted Cipher 369M"
+  },
+  "system": "You are Cipher, a helpful assistant. Answer the user clearly and accurately. If you do not know, say so.",
+  "settings": {
+    "ctx": 512,
+    "temp": 0.3,
+    "rep": 1.15,
+    "topP": 1,
+    "greedy": false,
+    "seed": 0,
+    "maxNew": 128,
+    "resetPerPrompt": true
+  },
+  "rubric": {
+    "appliesTo": "raw model text only",
+    "hotelGuard": "Recorded only as a side note. It is not a score of general correctness and must not replace the raw text.",
+    "doNotSubstituteStoredAnswers": true,
+    "labels": {
+      "full": "The raw text does what the prompt asked, including the supplied paragraph when there is one.",
+      "partial": "On topic but incomplete or only partly following the instruction.",
+      "wrong": "A clear factual or arithmetic mistake, or a contradiction of the supplied paragraph.",
+      "uncertain": "The prompt asked about an unknown or future fact and the raw text says it does not know, without inventing a figure.",
+      "instruction_miss": "The raw text ignores a format constraint such as exact word count or commas only.",
+      "truncated": "Generation stopped at maxNew tokens or the user pressed stop.",
+      "empty": "No generated text.",
+      "error": "The runtime threw before a completed answer."
+    }
+  },
+  "prompts": [
+    { "id": "g01", "family": "knowledge", "text": "What is the capital of France?" },
+    { "id": "g02", "family": "knowledge", "text": "How many days are in a leap year?" },
+    { "id": "g03", "family": "knowledge", "text": "Which planet in our solar system is known for its prominent rings?" },
+    { "id": "g04", "family": "math", "text": "What is 17 times 6?" },
+    { "id": "g05", "family": "math", "text": "What is 100 divided by 4?" },
+    { "id": "g06", "family": "math", "text": "A notebook costs 8 dollars. You pay with a 20 dollar bill. How much change should you receive?" },
+    { "id": "g07", "family": "reasoning", "text": "All bloops are razzles. All razzles are lazzles. Are all bloops lazzles? Answer yes or no, then one sentence of reasoning." },
+    { "id": "g08", "family": "reasoning", "text": "A bat and a ball cost 1.10 dollars together. The bat costs 1.00 dollar more than the ball. How much does the ball cost?" },
+    { "id": "g09", "family": "explanation", "text": "Explain what a leap year is in two sentences." },
+    { "id": "g10", "family": "explanation", "text": "Why does ice float on liquid water? Use two or three sentences." },
+    { "id": "g11", "family": "explanation", "text": "In one sentence, what does a thermometer measure?" },
+    { "id": "g12", "family": "instruction", "text": "Reply with exactly these three words and nothing else: red blue green." },
+    { "id": "g13", "family": "instruction", "text": "List four prime numbers less than 20, separated by commas, and nothing else." },
+    { "id": "g14", "family": "instruction", "text": "Translate the English phrase good morning into Spanish. Reply with only the translation." },
+    { "id": "g15", "family": "comprehension", "text": "Read this paragraph and answer the question using only the paragraph. Paragraph: Maple & Rye is a bakery on Oak Street. It opens at 7:00 AM on weekdays and at 8:00 AM on Saturday. It is closed on Sunday. The baker is named Lina. Question: What time does Maple & Rye open on Saturday, and is it open on Sunday?" },
+    { "id": "g16", "family": "comprehension", "text": "Read this paragraph and answer the question. Paragraph: A blue notebook has 80 pages. Sam used 15 pages on Monday and 10 pages on Tuesday. He did not tear any pages out. Question: How many pages are still unused?" },
+    { "id": "g17", "family": "uncertainty", "text": "What is the exact number of people inside Paris at this minute? If you cannot know, say so and do not invent a figure." },
+    { "id": "g18", "family": "uncertainty", "text": "Who won the men's 100 meter final at the 2035 World Championships? If that event has not happened, say so." },
+    { "id": "g19", "family": "creative", "text": "Write a two-sentence story about a paper boat on a pond." },
+    { "id": "g20", "family": "creative", "text": "Tell a short clean joke about a pencil." }
+  ]
+}

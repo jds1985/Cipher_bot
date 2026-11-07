@@ -1,0 +1,7 @@
+{
+  "origin": "synthetic-original",
+  "license": "Original synthetic examples written for this repair. No external corpus, no scraped text, no third-party dataset, and no hotel rows.",
+  "external_data": [],
+  "answers": "Short school facts and instruction targets checked as simple stable knowledge. Not copies of general-v1 or general-v2 prompts.",
+  "not_a_general_engine": "Forty-eight rows and one epoch cannot install broad knowledge. SFTv3 was 3 of 20 fully correct on general-v1. This package is a bounded feasibility experiment."
+}

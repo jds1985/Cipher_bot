@@ -1,0 +1,20 @@
+{
+  "id": "jds1985/cipher-general-sft-v6",
+  "title": "Cipher general SFT private T4",
+  "code_file": "launch.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "jds1985/cipher-general-sft-v6-pack",
+    "jds1985/cipher-general-sft-v6-code",
+    "jds1985/cipher2m-sft-v3-model"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

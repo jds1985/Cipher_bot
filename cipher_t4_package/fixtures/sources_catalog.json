@@ -1,0 +1,74 @@
+{
+  "reviewed": "2026-11-06 card read, attached source_license_review.json",
+  "revision_of_local_files": "UNKNOWN",
+  "weights_clearance": "Not granted. ShareAlike datasets do not settle whether trained weights are adaptations.",
+  "excluded_pending_review": ["cnn_dailymail", "synthetic", "code-generated math other than GSM8K"],
+  "sources": [
+    {
+      "match": "dolly_15k",
+      "dataset_id": "databricks/databricks-dolly-15k",
+      "card_url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
+      "current_card_sha": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
+      "license": "CC-BY-SA-3.0",
+      "domain": "human_general",
+      "sharealike": true,
+      "attribution": "Databricks Dolly 15k. Some context is drawn from Wikipedia.",
+      "notice": "Derived redistributions of this data must stay under CC BY-SA 3.0 and attribute Databricks. Application of ShareAlike to trained weights is unresolved."
+    },
+    {
+      "match": "oasst2",
+      "dataset_id": "OpenAssistant/oasst2",
+      "card_url": "https://huggingface.co/datasets/OpenAssistant/oasst2",
+      "current_card_sha": "179dd21fc55192153d94adb0e0ce8f69e222bf75",
+      "license": "Apache-2.0",
+      "domain": "human_general",
+      "sharealike": false,
+      "attribution": "OpenAssistant OASST2 conversations.",
+      "notice": "Keep the Apache-2.0 license and NOTICE. Do not relabel these rows."
+    },
+    {
+      "match": "aya_dataset",
+      "dataset_id": "CohereLabs/aya_dataset",
+      "card_url": "https://huggingface.co/datasets/CohereLabs/aya_dataset",
+      "current_card_sha": "f9ea04583f02a8f86404ff6c58bf75fe637df8a2",
+      "license": "Apache-2.0",
+      "domain": "human_general",
+      "sharealike": false,
+      "attribution": "Cohere For AI / CohereLabs Aya dataset, English original annotations.",
+      "notice": "Keep Apache-2.0 attribution. Former id CohereForAI/aya_dataset."
+    },
+    {
+      "match": "squad_v2",
+      "dataset_id": "rajpurkar/squad_v2",
+      "card_url": "https://huggingface.co/datasets/rajpurkar/squad_v2",
+      "current_card_sha": "3ffb306f725f7d2ce8394bc1873b24868140c412",
+      "license": "CC-BY-SA-4.0",
+      "domain": "human_general",
+      "sharealike": true,
+      "attribution": "SQuAD v2, Rajpurkar et al. Passages are Wikipedia text, also CC BY-SA.",
+      "notice": "Derived redistributions of these passages and answers must stay CC BY-SA 4.0. Application of ShareAlike to trained weights is unresolved."
+    },
+    {
+      "match": "mbpp",
+      "dataset_id": "google-research-datasets/mbpp",
+      "card_url": "https://huggingface.co/datasets/google-research-datasets/mbpp",
+      "current_card_sha": "4bb6404fdc6cacfda99d4ac4205087b89d32030c",
+      "license": "CC-BY-4.0",
+      "domain": "human_general",
+      "sharealike": false,
+      "attribution": "MBPP, Google Research.",
+      "notice": "Attribute Google Research. Do not relabel as MIT or Apache."
+    },
+    {
+      "match": "gsm8k",
+      "dataset_id": "openai/gsm8k",
+      "card_url": "https://huggingface.co/datasets/openai/gsm8k",
+      "current_card_sha": "740312add88f781978c0658806c59bc2815b9866",
+      "license": "MIT",
+      "domain": "math",
+      "sharealike": false,
+      "attribution": "GSM8K, Cobbe et al. / OpenAI.",
+      "notice": "Include the MIT copyright and permission notice with these rows. Do not relabel."
+    }
+  ]
+}

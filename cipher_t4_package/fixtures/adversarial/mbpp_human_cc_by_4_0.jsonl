@@ -1,0 +1,12 @@
+{"messages": [{"role": "user", "content": "MBPP task 0 write a function."}, {"role": "assistant", "content": "def f0():\n    return 0"}]}
+{"messages": [{"role": "user", "content": "MBPP task 1 write a function."}, {"role": "assistant", "content": "def f1():\n    return 1"}]}
+{"messages": [{"role": "user", "content": "MBPP task 2 write a function."}, {"role": "assistant", "content": "def f2():\n    return 2"}]}
+{"messages": [{"role": "user", "content": "MBPP task 3 write a function."}, {"role": "assistant", "content": "def f3():\n    return 3"}]}
+{"messages": [{"role": "user", "content": "MBPP task 4 write a function."}, {"role": "assistant", "content": "def f4():\n    return 4"}]}
+{"messages": [{"role": "user", "content": "MBPP task 5 write a function."}, {"role": "assistant", "content": "def f5():\n    return 5"}]}
+{"messages": [{"role": "user", "content": "MBPP task 6 write a function."}, {"role": "assistant", "content": "def f6():\n    return 6"}]}
+{"messages": [{"role": "user", "content": "MBPP task 7 write a function."}, {"role": "assistant", "content": "def f7():\n    return 7"}]}
+{"messages": [{"role": "user", "content": "MBPP task 8 write a function."}, {"role": "assistant", "content": "def f8():\n    return 8"}]}
+{"messages": [{"role": "user", "content": "MBPP task 9 write a function."}, {"role": "assistant", "content": "def f9():\n    return 9"}]}
+{"messages": [{"role": "user", "content": "MBPP task 10 write a function."}, {"role": "assistant", "content": "def f10():\n    return 10"}]}
+{"messages": [{"role": "user", "content": "MBPP task 11 write a function."}, {"role": "assistant", "content": "def f11():\n    return 11"}]}
