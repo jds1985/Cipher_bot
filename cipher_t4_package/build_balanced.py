@@ -45,7 +45,7 @@ PROBLEM = re.compile(
     r"as an ai language model|chatgpt|openai|claude|anthropic|\bjailbreak\b|front desk|call 911|on file for this hotel",
     re.I,
 )
-STAGES = ("load", "lexical", "user_dedup", "context", "answer_policy", "loss_token_cap", "val_overlap")
+STAGES = ("load", "lexical", "user_dedup", "context", "answer_policy", "loss_token_cap", "val_overlap", "train_loss_cap")
 
 
 def catalog_for(path: Path) -> dict | None:
@@ -381,6 +381,15 @@ def main() -> int:
         item["stage"] = "val_overlap"
         item["kind"] = "filter"
     drops.extend(val_dropped)
+    train_before_cap = loss_snapshot(train)
+    train, train_cap_drops, train_cap_report = cap_loss_tokens(train, args.seed)
+    if train_cap_report["unresolved_sources"]:
+        print("train_loss_share_unresolved", " ".join(train_cap_report["unresolved_sources"]))
+        return 2
+    for item in train_cap_drops:
+        item["stage"] = "train_loss_cap"
+        item["reason"] = "train_loss_share"
+    drops.extend(train_cap_drops)
     train.sort(key=lambda row: (row["source_file"], row["source_line"]))
     val.sort(key=lambda row: (row["source_file"], row["source_line"]))
     drops.sort(key=lambda item: (item.get("source_file") or "", item.get("source_line") or 0, item.get("reason") or ""))
@@ -409,7 +418,9 @@ def main() -> int:
     report["answer_policy"] = answer_impact
     report["loss_tokens_before_cap"] = before_loss
     report["loss_tokens_after_cap"] = after_loss
+    report["loss_tokens_train_before_post_split_cap"] = train_before_cap
     report["loss_tokens_train"] = loss_snapshot(train)
+    report["train_loss_cap"] = train_cap_report
     report["loss_balance"] = loss_report
     report["row_share_cap"] = "not applied"
     report["math_row_fraction"] = "not applied"

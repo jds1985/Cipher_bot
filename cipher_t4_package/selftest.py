@@ -175,6 +175,9 @@ def main() -> int:
     pack_cases()
     loss_cap_keeps_hash_order()
     proportional_fixture()
+    smoke = subprocess.run([sys.executable, str(HERE / "smoke_cpu.py")], text=True, capture_output=True)
+    assert smoke.returncode == 0, smoke.stdout + smoke.stderr
+    assert "smoke_ok" in smoke.stdout and "not_a_candidate" in smoke.stdout
     print("package selftest ok", "train", len(train), "val", len(val))
     return 0
 
@@ -245,9 +248,9 @@ def scale_and_gate() -> None:
         def dump(path, rows):
             path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         dump(tr, [
-            {"user": "Where is the Taj Mahal?", "assistant": "India", "source_file": "dolly.jsonl", "source_line": 1},
-            {"user": "Capital question one.", "assistant": "yes", "source_file": "dolly.jsonl", "source_line": 2},
-            {"user": "Unanswerable kept.", "assistant": "The text doesn't say.", "source_file": "squad.jsonl", "source_line": 3},
+            {"user": "Where is the Taj Mahal?", "assistant": "India", "source_file": "dolly.jsonl", "source_line": 1, "loss_tokens": 10},
+            {"user": "Capital question one.", "assistant": "yes", "source_file": "aya.jsonl", "source_line": 2, "loss_tokens": 10},
+            {"user": "Unanswerable kept.", "assistant": "The text doesn't say.", "source_file": "squad.jsonl", "source_line": 3, "loss_tokens": 10},
         ])
         dump(va, [
             {"user": "Which country is the Taj Mahal in?", "assistant": "India", "source_file": "dolly.jsonl", "source_line": 4},
@@ -264,10 +267,24 @@ def scale_and_gate() -> None:
         dump(va, read_jsonl(va) + [{"user": "Another passage question.", "assistant": "The text doesn't say.", "source_file": "squad.jsonl", "source_line": 9}])
         bad = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
         assert bad.returncode == 2 and "unanswerable template" in bad.stdout
-        dump(tr, [{"user": f"repeat long {i}", "assistant": "This answer is a long shared sentence about bridges.", "source_file": "s.jsonl", "source_line": i} for i in range(2)])
+        dump(tr, [{"user": f"repeat long {i}", "assistant": "This answer is a long shared sentence about bridges.", "source_file": "s.jsonl", "source_line": i, "loss_tokens": 10} for i in range(2)])
         dump(va, [{"user": "different val question about cloth", "assistant": "Cloth note.", "source_file": "s.jsonl", "source_line": 8}])
         bad2 = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
         assert bad2.returncode == 2 and "substantial" in bad2.stdout
+        dump(tr, [
+            {"user": "oasst long one", "assistant": "A long answer about rivers and towns today.", "source_file": "oasst.jsonl", "source_line": 1, "loss_tokens": 401},
+            {"user": "other short one", "assistant": "Span 4.", "source_file": "squad.jsonl", "source_line": 2, "loss_tokens": 599},
+        ])
+        dump(va, [{"user": "val stays put", "assistant": "A different val sentence about cloth.", "source_file": "squad.jsonl", "source_line": 3, "loss_tokens": 10}])
+        over = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
+        assert over.returncode == 2 and "exceeds 40%" in over.stdout
+        dump(tr, [
+            {"user": "oasst exact cap", "assistant": "A long answer about rivers and towns today.", "source_file": "oasst.jsonl", "source_line": 1, "loss_tokens": 400},
+            {"user": "dolly exact cap", "assistant": "A medium answer about gardens and soil.", "source_file": "dolly.jsonl", "source_line": 2, "loss_tokens": 300},
+            {"user": "squad exact cap", "assistant": "Span 4.", "source_file": "squad.jsonl", "source_line": 3, "loss_tokens": 300},
+        ])
+        exact = subprocess.run([sys.executable, str(gate), "--train", str(tr), "--val", str(va), "--max-assistant-repeat", "1"], text=True, capture_output=True)
+        assert exact.returncode == 0, exact.stdout + exact.stderr
     frozen = load_frozen([HERE / "fixtures" / "general-v1.json", HERE / "fixtures" / "general-v2.json"])
     user = "Good morning in Spanish, plus zebra quartz."
     hit = clone_match(user, frozen)
@@ -322,8 +339,27 @@ def loss_cap_keeps_hash_order() -> None:
         if any(row["loss_tokens"] == 50 for row in kept_seed) and any(row["loss_tokens"] == 10 for row in dropped_seed):
             found = True
     assert found
+    post_train = [{"source_file": "oasst.jsonl", "source_line": i, "loss_tokens": 50} for i in range(1, 11)]
+    post_train += [{"source_file": "dolly.jsonl", "source_line": i, "loss_tokens": 20} for i in range(1, 11)]
+    post_train += [{"source_file": "squad.jsonl", "source_line": i, "loss_tokens": 20} for i in range(1, 11)]
+    post_val = [{"source_file": "oasst.jsonl", "source_line": 99, "loss_tokens": 50}]
+    kept_post, dropped_post, post_report = cap_loss_tokens(post_train, seed=20261107)
+    assert post_val[0]["source_line"] == 99 and post_report["unresolved_sources"] == []
+    assert dropped_post and all(item["source_file"] == "oasst.jsonl" for item in dropped_post)
+    post_total = sum(row["loss_tokens"] for row in kept_post)
+    post_oasst = sum(row["loss_tokens"] for row in kept_post if row["source_file"] == "oasst.jsonl")
+    assert post_oasst * 100 <= post_total * 40
     assert planned_steps(17057) == 533
     assert planned_steps(31) == 1
+    from plan import schedule
+    v5 = schedule(28582)
+    assert v5["epoch_steps"] == 893 and v5["planned_steps"] == 893
+    assert v5["partial_batch_rows"] == 6 and v5["rows_cut_by_step_cap"] == 0
+    assert v5["rows_unseen_if_plan_completes"] == 6
+    capped = schedule(30000)
+    assert capped["planned_steps"] == 900
+    assert capped["rows_unseen_if_plan_completes"] == capped["rows_cut_by_step_cap"] + capped["partial_batch_rows"]
+    assert capped["rows_cut_by_step_cap"] == (937 - 900) * 32
 
 
 def proportional_fixture() -> None:

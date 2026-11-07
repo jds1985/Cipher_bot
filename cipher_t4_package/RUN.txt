@@ -25,11 +25,17 @@ Training selection uses that file only to drop exact and near-clone prompts.
 
 4. Pack with the same tokenizer. Do this only after the real quality.json passes.
    python3 pack_rows.py --data out --tokenizer /path/to/tokenizer.json
-   Read out/pack_report.json. Rejected rows include source file and source line. truncated_answer_rows must be 0. context_drops repeats the build's overflow records. planned_steps is packed train rows // 32, at most 800. Generation context 512 is a separate condition from this pack.
+   Read out/pack_report.json. Rejected rows include source file and source line. truncated_answer_rows must be 0. context_drops repeats the build's overflow records. The schedule reports epoch steps, the partial batch that never fills a step, and any rows cut by the 900-step ceiling. Those are different counts. Generation context 512 is a separate condition from this pack.
+   The train split is capped again after the split. quality.json train loss shares must be at most 40%. The gate checks that. Val is left as the split wrote it.
 
-5. After the real reconcile, the token shares, and zero answer truncation all look right:
+5. Local trainer, after the real reconcile, the train token shares, and zero answer truncation look right:
    python3 train_t4.py --data out --base /workspace/cipher2_improve/kaggle_v3/out_v3/final/sft_model.pt --out run --launch
-   The launcher refuses a word-token fixture pack, a missing reconcile, or any truncated answer.
+   This starts the trainer in this environment. It does not submit a Kaggle kernel.
+   The step ceiling is 900, which covers one epoch of the v5 row count (893 steps). The old ceiling of 800 left 2982 rows unseen. Six packed rows remain outside every step because 28582 is not divisible by 32. That partial batch is reported on its own.
+   Validation during the run is 100 batches every 100 steps, spread across sources. A full validation runs before the first step, and at the end only if the 3 hour clock can cover it. The clock includes validation and checkpoints. On timeout the run saves best.pt and latest.pt.
+   illustrative_train_hours uses the old 3212 padded tokens/s figure for scheduled training tokens only. It is not a promise.
+
+6. Private free Kaggle T4, after the same review: read kaggle/KAGGLE.txt and run kaggle/launch.py with PARENT_REVIEWED=1. Internet off. Do not publish the checkpoint. Dolly and SQuAD ShareAlike do not clear distributed weights.
 
 Free T4 shape: batch 4, grad accum 8, one epoch, at most 800 steps, 3 hour guard.
 Measured earlier at this batch: about 3212 padded tokens/s and 11.5 GB.

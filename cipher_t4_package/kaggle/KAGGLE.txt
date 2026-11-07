@@ -1,0 +1,22 @@
+Private free Kaggle T4. No internet. No paid accelerator.
+
+train_t4.py --launch only starts the trainer where it is already running.
+It does not submit this kernel. The kernel entry is kaggle/launch.py.
+The notebook stays private. Set the accelerator to the free T4 in the Kaggle UI
+if kernel-metadata.json does not select it.
+
+Attach, without downloading anything new inside the notebook:
+
+- this package
+- the packed out directory from build_balanced.py and pack_rows.py
+- sft_model.pt (1474893963 bytes, sha256 7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9)
+- tokenizer.json whose sha256 matches reconcile.json
+
+Dolly CC BY-SA 3.0 and SQuAD CC BY-SA 4.0 do not clear the weights for distribution.
+A private run is the experiment. Do not publish the checkpoint from this notebook.
+
+After reading quality.json, reconcile.json, and pack_report.json, run with
+PARENT_REVIEWED=1. The trainer then uses one epoch up to 900 steps, 100
+validation batches every 100 steps, a full validation at the start and at the
+end only if the 3 hour clock can cover it, and it writes best.pt and latest.pt
+when the clock stops the run.

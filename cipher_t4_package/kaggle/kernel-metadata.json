@@ -1,0 +1,15 @@
+{
+  "id": "jds1985/cipher-general-sft-private-t4",
+  "title": "Cipher general SFT private T4",
+  "code_file": "launch.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

@@ -15,6 +15,8 @@ from collections import Counter
 from pathlib import Path
 
 from mix_rules import (
+    LOSS_SHARE_DENOMINATOR,
+    LOSS_SHARE_NUMERATOR,
     PER_TEMPLATE_CAP,
     SHORT_ANSWER_CAP,
     assistant_audit,
@@ -43,6 +45,25 @@ def load_rows(path: Path) -> list[dict]:
 
 def frozen_users(paths: list[Path]) -> set[str]:
     return {entry["norm"] for entry in load_frozen(paths)}
+
+
+def train_loss_problems(train: list[dict]) -> tuple[list[str], dict]:
+    """Hard cap on the train split. Val is not adjusted here."""
+    missing = [row for row in train if "loss_tokens" not in row]
+    if missing:
+        return [f"{len(missing)} train rows are missing loss_tokens"], {}
+    total = sum(int(row["loss_tokens"]) for row in train)
+    by = Counter()
+    for row in train:
+        by[row.get("source_file") or ""] += int(row["loss_tokens"])
+    shares = {}
+    problems = []
+    for source, tokens in sorted(by.items()):
+        share = (tokens / total) if total else 0.0
+        shares[source] = {"loss_tokens": tokens, "share": round(share, 6)}
+        if total and tokens * LOSS_SHARE_DENOMINATOR > total * LOSS_SHARE_NUMERATOR:
+            problems.append(f"train loss share {source} {tokens}/{total} exceeds 40%")
+    return problems, {"total_loss_tokens": total, "by_source": shares}
 
 
 def main() -> int:
@@ -74,6 +95,7 @@ def main() -> int:
                     **hit,
                 })
     audit, answer_problems = assistant_audit(train, val, args.max_assistant_repeat)
+    loss_problems, loss_report = train_loss_problems(train)
     repeats = Counter(norm(r["assistant"]) for r in train)
     worst = max(repeats.values()) if repeats else 0
     banned = [b.lower() for b in args.ban]
@@ -93,11 +115,13 @@ def main() -> int:
     print(f"frozen_prompt_hits {len(hit_frozen)}")
     print(f"lexical_clone_rows {len(lexical)}")
     print(f"banned_phrase_rows {ban_hits}")
+    print("train_loss_share " + json.dumps(loss_report, ensure_ascii=False))
     print("assistant_audit " + json.dumps(audit, ensure_ascii=False))
     for hit in lexical:
         print("lexical_clone " + json.dumps(hit, ensure_ascii=False))
     problems = []
     problems.extend(answer_problems)
+    problems.extend(loss_problems)
     if user_leak:
         problems.append(f"{len(user_leak)} val user strings are also in train")
     if hit_frozen:

@@ -17,7 +17,7 @@ import numpy as np
 from tokenizers import Tokenizer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from plan import planned_steps  # noqa: E402
+from plan import schedule  # noqa: E402
 
 EOT, PAD, USER, ASSISTANT, SYSTEM = 0, 1, 2, 3, 4
 CTX = 1024
@@ -129,6 +129,9 @@ def main() -> int:
         ms = [item["mask"] for item in kept_pack]
         np.asarray(xs, dtype=np.uint16).tofile(args.data / f"{split}_x.bin")
         np.asarray(ms, dtype=np.uint8).tofile(args.data / f"{split}_m.bin")
+        if split == "val":
+            sources = [item.get("source_file") for item in kept_pack]
+            (args.data / "val_sources.json").write_text(json.dumps(sources) + "\n", encoding="utf-8")
         by_source: dict = {}
         for item in kept_pack:
             slot = by_source.setdefault(item.get("source_file"), {"packed": 0, "loss_tokens": 0})
@@ -179,9 +182,10 @@ def main() -> int:
                     "ctx": item.get("ctx"),
                 })
     report["context_drops"] = context_drops
-    steps = planned_steps(report["train"]["packed"])
+    plan = schedule(report["train"]["packed"])
+    steps = plan["planned_steps"]
+    report["schedule"] = plan
     report["planned_steps"] = steps
-    report["unused_tail_rows"] = report["train"]["packed"] % 32
     report["identity_jsonl_equals_packed_plus_rejected"] = identity
     if not identity:
         print("pack_reconcile_fail")
@@ -200,8 +204,9 @@ def main() -> int:
     (args.data / "pack_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if quality:
         quality["planned_steps"] = steps
-        quality["unused_tail_rows"] = report["unused_tail_rows"]
+        quality["schedule"] = plan
         reconcile["packed_train"] = report["train"]["packed"]
+        reconcile["schedule"] = plan
         reconcile["packed_val"] = report["val"]["packed"]
         reconcile["pack_rejected_train"] = report["train"]["rejected"]
         reconcile["pack_rejected_val"] = report["val"]["rejected"]
