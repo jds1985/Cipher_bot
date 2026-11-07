@@ -1,0 +1,12 @@
+{"messages": [{"role": "user", "content": "GSM problem 0: 3 bags plus 0."}, {"role": "assistant", "content": "3"}]}
+{"messages": [{"role": "user", "content": "GSM problem 1: 3 bags plus 1."}, {"role": "assistant", "content": "4"}]}
+{"messages": [{"role": "user", "content": "GSM problem 2: 3 bags plus 2."}, {"role": "assistant", "content": "5"}]}
+{"messages": [{"role": "user", "content": "GSM problem 3: 3 bags plus 3."}, {"role": "assistant", "content": "6"}]}
+{"messages": [{"role": "user", "content": "GSM problem 4: 3 bags plus 4."}, {"role": "assistant", "content": "7"}]}
+{"messages": [{"role": "user", "content": "GSM problem 5: 3 bags plus 5."}, {"role": "assistant", "content": "8"}]}
+{"messages": [{"role": "user", "content": "GSM problem 6: 3 bags plus 6."}, {"role": "assistant", "content": "9"}]}
+{"messages": [{"role": "user", "content": "GSM problem 7: 3 bags plus 7."}, {"role": "assistant", "content": "10"}]}
+{"messages": [{"role": "user", "content": "GSM problem 8: 3 bags plus 8."}, {"role": "assistant", "content": "11"}]}
+{"messages": [{"role": "user", "content": "GSM problem 9: 3 bags plus 9."}, {"role": "assistant", "content": "12"}]}
+{"messages": [{"role": "user", "content": "GSM problem 10: 3 bags plus 10."}, {"role": "assistant", "content": "13"}]}
+{"messages": [{"role": "user", "content": "GSM problem 11: 3 bags plus 11."}, {"role": "assistant", "content": "14"}]}

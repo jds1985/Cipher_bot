@@ -1,0 +1,17 @@
+Source provenance for a possible later training mix. This file does not clear trained weights for distribution.
+
+Dolly rows, if included, stay CC BY-SA 3.0. Attribute Databricks. Some Dolly context is drawn from Wikipedia. ShareAlike applies to redistributed copies and derived datasets of that text. Whether a trained weight file is an adaptation is unresolved. Do not assert commercial clearance of weights.
+
+SQuAD v2 rows, if included, stay CC BY-SA 4.0. Attribute Rajpurkar et al. Passages are Wikipedia text and remain CC BY-SA. The same unresolved ShareAlike question applies to weights.
+
+OASST2 rows stay Apache-2.0. Keep that license and its NOTICE. Attribute OpenAssistant.
+
+Aya English original-annotation rows stay Apache-2.0. Attribute Cohere For AI / CohereLabs. Card id CohereLabs/aya_dataset, formerly CohereForAI/aya_dataset.
+
+MBPP rows stay CC BY 4.0. Attribute Google Research. Do not relabel them.
+
+GSM8K rows stay MIT. Include the MIT copyright and permission notice. Attribute Cobbe et al. / OpenAI.
+
+Local file revisions are UNKNOWN. Card shas in sources_catalog.json are the cards read on 2026-11-06, not proof of the downloaded revision.
+
+CNN/DailyMail and synthetic or code-generated math other than GSM8K are excluded until a separate review. Do not mix these licenses into one project license.
