@@ -16,6 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
+from disk_preflight import REAL_DISK_NEED, require_free  # noqa: E402
 from plan import MAX_STEPS, schedule  # noqa: E402
 BASE_SHA = "7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9"
 BASE_BYTES = 1474893963
@@ -69,8 +70,10 @@ def main() -> int:
     )
     print(f"illustrative_train_hours {plan['illustrative_train_hours']} prior_tok_s {plan['prior_padded_tokens_per_s']}")
     print(plan["estimate"])
+    print("best.pt uses one frozen source-round-robin subset, including step 0. Full validation is logged and is not compared to that subset.")
     print("interim validation is 100 batches every 100 steps. Full validation runs at the start, and at the end only if the clock can cover it.")
     print("this command starts the trainer here. It does not submit a Kaggle kernel.")
+    print(f"disk_need_bytes {REAL_DISK_NEED}")
     if not args.launch:
         print("not_launched review quality.json then pass --launch")
         return 0
@@ -79,6 +82,8 @@ def main() -> int:
         return 2
     if args.base.stat().st_size != BASE_BYTES or sha256(args.base) != BASE_SHA:
         print("base_refused")
+        return 2
+    if not require_free(args.out, REAL_DISK_NEED):
         return 2
     os.environ["SFT_MAX_STEPS_CAP"] = str(MAX_STEPS)
     sys.path.insert(0, str(HERE / "vendor"))

@@ -31,13 +31,14 @@ Training selection uses that file only to drop exact and near-clone prompts.
 5. Local trainer, after the real reconcile, the train token shares, and zero answer truncation look right:
    python3 train_t4.py --data out --base /workspace/cipher2_improve/kaggle_v3/out_v3/final/sft_model.pt --out run --launch
    This starts the trainer in this environment. It does not submit a Kaggle kernel.
-   The step ceiling is 900, which covers one epoch of the v5 row count (893 steps). The old ceiling of 800 left 2982 rows unseen. Six packed rows remain outside every step because 28582 is not divisible by 32. That partial batch is reported on its own.
-   Validation during the run is 100 batches every 100 steps, spread across sources. A full validation runs before the first step, and at the end only if the 3 hour clock can cover it. The clock includes validation and checkpoints. On timeout the run saves best.pt and latest.pt.
+   The step ceiling is 900 and the wall clock is 3 hours. The v6 pack is 28575 train rows: 892 steps, 31 rows in the partial batch, and those 31 are the only rows a finished plan does not update.
+   best.pt uses one frozen source-round-robin subset, including the step-0 base. The subset index list and its sha256 are written to val_subset.json before any comparison. Full validation is a separate log line and is not compared with the subset. If no later subset loss is lower, the base stays best.
+   The launcher refuses to start when the output disk has less than about 13 GiB free. Checkpoints are written to a temp file and renamed. A failed write deletes the temp file.
    illustrative_train_hours uses the old 3212 padded tokens/s figure for scheduled training tokens only. It is not a promise.
 
-6. Private free Kaggle T4, after the same review: read kaggle/KAGGLE.txt and run kaggle/launch.py with PARENT_REVIEWED=1. Internet off. Do not publish the checkpoint. Dolly and SQuAD ShareAlike do not clear distributed weights.
+6. Private free Kaggle T4: read kaggle/KAGGLE.txt. The entry is kaggle/launch.py. It does not read PARENT_REVIEWED. A review receipt with matching file hashes is required. Do not publish the dataset or the checkpoint. Dolly and SQuAD ShareAlike do not clear distributed weights.
 
-Free T4 shape: batch 4, grad accum 8, one epoch, at most 800 steps, 3 hour guard.
+Free T4 shape: batch 4, grad accum 8, one epoch, at most 900 steps, 3 hour guard.
 Measured earlier at this batch: about 3212 padded tokens/s and 11.5 GB.
 
 Greedy rep 1 on the 20 scored prompts: 15 token-identical. The other 5 are wrong on both sides. That supports a checkpoint problem on those items.

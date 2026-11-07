@@ -69,8 +69,16 @@ def main() -> int:
     reloaded = CipherTern(vocab, **config)
     reloaded.load_state_dict(ck["model"])
     log = (out / "log.csv").read_text(encoding="utf-8")
-    if "val_loss" not in log or log.count("\n") < 2:
+    subset = json.loads((out / "val_subset.json").read_text(encoding="utf-8"))
+    best_ck = torch.load(best, map_location="cpu", weights_only=True)
+    if "selection_loss" not in log or log.count("\n") < 2:
         print("smoke_missing_val")
+        return 2
+    if best_ck.get("selection_subset_sha256") != subset["sha256"]:
+        print("smoke_subset_mismatch")
+        return 2
+    if best_ck.get("best_step") not in (0, 2):
+        print("smoke_best_step", best_ck.get("best_step"))
         return 2
     print("smoke_ok steps 2 checkpoint_reloaded val_logged not_a_candidate")
     shutil.rmtree(root)

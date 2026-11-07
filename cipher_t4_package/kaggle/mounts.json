@@ -1,0 +1,16 @@
+{
+  "input_root": "/kaggle/input",
+  "code_dataset": "jds1985/cipher-general-sft-v6-code",
+  "code_mount": "cipher-general-sft-v6-code",
+  "pack_dataset": "jds1985/cipher-general-sft-v6-pack",
+  "pack_mount": "cipher-general-sft-v6-pack",
+  "model_source": "jds1985/cipher2m-sft-v3-model",
+  "model_mount": "cipher2m-sft-v3-model",
+  "model_file": "sft_model.pt",
+  "model_bytes": 1474893963,
+  "model_sha256": "7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9",
+  "machine_shape": "NvidiaTeslaT4",
+  "internet": false,
+  "private": true,
+  "dataset_sources_note": "cipher-general-sft-v6-pack is the private pack the parent staged. cipher-general-sft-v6-code is the private code asset staged from the package artifact. Neither slug is treated as already mounted until the files are found under /kaggle/input."
+}

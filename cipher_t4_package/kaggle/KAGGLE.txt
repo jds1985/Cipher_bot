@@ -1,22 +1,31 @@
-Private free Kaggle T4. No internet. No paid accelerator.
+Private free Kaggle T4. Internet off. GPU on. machine_shape NvidiaTeslaT4.
+No public dataset and no public weights.
 
 train_t4.py --launch only starts the trainer where it is already running.
 It does not submit this kernel. The kernel entry is kaggle/launch.py.
-The notebook stays private. Set the accelerator to the free T4 in the Kaggle UI
-if kernel-metadata.json does not select it.
+It locates the package at /kaggle/input/cipher-general-sft-v6-code and does not
+use the process working directory. A zip inside that mount is extracted locally.
 
-Attach, without downloading anything new inside the notebook:
+Kernel metadata sources, and no others:
+- dataset jds1985/cipher-general-sft-v6-pack
+- dataset jds1985/cipher-general-sft-v6-code
+- model jds1985/cipher2m-sft-v3-model
 
-- this package
-- the packed out directory from build_balanced.py and pack_rows.py
-- sft_model.pt (1474893963 bytes, sha256 7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9)
-- tokenizer.json whose sha256 matches reconcile.json
+The pack mount is the staged out directory: bins, meta, quality, reconcile,
+pack_report, val_sources, cipher2_tokenizer/tokenizer.json, and the license
+files. It must not contain held-out prompt text. The code mount is the package
+artifact with fixtures/ left out. Held-out files stay on the parent box.
 
-Dolly CC BY-SA 3.0 and SQuAD CC BY-SA 4.0 do not clear the weights for distribution.
-A private run is the experiment. Do not publish the checkpoint from this notebook.
+Kernel metadata cannot carry PARENT_REVIEWED, and the entry ignores that
+variable. After reviewing the mounted quality, reconcile, and pack report, run
+kaggle/write_review_receipt.py --pack <pack dir>. Put review_receipt.json in
+the pack. The entry checks reviewed true and the three file hashes. A missing
+or mismatched receipt does not train.
 
-After reading quality.json, reconcile.json, and pack_report.json, run with
-PARENT_REVIEWED=1. The trainer then uses one epoch up to 900 steps, 100
-validation batches every 100 steps, a full validation at the start and at the
-end only if the 3 hour clock can cover it, and it writes best.pt and latest.pt
-when the clock stops the run.
+Before training, the entry prints dependency versions, CUDA device count, and
+free disk. The disk floor is about 13 GiB for latest.pt, best.pt, and the
+atomic temp file. One CUDA device is required. Nothing is downloaded.
+
+best.pt is chosen only from one frozen round-robin subset, including the step-0
+base. A full validation number is printed and is not compared with the subset.
+The step ceiling stays 900 and the wall clock stays 3 hours.

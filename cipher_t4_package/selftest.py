@@ -178,6 +178,8 @@ def main() -> int:
     smoke = subprocess.run([sys.executable, str(HERE / "smoke_cpu.py")], text=True, capture_output=True)
     assert smoke.returncode == 0, smoke.stdout + smoke.stderr
     assert "smoke_ok" in smoke.stdout and "not_a_candidate" in smoke.stdout
+    assert "not_used_for_best" in smoke.stdout and "VAL_SUBSET frozen" in smoke.stdout
+    selection_and_kaggle()
     print("package selftest ok", "train", len(train), "val", len(val))
     return 0
 
@@ -443,6 +445,77 @@ def proportional_fixture() -> None:
         [sys.executable, str(HERE / "train_t4.py"), "--data", str(out), "--base", "missing.pt", "--out", str(out / "run")],
         text=True, capture_output=True)
     assert launch.returncode == 2 and "tokenizer_mode_refused" in launch.stdout + launch.stderr
+
+
+def selection_and_kaggle() -> None:
+    sys.path.insert(0, str(HERE / "lib"))
+    from disk_preflight import REAL_DISK_NEED, require_free
+    from val_subset import consider_best, round_robin_indices, subset_record
+    best = None
+    best, updated = consider_best(best, 0, 2.0)
+    assert updated and best["step"] == 0
+    best, updated = consider_best(best, 100, 2.5)
+    assert not updated and best["step"] == 0
+    best, updated = consider_best(best, 200, 0.5)
+    assert updated and best["step"] == 200
+    best, updated = consider_best(best, 300, 0.5)
+    assert not updated and best["step"] == 200
+    sources = ["squad"] * 3 + ["oasst"] * 3 + ["dolly"] * 3
+    ids = round_robin_indices(9, sources, 4)
+    assert ids == round_robin_indices(9, sources, 4)
+    assert subset_record(ids)["sha256"] == subset_record(ids)["sha256"]
+    assert require_free(HERE, 1) and not require_free(HERE, 10 ** 18)
+    assert REAL_DISK_NEED >= 13 * (1024 ** 3)
+    meta = json.loads((HERE / "kaggle" / "kernel-metadata.json").read_text())
+    assert meta["is_private"] is True and meta["enable_internet"] is False
+    assert meta["enable_gpu"] is True and meta["machine_shape"] == "NvidiaTeslaT4"
+    assert meta["dataset_sources"] == [
+        "jds1985/cipher-general-sft-v6-pack",
+        "jds1985/cipher-general-sft-v6-code",
+    ]
+    assert meta["model_sources"] == ["jds1985/cipher2m-sft-v3-model"]
+    launch_text = (HERE / "kaggle" / "launch.py").read_text()
+    assert "os.environ.pop(\"PARENT_REVIEWED\"" in launch_text
+    assert "fixtures" not in launch_text
+    import os
+    import zipfile
+    import tempfile
+    sys.path.insert(0, str(HERE / "kaggle"))
+    from launch import CODE_MOUNT, MODEL_MOUNT, PACK_MOUNT, assess, find_named, main as launch_main
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "input"
+        os.environ["KAGGLE_INPUT_ROOT"] = str(root)
+        os.environ["KAGGLE_WORKING"] = str(Path(tmp) / "work")
+        code = root / CODE_MOUNT / "cipher_t4_package"
+        code.mkdir(parents=True)
+        (code / "train_t4.py").write_text("print('package')\n", encoding="utf-8")
+        pack = root / PACK_MOUNT
+        pack.mkdir()
+        (pack / "train_x.bin").write_bytes(b"bin")
+        (pack / "quality.json").write_text('{"gate": "ok"}\n', encoding="utf-8")
+        (pack / "reconcile.json").write_text('{"identity_ok": true}\n', encoding="utf-8")
+        (pack / "pack_report.json").write_text('{"planned_steps": 892}\n', encoding="utf-8")
+        model = root / MODEL_MOUNT
+        model.mkdir()
+        (model / "sft_model.pt").write_bytes(b"pt")
+        found = assess(root)
+        assert found["train_t4"] and found["train_x"] and found["model"]
+        assert found["receipt"] == "review_receipt_missing"
+        assert launch_main() == 2
+        zroot = Path(tmp) / "zip_input" / CODE_MOUNT
+        zroot.mkdir(parents=True)
+        with zipfile.ZipFile(zroot / "code.zip", "w") as handle:
+            handle.writestr("cipher_t4_package/train_t4.py", "print('zip')\n")
+        hit = find_named(zroot, "train_t4.py")
+        assert hit and hit.is_file()
+        os.environ.pop("KAGGLE_INPUT_ROOT", None)
+        os.environ.pop("KAGGLE_WORKING", None)
+    staged = Path(tempfile.mkdtemp()) / "code.zip"
+    proc = subprocess.run([sys.executable, str(HERE / "kaggle" / "stage_code_asset.py"), "--out", str(staged)], text=True)
+    assert proc.returncode == 0, proc.stderr
+    names = zipfile.ZipFile(staged).namelist()
+    assert not any("general-v1.json" in name or "general-v2.json" in name or name.startswith("cipher_t4_package/fixtures/") for name in names)
+    assert any(name.endswith("kaggle/launch.py") for name in names)
 
 
 def pack_cases() -> None:

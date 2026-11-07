@@ -8,9 +8,13 @@ Start: model weights from the pretraining checkpoint (latest.pt['model']); optim
 and resume restores model/opt/sched/scaler/step. Data order is a pure function of (seed, step), so a resumed run sees exactly the rows it would have seen.
 A wall-clock guard checkpoints and exits cleanly. ON_SAVE is the same hook train.py has (used by colab_sft.py to copy to Drive / Kaggle)."""
 import argparse, csv, glob, json, math, os, shutil, sys, time
+from pathlib import Path
 import numpy as np, torch, torch.nn.functional as F
 from model import CipherTern, count_params
 from common import load_tokenizer
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from disk_preflight import REAL_DISK_NEED, require_free  # noqa: E402
+from val_subset import consider_best, round_robin_indices, subset_record  # noqa: E402
 
 DEFAULTS = dict(batch_size=4, grad_accum=8, grad_ckpt=False, lr=5e-5, min_lr_frac=0.1, warmup=30, epochs=1, max_steps=0, weight_decay=0.01, beta1=0.9, beta2=0.95, grad_clip=1.0,
                 seed=1337, eval_every=100, eval_batches=100, ckpt_every=100, keep_ckpts=1, ckpt_minutes=30.0, time_limit_h=3.0, amp=True, sample_tokens=120)
@@ -27,8 +31,24 @@ def parse():
         cfg[k] = (v.lower() in ("1", "true")) if isinstance(cfg[k], bool) else type(cfg[k])(v)
     return a, cfg
 
+def atomic_torch_save(obj, path: str) -> None:
+    tmp = path + ".tmp"
+    try:
+        torch.save(obj, tmp)
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def main():
     a, cfg = parse(); t_start = time.time(); dev = "cuda" if torch.cuda.is_available() else "cpu"
+    if os.environ.get("SFT_ALLOW_SMALL") != "1" and not require_free(Path(a.out), REAL_DISK_NEED):
+        sys.exit(2)
     cap = int(os.environ.get("SFT_MAX_STEPS_CAP", "0") or 0)
     if cap and cfg["max_steps"] > cap:
         print(f"clamping max_steps {cfg['max_steps']} to {cap}", flush=True)
@@ -117,25 +137,20 @@ def main():
             print("val_sources_ignored", flush=True)
     def seconds_left():
         return cfg["time_limit_h"] * 3600 - (time.time() - t_start)
-    def interim_ids():
-        want = max(1, cfg["eval_batches"] * B)
-        n = len(vax)
-        if val_sources:
-            buckets = {}
-            for i, name in enumerate(val_sources):
-                buckets.setdefault(str(name), []).append(i)
-            picked = []
-            keys = sorted(buckets)
-            while len(picked) < want and any(buckets[k] for k in keys):
-                for key in keys:
-                    if buckets[key]:
-                        picked.append(buckets[key].pop(0))
-                    if len(picked) >= want:
-                        break
-            return picked
-        if n <= want:
-            return list(range(n))
-        return [min(n - 1, int(i * n / want)) for i in range(want)]
+    want = max(1, cfg["eval_batches"] * B)
+    selection_ids = round_robin_indices(len(vax), val_sources, want)
+    selection = subset_record(selection_ids)
+    subset_sha = selection["sha256"]
+    os.makedirs(a.out, exist_ok=True)
+    subset_path = os.path.join(a.out, "val_subset.json")
+    prior_subset = os.path.join(a.data, "val_subset.json")
+    if os.path.exists(prior_subset):
+        prior = json.load(open(prior_subset))
+        if prior.get("sha256") != subset_sha or prior.get("indices") != selection_ids:
+            print("val_subset_mismatch")
+            sys.exit(2)
+    json.dump(selection, open(subset_path, "w"), indent=2)
+    print(f"VAL_SUBSET frozen count {selection['count']} sha256 {subset_sha}", flush=True)
     full_ids = list(range(len(vax)))
     @torch.no_grad()
     def evaluate(row_ids, label):
@@ -185,43 +200,71 @@ def main():
             if item["id"] == "p-format" and len(text.split()) > 8:
                 bits.append("RAMBLE")
         return " | ".join(bits)
-    best = {"loss": None, "step": 0}
+    best = None
     full_eval_s = None
-    def save(vl):
-        ck = dict(kind="sft", model=model.state_dict(), opt=opt.state_dict(), sched=sched.state_dict(), scaler=scaler.state_dict(), step=step, config=mcfg, sft_config=cfg, meta=meta, val_loss=vl)
-        p = os.path.join(ckdir, "latest.pt"); torch.save(ck, p + ".tmp"); os.replace(p + ".tmp", p)
-        if vl is not None and (best["loss"] is None or vl <= best["loss"]):
-            best["loss"] = vl; best["step"] = step
-            shutil.copyfile(p, os.path.join(ckdir, "best.pt"))
-            print(f"BEST step {step} val {vl:.4f}", flush=True)
-        if cfg["keep_ckpts"] > 1: shutil.copyfile(p, os.path.join(ckdir, f"step_{step:07d}.pt"))
-        for old in sorted(glob.glob(os.path.join(ckdir, "step_*.pt")))[:-cfg["keep_ckpts"]] if cfg["keep_ckpts"] > 1 else []: os.remove(old)
-        print(f"CHECKPOINT step {step} -> {p}", flush=True)
+    selection_loss = None
+    full_val_loss = None
+    def save(update_best: bool):
+        ck = dict(kind="sft", model=model.state_dict(), opt=opt.state_dict(), sched=sched.state_dict(), scaler=scaler.state_dict(), step=step, config=mcfg, sft_config=cfg, meta=meta, selection_loss=selection_loss, full_val_loss=full_val_loss, selection_subset_sha256=subset_sha, best_step=None if best is None else best["step"])
+        latest = os.path.join(ckdir, "latest.pt")
+        atomic_torch_save(ck, latest)
+        updated = False
+        if update_best:
+            new_best, updated = consider_best(best, step, selection_loss)
+            if updated:
+                prev = None if best is None else best["step"]
+                best_ck = dict(ck)
+                best_ck["best_step"] = step
+                atomic_torch_save(best_ck, os.path.join(ckdir, "best.pt"))
+                role = "base" if step == 0 else "update"
+                print(f"BEST step {step} subset_loss {selection_loss:.6f} subset_sha256 {subset_sha} role {role} replaces {prev}", flush=True)
+                nonlocal_best(new_best)
+            elif selection_loss is not None and best is not None:
+                print(f"BEST unchanged step {best['step']} subset_loss {best['subset_loss']:.6f} candidate_step {step} candidate_subset_loss {selection_loss:.6f} subset_sha256 {subset_sha}", flush=True)
+        if cfg["keep_ckpts"] > 1:
+            shutil.copyfile(latest, os.path.join(ckdir, f"step_{step:07d}.pt"))
+        for old in sorted(glob.glob(os.path.join(ckdir, "step_*.pt")))[:-cfg["keep_ckpts"]] if cfg["keep_ckpts"] > 1 else []:
+            os.remove(old)
+        print(f"CHECKPOINT step {step} -> {latest}", flush=True)
         if ON_SAVE: ON_SAVE()
-    def run_eval(kind):
-        nonlocal vl, full_eval_s
-        started = time.time()
-        score, _summary = evaluate(full_ids if kind == "full" else interim_ids(), kind)
-        if kind == "full" and score is not None:
-            full_eval_s = time.time() - started
+        return updated
+    def nonlocal_best(value):
+        nonlocal best
+        best = value
+    def run_selection():
+        nonlocal selection_loss
+        score, _summary = evaluate(selection_ids, "selection")
         if score is not None:
-            vl = score
+            selection_loss = score
+        return score
+    def run_full():
+        nonlocal full_val_loss, full_eval_s
+        started = time.time()
+        score, _summary = evaluate(full_ids, "full")
+        if score is None:
+            return None
+        full_eval_s = time.time() - started
+        full_val_loss = score
+        print(f"FULL_VAL step {step} loss {score:.6f} rows {len(full_ids)} not_used_for_best", flush=True)
         return score
     json.dump(cfg, open(os.path.join(a.out, "config.json"), "w"), indent=1)
     logf = open(os.path.join(a.out, "log.csv"), "a", newline=""); lw = csv.writer(logf)
-    if logf.tell() == 0: lw.writerow(["step", "lr", "train_loss", "val_loss", "tokens_per_s", "elapsed_s"])
-    model.train(); t0 = time.time(); toks = 0; vl = None; last_save = time.time(); stop_at = min(a.stop_at or S, S)
+    if logf.tell() == 0: lw.writerow(["step", "lr", "train_loss", "selection_loss", "full_val_loss", "tokens_per_s", "elapsed_s"])
+    model.train(); t0 = time.time(); toks = 0; last_save = time.time(); stop_at = min(a.stop_at or S, S)
     stopped_reason = "plan"
     if step == 0 and seconds_left() > 0:
-        score = run_eval("full")
+        score = run_selection()
         if score is not None:
-            print(f"EVAL step 0 (before SFT) val_masked_ce {score:.4f}", flush=True); lw.writerow([0, 0, "", score, 0, 0]); logf.flush()
-            save(vl)
+            print(f"EVAL step 0 selection subset_loss {score:.6f} subset_sha256 {subset_sha}", flush=True)
+        if seconds_left() > 0:
+            run_full()
+        lw.writerow([0, 0, "", selection_loss if selection_loss is not None else "", full_val_loss if full_val_loss is not None else "", 0, 0]); logf.flush()
+        save(update_best=True)
     while step < stop_at:
         if seconds_left() <= 0:
             stopped_reason = "timeout"
-            save(vl)
-            print("WALL-CLOCK GUARD: saved best and latest, stopping", flush=True)
+            save(update_best=False)
+            print("WALL-CLOCK GUARD: saved latest, best unchanged unless a finished subset score already won", flush=True)
             break
         ix = rows_for_step(step); ntok = int(sum(int(trm[i][1:].sum()) for i in ix)); acc = 0.0
         for k in range(GA):
@@ -234,30 +277,33 @@ def main():
         timed_out = seconds_left() <= 0
         if step % 10 == 0 or step == 1:
             el = time.time() - t_start
-            print(f"step {step} loss {acc:.4f} val {(f'{vl:.4f}' if vl is not None else '-')} lr {sched.get_last_lr()[0]:.2e} gnorm {float(gn):.2f} tok/s {toks/(time.time()-t0):,.0f} elapsed {el/3600:.2f}h", flush=True)
+            shown = f"{selection_loss:.4f}" if selection_loss is not None else "-"
+            print(f"step {step} loss {acc:.4f} selection {shown} lr {sched.get_last_lr()[0]:.2e} gnorm {float(gn):.2f} tok/s {toks/(time.time()-t0):,.0f} elapsed {el/3600:.2f}h", flush=True)
         if step % cfg["eval_every"] == 0 and step != stop_at and not timed_out:
-            score = run_eval("interim")
+            score = run_selection()
             if score is not None:
-                print(f"EVAL step {step} interim train {acc:.4f} val_masked_ce {score:.4f}", flush=True)
-                lw.writerow([step, sched.get_last_lr()[0], acc, score, round(toks / (time.time() - t0)), round(time.time() - t_start)]); logf.flush()
+                print(f"EVAL step {step} selection train {acc:.4f} subset_loss {score:.6f}", flush=True)
+                lw.writerow([step, sched.get_last_lr()[0], acc, score, "", round(toks / (time.time() - t0)), round(time.time() - t_start)]); logf.flush()
+                save(update_best=True); last_save = time.time()
         if step == stop_at or timed_out:
             if timed_out:
-                print("WALL-CLOCK GUARD: saving without another full validation", flush=True)
+                print("WALL-CLOCK GUARD: subset score only if it finishes, full validation is not required", flush=True)
                 stopped_reason = "timeout"
+                if seconds_left() > 0:
+                    run_selection()
             else:
+                run_selection()
                 need = 30.0 if full_eval_s is None else max(30.0, full_eval_s * 1.5)
-                kind = "full" if seconds_left() > need else "interim"
-                if kind == "interim":
+                if seconds_left() > need:
+                    run_full()
+                else:
                     print("END full validation skipped because the clock would not cover it", flush=True)
-                score = run_eval(kind)
-                if score is not None:
-                    print(f"EVAL step {step} {kind} train {acc:.4f} val_masked_ce {score:.4f}", flush=True)
-                    lw.writerow([step, sched.get_last_lr()[0], acc, score, round(toks / (time.time() - t0)), round(time.time() - t_start)]); logf.flush()
-            save(vl); last_save = time.time()
+                lw.writerow([step, sched.get_last_lr()[0], acc, selection_loss if selection_loss is not None else "", full_val_loss if full_val_loss is not None else "", round(toks / (time.time() - t0)), round(time.time() - t_start)]); logf.flush()
+            save(update_best=not timed_out or selection_loss is not None); last_save = time.time()
             if stopped_reason == "timeout":
                 break
         elif step % cfg["ckpt_every"] == 0 or time.time() - last_save > cfg["ckpt_minutes"] * 60:
-            save(vl); last_save = time.time()
+            save(update_best=False); last_save = time.time()
             probed = sample(); print("SAMPLE:", repr(probed), flush=True)
             if "HOTEL_TEMPLATE" in probed or "RAMBLE" in probed:
                 print("PROBE STOP: hotel template or ramble", flush=True); stopped_reason = "probe"; break
