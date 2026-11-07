@@ -40,14 +40,26 @@ def main() -> int:
     args = ap.parse_args()
     tok = Tokenizer.from_file(str(args.tokenizer))
     for split in ("train", "val"):
-        rows = [json.loads(line) for line in (args.data / f"{split}.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+        text = (args.data / f"{split}.jsonl").read_bytes().decode("utf-8")
+        rows = []
+        for line in text.split("\n"):
+            if line.endswith("\r"):
+                line = line[:-1]
+            if line.strip():
+                rows.append(json.loads(line))
         xs, ms = zip(*(encode_row(tok, row) for row in rows))
         np.asarray(xs, dtype=np.uint16).tofile(args.data / f"{split}_x.bin")
         np.asarray(ms, dtype=np.uint8).tofile(args.data / f"{split}_m.bin")
         print(split, len(rows), "masked", int(np.asarray(ms).sum()))
     meta = {"ctx": CTX, "vocab_size": 32000, "n_train": None, "n_val": None, "origin": "catalogued sources, licenses not merged"}
-    meta["n_train"] = sum(1 for line in (args.data / "train.jsonl").read_text().splitlines() if line.strip())
-    meta["n_val"] = sum(1 for line in (args.data / "val.jsonl").read_text().splitlines() if line.strip())
+    def count(path: Path) -> int:
+        n = 0
+        for line in path.read_bytes().decode("utf-8").split("\n"):
+            if line.strip():
+                n += 1
+        return n
+    meta["n_train"] = count(args.data / "train.jsonl")
+    meta["n_val"] = count(args.data / "val.jsonl")
     (args.data / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     return 0
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -78,6 +79,33 @@ def main() -> int:
          str(HERE / "eval" / "greedy_chat.c"), str(HERE / "runtime" / "cipher.c"), "-lm", "-lpthread"],
         capture_output=True, text=True)
     assert cc.returncode == 0, cc.stderr
+    held_sha = (HERE / "fixtures" / "general-v2.sha256").read_text().split()[0]
+    embedded = "keep\u2028me\u2029together"
+    sample = ADV / "line_separators.jsonl"
+    raw = (
+        '{"messages":[{"role":"user","content":"' + embedded + '"},{"role":"assistant","content":"still one row"}]}'
+        + "\n"
+        + '{"messages":[{"role":"user","content":"controls \\u000b\\u000c\\u001c\\u001d\\u001e\\u0085"},{"role":"assistant","content":"ok"}]}'
+        + "\n"
+    )
+    sample.write_bytes(raw.encode("utf-8"))
+    from build_balanced import jsonl_records
+    recs = list(jsonl_records(sample))
+    assert len(recs) == 2, len(recs)
+    assert json.loads(recs[0])["messages"][0]["content"] == embedded
+    controls = json.loads(recs[1])["messages"][0]["content"]
+    assert controls == "controls \x0b\x0c\x1c\x1d\x1e\x85"
+    assert len(raw.splitlines()) > len(recs)
+    env = dict(**os.environ)
+    env["BASELINE_ARGV_ONLY"] = "1"
+    argv = subprocess.run(
+        [sys.executable, str(HERE / "eval" / "baseline_v2.py"),
+         "--pt", "sft_model.pt", "--tokenizer", "tokenizer.json", "--out", "baseline-v2.jsonl", "--ctx", "512"],
+        cwd=HERE, env=env, text=True, capture_output=True)
+    assert argv.returncode == 0, argv.stdout + argv.stderr
+    assert "--tokenizer" in argv.stdout and "tokenizer.json" in argv.stdout
+    assert "--ctx" in argv.stdout and "512" in argv.stdout
+    assert held_sha == "3c15169dfd848b57209b71813f75f972c74c35a0ce745c803376db33cb1323f9"
     print("package selftest ok", "train", len(train), "val", len(val), "dolly_share", round(dolly / (len(train)+len(val)), 3))
     return 0
 

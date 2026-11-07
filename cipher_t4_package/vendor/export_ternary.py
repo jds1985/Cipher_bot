@@ -42,7 +42,7 @@ def export(model, pack=False, fp16=False):
     return sd, manifest
 
 def load_export(path, device="cpu"):
-    blob = torch.load(path, map_location=device, weights_only=False)
+    blob = torch.load(path, map_location=device, weights_only=True)
     cfg, sd, man = blob["config"], blob["tensors"], blob["manifest"]
     model = CipherTern(blob["vocab_size"], **cfg).to(device)
     fp = {k: sd[k].float() if sd[k].is_floating_point() else sd[k] for k in man["fp_tensors"]}
@@ -58,7 +58,7 @@ def main():
     ap.add_argument("--ckpt", required=True); ap.add_argument("--out", default="export/cipher2")
     ap.add_argument("--pack2bit", action="store_true"); ap.add_argument("--fp16", action="store_true")
     a = ap.parse_args()
-    ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
+    ck = torch.load(a.ckpt, map_location="cpu", weights_only=True)
     cfg, V = ck["config"], ck["meta"]["vocab_size"]
     model = CipherTern(V, **cfg); model.load_state_dict(ck["model"]); model.eval()
     sd, man = export(model, a.pack2bit, a.fp16)

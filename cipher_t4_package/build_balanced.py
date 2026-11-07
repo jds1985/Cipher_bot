@@ -77,11 +77,21 @@ def catalog_for(path: Path) -> dict | None:
     return None
 
 
+def jsonl_records(path: Path):
+    """Yield JSONL records split only on \\n. U+2028 and the other splitlines() separators stay inside strings."""
+    text = path.read_bytes().decode("utf-8")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line.strip():
+            yield line
+
+
 def load_file(path: Path, src: dict, cap: int) -> list[dict]:
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
+    for line in jsonl_records(path):
         obj = json.loads(line)
         msgs = obj.get("messages")
         if not isinstance(msgs, list):

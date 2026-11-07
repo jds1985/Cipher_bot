@@ -1,0 +1,2 @@
+{"messages":[{"role":"user","content":"keep me together"},{"role":"assistant","content":"still one row"}]}
+{"messages":[{"role":"user","content":"controls \u000b\u000c\u001c\u001d\u001e\u0085"},{"role":"assistant","content":"ok"}]}

@@ -9,13 +9,22 @@ from __future__ import annotations
 
 import hashlib
 import json
-import runpy
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
 EXPECTED = "7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9"
 HELD = "3c15169dfd848b57209b71813f75f972c74c35a0ce745c803376db33cb1323f9"
+
+
+def fp32_argv(pt: str, ids: str, out: str, tokenizer: str, ctx: int, limit: int = 28) -> list[str]:
+    return [
+        sys.executable, str(HERE / "eval" / "fp32_greedy.py"),
+        "--pt", pt, "--ids", ids, "--out", out, "--tokenizer", tokenizer,
+        "--rep", "1", "--limit", str(limit), "--ctx", str(ctx), "--max-new", "128",
+    ]
 
 
 def main() -> int:
@@ -35,6 +44,7 @@ def main() -> int:
     tok_arg = None
     pt = None
     out = None
+    ctx = 512
     argv = sys.argv[1:]
     i = 0
     while i < len(argv):
@@ -47,12 +57,18 @@ def main() -> int:
         elif argv[i] == "--tokenizer":
             tok_arg = argv[i + 1]
             i += 2
+        elif argv[i] == "--ctx":
+            ctx = int(argv[i + 1])
+            i += 2
         else:
             print("unknown", argv[i])
             return 2
     if not pt or not out or not tok_arg:
         print("need --pt --tokenizer --out")
         return 2
+    if os.environ.get("BASELINE_ARGV_ONLY") == "1":
+        print("\n".join(fp32_argv(pt, "IDS", out, tok_arg, ctx)))
+        return 0
     tok = Tokenizer.from_file(tok_arg)
     enc = lambda text: tok.encode(text, add_special_tokens=False).ids
     lines = []
@@ -61,9 +77,8 @@ def main() -> int:
         lines.append(item["id"] + "\t" + ",".join(str(n) for n in ids))
     ids_path = Path(out).with_suffix(".ids.tsv")
     ids_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    sys.argv = ["fp32_greedy.py", "--pt", pt, "--ids", str(ids_path), "--out", out, "--rep", "1", "--limit", "28"]
-    runpy.run_path(str(HERE / "eval" / "fp32_greedy.py"), run_name="__main__")
-    return 0
+    cmd = fp32_argv(pt, str(ids_path), out, tok_arg, ctx)
+    raise SystemExit(subprocess.call(cmd))
 
 
 if __name__ == "__main__":

@@ -40,7 +40,11 @@ def main():
     if not cfg["max_steps"]: cfg["max_steps"] = max(1, spe * cfg["epochs"])
     S = cfg["max_steps"]; print(f"device {dev} | train rows {N:,} val rows {len(vax):,} | {per_step} rows/step ({per_step*T:,} tok) | {spe} steps/epoch | max_steps {S} (= {S*per_step/N:.2f} epochs)", flush=True)
     torch.manual_seed(cfg["seed"])
-    base = torch.load(a.base, map_location="cpu", weights_only=False)
+    try:
+        base = torch.load(a.base, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        print("weights_only_refused", type(exc).__name__, exc, flush=True)
+        sys.exit(2)
     mcfg = base["config"]; assert os.environ.get("SFT_ALLOW_SMALL") == "1" or (mcfg["d_model"] == 1024 and mcfg["n_layers"] == 24 and mcfg["max_len"] == 1024), f"base is not Cipher 2.0-M: {mcfg}"  # SFT_ALLOW_SMALL: tiny CPU code test only
     model = CipherTern(meta["vocab_size"], **mcfg).to(dev)
     print(f"base checkpoint {a.base}: pretrain step {base.get('step')} val_loss {base.get('val_loss')}", flush=True)
@@ -62,7 +66,11 @@ def main():
     ckdir = os.path.join(a.out, "ckpt"); os.makedirs(ckdir, exist_ok=True); step = 0
     for c in [os.path.join(ckdir, "latest.pt"), a.resume]:
         if c and os.path.exists(c):
-            ck = torch.load(c, map_location="cpu", weights_only=False)   # cpu first: optimizer state would double GPU memory
+            try:
+                ck = torch.load(c, map_location="cpu", weights_only=True)
+            except Exception as exc:
+                print("weights_only_refused", type(exc).__name__, exc, flush=True)
+                sys.exit(2)
             if ck.get("kind") != "sft": continue
             model.load_state_dict(ck["model"]); opt.load_state_dict(ck["opt"]); sched.load_state_dict(ck["sched"]); scaler.load_state_dict(ck["scaler"]); step = ck["step"]
             print(f"RESUMED SFT from {c} at step {step} (saved val {ck.get('val_loss')})", flush=True); break

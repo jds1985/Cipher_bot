@@ -33,6 +33,7 @@ def main() -> int:
     ap.add_argument("--rep", type=float, default=1.0)
     ap.add_argument("--max-new", type=int, default=128)
     ap.add_argument("--limit", type=int, default=28)
+    ap.add_argument("--ctx", type=int, default=512)
     args = ap.parse_args()
     if args.pt is None or not args.pt.is_file():
         print("pt_missing")
@@ -43,7 +44,11 @@ def main() -> int:
     import torch
     from tokenizers import Tokenizer
     from model import CipherTern
-    ck = torch.load(args.pt, map_location="cpu", weights_only=False)
+    try:
+        ck = torch.load(args.pt, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        print("weights_only_refused", type(exc).__name__, exc)
+        return 2
     bad = [n for n, t in ck["model"].items() if t.is_floating_point() and not torch.isfinite(t).all()]
     print("weights", "finite" if not bad else "nonfinite")
     if bad:
@@ -58,12 +63,18 @@ def main() -> int:
             continue
         ident, raw = line.split("\t", 1)
         ids = [int(x) for x in raw.split(",") if x]
+        if len(ids) > args.ctx:
+            print(f"prompt_exceeds_ctx {ident} {len(ids)} > {args.ctx}")
+            return 2
         x = torch.tensor([ids], dtype=torch.long)
         seen = set(i for i in ids if 0 <= i < 32000)
         out, stop = [], None
         with torch.no_grad():
             for _ in range(args.max_new):
-                logits = model(x[:, -model.max_len:])[0, -1].float()
+                if x.shape[1] >= args.ctx:
+                    stop = "context"
+                    break
+                logits = model(x)[0, -1].float()
                 if args.rep != 1.0:
                     for i in seen:
                         logits[i] = logits[i] / args.rep if logits[i] > 0 else logits[i] * args.rep
@@ -74,7 +85,7 @@ def main() -> int:
                 out.append(nxt)
                 seen.add(nxt)
                 x = torch.cat([x, torch.tensor([[nxt]])], 1)
-        row = {"id": ident, "tokens": out, "stop": stop, "n": len(out), "text": tok.decode(out), "rep": args.rep, "rng": False}
+        row = {"id": ident, "tokens": out, "stop": stop, "n": len(out), "text": tok.decode(out), "rep": args.rep, "rng": False, "ctx": args.ctx}
         lines.append(json.dumps(row, ensure_ascii=False))
     args.out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return 0

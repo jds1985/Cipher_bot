@@ -7,8 +7,8 @@ Training selection uses that file only to drop exact and near-clone prompts.
 1. Self-test, no checkpoint and no raw corpus:
    python3 selftest.py
 
-2. Baseline of the 28 held-out prompts on the verified SFTv3 checkpoint, before training:
-   python3 eval/baseline_v2.py --pt /workspace/cipher2_improve/kaggle_v3/out_v3/final/sft_model.pt --tokenizer /path/to/tokenizer.json --out baseline-v2.jsonl
+2. Baseline of the 28 held-out prompts, before training. Default context is 512, matching the browser and the .ctern. The already saved parent run used the model max length of 1024 because the previous runner sliced to max_len. Keep that file separate. Do not retune prompts from it. 25 of those 28 stopped on their own and 3 hit 128; that is not a reason to change the cap.
+   python3 eval/baseline_v2.py --pt /workspace/cipher2_improve/kaggle_v3/out_v3/final/sft_model.pt --tokenizer /path/to/tokenizer.json --out baseline-v2-ctx512.jsonl --ctx 512
 
 3. Build the mix from the parent raw jsonl directory. CNN and synthetic files are skipped.
    python3 build_balanced.py --sources /path/to/by_source --out out
@@ -24,5 +24,5 @@ Training selection uses that file only to drop exact and near-clone prompts.
 Free T4 shape: batch 4, grad accum 8, one epoch, at most 800 steps, 3 hour guard.
 Measured earlier at this batch: about 3212 padded tokens/s and 11.5 GB.
 
-Greedy rep 1 on the 20 scored prompts: 15 token-identical, and the other 5 are wrong on both sides.
-Rep 1.15: 13 of 20 token-identical, 7 divergences not scored. Do not treat export as perfectly faithful.
+Greedy rep 1 on the 20 scored prompts: 15 token-identical. The other 5 are wrong on both sides. That supports a checkpoint problem on those items.
+Rep 1.15: 13 of 20 token-identical. Seven divergences are not scored. Do not call the export perfectly faithful, and do not claim correctness was unchanged.

@@ -22,7 +22,12 @@ def norm(text: str) -> str:
 
 def load_rows(path: Path) -> list[dict]:
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    text = path.read_bytes().decode("utf-8")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
         if not line.strip():
             continue
         row = json.loads(line)
