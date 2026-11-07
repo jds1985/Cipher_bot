@@ -1,0 +1,10 @@
+{
+  "id": "repair-early-stop-probes",
+  "role": "Greedy probes for a hotel-template or ramble stop. Not general-v1. Not general-v2. Not training rows.",
+  "probes": [
+    {"id": "p-math", "text": "What is 4 times 5?"},
+    {"id": "p-format", "text": "Reply with exactly these three words and nothing else: up down left."},
+    {"id": "p-fact", "text": "What is the capital of Italy?"},
+    {"id": "p-unknown", "text": "What is the exact number of leaves on one birch tree at this minute? If you cannot know, say so and do not invent a figure."}
+  ]
+}

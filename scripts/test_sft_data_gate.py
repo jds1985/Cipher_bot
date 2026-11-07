@@ -44,6 +44,15 @@ def main() -> int:
         frozen.write_text(json.dumps({"prompts": [{"text": "What is 2 plus 2?"}]}), encoding="utf-8")
         fr = run(good_tr, good_va, frozen)
         assert fr.returncode == 2 and "frozen eval" in fr.stdout
+        para = root / "para.jsonl"
+        write_jsonl(para, [{"user": "What is 2 plus 2 please", "assistant": "4."}])
+        other = root / "other.jsonl"
+        write_jsonl(other, [{"user": "Name a primary color.", "assistant": "Red."}])
+        clone = subprocess.run(
+            [sys.executable, str(GATE), "--train", str(para), "--val", str(other),
+             "--frozen", str(frozen), "--lexical-jaccard", "0.5"],
+            text=True, capture_output=True)
+        assert clone.returncode == 2 and "lexical clones" in clone.stdout, clone.stdout
     print("sft data gate ok")
     return 0
 

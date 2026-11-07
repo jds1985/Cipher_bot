@@ -1,0 +1,23 @@
+{
+  "ctx": 1024,
+  "vocab_size": 32000,
+  "n_train": 36,
+  "n_val": 12,
+  "dtype": "uint16",
+  "mask_dtype": "uint8",
+  "eot_id": 0,
+  "pad_id": 1,
+  "role_ids": {
+    "system": 4,
+    "user": 2,
+    "assistant": 3
+  },
+  "template": "system id + system text newline, user id + user text newline, assistant id + assistant text + EOT",
+  "loss": "assistant text tokens and final EOT only",
+  "origin": "synthetic-original",
+  "license": "Original synthetic examples written for this repair. No external corpus.",
+  "base_sha256": "7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9",
+  "base_bytes": 1474893963,
+  "heldout": "frozen/general-v2.json sha 3c15169dfd848b57209b71813f75f972c74c35a0ce745c803376db33cb1323f9",
+  "not_a_claim": "Packing does not train and does not predict held-out gain."
+}
