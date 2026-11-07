@@ -6,15 +6,15 @@ It does not submit this kernel. The kernel entry is kaggle/launch.py.
 It locates the package at /kaggle/input/cipher-general-sft-v6-code and does not
 use the process working directory. A zip inside that mount is extracted locally.
 
-Kernel metadata sources, and no others:
-- dataset jds1985/cipher-general-sft-v6-pack
-- dataset jds1985/cipher-general-sft-v6-code
-- model jds1985/cipher2m-sft-v3-model
+Kernel metadata dataset_sources, and model_sources is empty:
+- jds1985/cipher-general-sft-v6-pack
+- jds1985/cipher-general-sft-v6-code
+- jds1985/cipher2m-sft-v3-model
 
 The pack mount is the staged out directory: bins, meta, quality, reconcile,
-pack_report, val_sources, cipher2_tokenizer/tokenizer.json, and the license
-files. It must not contain held-out prompt text. The code mount is the package
-artifact with fixtures/ left out. Held-out files stay on the parent box.
+pack_report, val_sources, and cipher2_tokenizer/tokenizer.json. The entry
+reads that tokenizer path only. The code mount is the package artifact with
+fixtures/ left out. Held-out files stay on the parent box.
 
 Kernel metadata cannot carry PARENT_REVIEWED, and the entry ignores that
 variable. After reviewing the mounted quality, reconcile, and pack report, run
@@ -22,9 +22,11 @@ kaggle/write_review_receipt.py --pack <pack dir>. Put review_receipt.json in
 the pack. The entry checks reviewed true and the three file hashes. A missing
 or mismatched receipt does not train.
 
-Before training, the entry prints dependency versions, CUDA device count, and
-free disk. The disk floor is about 13 GiB for latest.pt, best.pt, and the
-atomic temp file. One CUDA device is required. Nothing is downloaded.
+Before training, the entry prints dependency versions and free disk. It sets
+CUDA_VISIBLE_DEVICES=0 before Torch is imported, then accepts one or more
+logical CUDA devices and logs the selected physical and logical ids. The free
+T4x2 shape stays a single-GPU run. The disk floor is about 13 GiB for
+latest.pt, best.pt, and the atomic temp file. Nothing is downloaded.
 
 best.pt is chosen only from one frozen round-robin subset, including the step-0
 base. A full validation number is printed and is not compared with the subset.

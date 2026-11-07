@@ -7,7 +7,9 @@ Loss: cross-entropy ONLY on masked tokens (assistant replies + the <|endoftext|>
 Start: model weights from the pretraining checkpoint (latest.pt['model']); optimizer is fresh. SFT checkpoints are written atomically to OUT/ckpt/{step_N.pt,latest.pt}
 and resume restores model/opt/sched/scaler/step. Data order is a pure function of (seed, step), so a resumed run sees exactly the rows it would have seen.
 A wall-clock guard checkpoints and exits cleanly. ON_SAVE is the same hook train.py has (used by colab_sft.py to copy to Drive / Kaggle)."""
-import argparse, csv, glob, json, math, os, shutil, sys, time
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+import argparse, csv, glob, json, math, shutil, sys, time
 from pathlib import Path
 import numpy as np, torch, torch.nn.functional as F
 from model import CipherTern, count_params
@@ -109,7 +111,8 @@ def main():
             model.load_state_dict(ck["model"]); opt.load_state_dict(ck["opt"]); sched.load_state_dict(ck["sched"]); scaler.load_state_dict(ck["scaler"]); step = ck["step"]
             print(f"RESUMED SFT from {c} at step {step} (saved val {ck.get('val_loss')})", flush=True); break
     tok = None
-    try: tok, _ = load_tokenizer()
+    tok_path = os.path.join(a.data, "cipher2_tokenizer", "tokenizer.json")
+    try: tok, _ = load_tokenizer(tok_path if os.path.isfile(tok_path) else None)
     except Exception as e: print("no tokenizer for samples:", e)
     def order(epoch):  # deterministic permutation per epoch
         return np.random.default_rng(cfg["seed"] * 1000 + epoch).permutation(N)

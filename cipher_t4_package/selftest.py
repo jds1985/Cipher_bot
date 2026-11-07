@@ -472,8 +472,9 @@ def selection_and_kaggle() -> None:
     assert meta["dataset_sources"] == [
         "jds1985/cipher-general-sft-v6-pack",
         "jds1985/cipher-general-sft-v6-code",
+        "jds1985/cipher2m-sft-v3-model",
     ]
-    assert meta["model_sources"] == ["jds1985/cipher2m-sft-v3-model"]
+    assert meta["model_sources"] == []
     launch_text = (HERE / "kaggle" / "launch.py").read_text()
     assert "os.environ.pop(\"PARENT_REVIEWED\"" in launch_text
     assert "fixtures" not in launch_text
@@ -481,7 +482,15 @@ def selection_and_kaggle() -> None:
     import zipfile
     import tempfile
     sys.path.insert(0, str(HERE / "kaggle"))
-    from launch import CODE_MOUNT, MODEL_MOUNT, PACK_MOUNT, assess, find_named, main as launch_main
+    from launch import (
+        CODE_MOUNT, MODEL_MOUNT, PACK_MOUNT, assess, cuda_devices_ok, find_named, main as launch_main,
+        pack_tokenizer, pin_visible_gpu,
+    )
+    gpu_env = {}
+    assert pin_visible_gpu(gpu_env) == "0" and gpu_env["CUDA_VISIBLE_DEVICES"] == "0"
+    assert cuda_devices_ok(2) and cuda_devices_ok(1) and not cuda_devices_ok(0)
+    trainer = (HERE / "vendor" / "sft_train.py").read_text()
+    assert trainer.find('os.environ["CUDA_VISIBLE_DEVICES"] = "0"') < trainer.find(", torch")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "input"
         os.environ["KAGGLE_INPUT_ROOT"] = str(root)
@@ -492,6 +501,11 @@ def selection_and_kaggle() -> None:
         pack = root / PACK_MOUNT
         pack.mkdir()
         (pack / "train_x.bin").write_bytes(b"bin")
+        (pack / "cipher2_tokenizer").mkdir()
+        (pack / "cipher2_tokenizer" / "tokenizer.json").write_text("{}", encoding="utf-8")
+        (pack / "other" ).mkdir()
+        (pack / "other" / "tokenizer.json").write_text("{}", encoding="utf-8")
+        assert pack_tokenizer(pack) == pack / "cipher2_tokenizer" / "tokenizer.json"
         (pack / "quality.json").write_text('{"gate": "ok"}\n', encoding="utf-8")
         (pack / "reconcile.json").write_text('{"identity_ok": true}\n', encoding="utf-8")
         (pack / "pack_report.json").write_text('{"planned_steps": 892}\n', encoding="utf-8")

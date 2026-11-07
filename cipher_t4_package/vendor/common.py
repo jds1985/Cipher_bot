@@ -10,7 +10,7 @@ def find_one(pattern, roots=("/kaggle/input", "/kaggle/working", ".")):
 
 def load_tokenizer(path=None):
     from tokenizers import Tokenizer
-    path = path or os.environ.get("CIPHER2_TOKENIZER") or find_one("cipher2_tokenizer/tokenizer.json")
+    path = path or os.environ.get("CIPHER2_TOKENIZER")
     if not path:
-        raise FileNotFoundError("cipher2_tokenizer/tokenizer.json not found (attach kernel jds1985/cipher2-tokenizer)")
+        raise FileNotFoundError("pack out/cipher2_tokenizer/tokenizer.json is not set")
     return Tokenizer.from_file(path), path

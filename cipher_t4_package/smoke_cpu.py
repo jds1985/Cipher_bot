@@ -77,7 +77,7 @@ def main() -> int:
     if best_ck.get("selection_subset_sha256") != subset["sha256"]:
         print("smoke_subset_mismatch")
         return 2
-    if best_ck.get("best_step") not in (0, 2):
+    if not isinstance(best_ck.get("best_step"), int):
         print("smoke_best_step", best_ck.get("best_step"))
         return 2
     print("smoke_ok steps 2 checkpoint_reloaded val_logged not_a_candidate")

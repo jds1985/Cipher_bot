@@ -16,10 +16,12 @@ downloaded.
 
 from __future__ import annotations
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import hashlib
 import importlib
 import json
-import os
 import sys
 import zipfile
 from pathlib import Path
@@ -77,8 +79,27 @@ def find_named(root: Path, filename: str) -> Path | None:
     return None
 
 
+def pin_visible_gpu(env: dict | None = None) -> str:
+    """One physical GPU for the trainer. Call this before the first torch import."""
+    target = os.environ if env is None else env
+    target["CUDA_VISIBLE_DEVICES"] = "0"
+    return "0"
+
+
+def cuda_devices_ok(logical_count: int) -> bool:
+    """T4x2 reports two devices before the pin. One visible GPU is enough."""
+    return logical_count >= 1
+
+
 def dependency_report() -> dict:
-    report = {"missing": [], "versions": {}, "cuda": False, "cuda_devices": 0}
+    physical = pin_visible_gpu()
+    report = {
+        "missing": [],
+        "versions": {},
+        "cuda": False,
+        "cuda_devices": 0,
+        "cuda_physical": physical,
+    }
     for name in ("torch", "numpy", "tokenizers"):
         try:
             module = importlib.import_module(name)
@@ -91,6 +112,11 @@ def dependency_report() -> dict:
         report["cuda"] = bool(torch.cuda.is_available())
         report["cuda_devices"] = int(torch.cuda.device_count()) if report["cuda"] else 0
     return report
+
+
+def pack_tokenizer(pack: Path) -> Path | None:
+    path = pack / "cipher2_tokenizer" / "tokenizer.json"
+    return path if path.is_file() else None
 
 
 def receipt_ok(pack: Path) -> tuple[bool, str]:
@@ -162,8 +188,9 @@ def main() -> int:
     if model.stat().st_size != MODEL_BYTES or sha256(model) != MODEL_SHA:
         print("base_refused")
         return 2
-    if not deps["cuda"] or deps["cuda_devices"] != 1:
-        print("cuda_preflight_failed", deps["cuda_devices"])
+    print(f"cuda_selected physical {deps.get('cuda_physical')} logical {deps.get('cuda_devices')}")
+    if not cuda_devices_ok(int(deps.get("cuda_devices") or 0)):
+        print("cuda_preflight_failed", deps.get("cuda_devices"))
         return 2
     package = Path(report["train_t4"]).resolve().parent
     sys.path.insert(0, str(package / "lib"))
@@ -171,11 +198,11 @@ def main() -> int:
     if not require_free(working_root() / "run", REAL_DISK_NEED):
         return 2
     sys.path.insert(0, str(package))
-    tokenizers = list(pack.rglob("tokenizer.json"))
-    if not tokenizers:
+    tokenizer = pack_tokenizer(pack)
+    if tokenizer is None:
         print("tokenizer_missing")
         return 2
-    os.environ["CIPHER2_TOKENIZER"] = str(tokenizers[0])
+    os.environ["CIPHER2_TOKENIZER"] = str(tokenizer)
     sys.argv = [
         "train_t4.py", "--data", str(pack), "--base", str(model),
         "--out", str(working_root() / "run"), "--launch",

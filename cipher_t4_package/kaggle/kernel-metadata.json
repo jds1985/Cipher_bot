@@ -10,12 +10,11 @@
   "enable_internet": false,
   "dataset_sources": [
     "jds1985/cipher-general-sft-v6-pack",
-    "jds1985/cipher-general-sft-v6-code"
+    "jds1985/cipher-general-sft-v6-code",
+    "jds1985/cipher2m-sft-v3-model"
   ],
   "competition_sources": [],
   "kernel_sources": [],
-  "model_sources": [
-    "jds1985/cipher2m-sft-v3-model"
-  ],
+  "model_sources": [],
   "machine_shape": "NvidiaTeslaT4"
 }
