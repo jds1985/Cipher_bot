@@ -6,6 +6,7 @@ or the answer classes will let rows through one and fail the other.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections import Counter, defaultdict
@@ -275,7 +276,11 @@ def pin_unanswerable_to_train(train: list[dict], val: list[dict]) -> tuple[list[
     if not pinned:
         return train, val, []
     val = [row for row in val if not is_unanswerable_template(row["assistant"])]
-    notes = [_drop(row, "pinned_unanswerable_to_train") for row in pinned]
+    notes = []
+    for row in pinned:
+        note = _drop(row, "pinned_unanswerable_to_train")
+        note["kind"] = "move"
+        notes.append(note)
     return train + pinned, val, notes
 
 
@@ -340,3 +345,109 @@ def assistant_audit(train: list[dict], val: list[dict], max_substantial_repeat: 
         "max_assistant_repeat": max(combined.values()) if combined else 0,
     }
     return report, problems
+
+
+# One source may not exceed this share of assistant+EOT tokens.
+# 40% keeps a source from becoming the majority of the loss after the v4 mix
+# put OASST at 65% of supervised tokens with only about a quarter of the rows.
+# It is not a value selected by running the fixture.
+LOSS_SHARE_NUMERATOR = 40
+LOSS_SHARE_DENOMINATOR = 100
+MAX_LOSS_SHARE = LOSS_SHARE_NUMERATOR / LOSS_SHARE_DENOMINATOR
+LOSS_BALANCE_POLICY = (
+    "The training loss averages assistant tokens and the end-of-turn token, so row share is not loss share. "
+    "After the quality filters, any source above 40% of those tokens is reduced by whole rows in sha256(seed, file, line) order. "
+    "A row is kept when its own tokens still fit in that source's budget. Sources already at or under 40% are not reduced. "
+    "Answers are not shortened, and rows are not dropped for being long or short. "
+    "The previous 30% row cap and 25% math row cap are not applied."
+)
+UNCERTAINTY_SUPERVISION = (
+    "Unanswerable SQuAD rows keep the original three assistant strings, at most 4 copies each and at most 2% of that source. "
+    "The strings are not rewritten. This is a small residual of that source, not a general-uncertainty curriculum, "
+    "and it is not expanded to make the gate look more balanced."
+)
+
+
+def loss_rank(seed: int, row: dict) -> int:
+    payload = f"{seed}|loss|{row.get('source_file')}|{row.get('source_line')}".encode()
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big")
+
+
+def loss_snapshot(rows: list[dict]) -> dict:
+    by = defaultdict(lambda: {"rows": 0, "loss_tokens": 0})
+    for row in rows:
+        slot = by[row.get("source_file") or ""]
+        slot["rows"] += 1
+        slot["loss_tokens"] += int(row.get("loss_tokens") or 0)
+    total = sum(slot["loss_tokens"] for slot in by.values())
+    out = {}
+    for source, slot in sorted(by.items()):
+        slot["share"] = round(slot["loss_tokens"] / total, 6) if total else 0.0
+        out[source] = dict(slot)
+    return {"total_loss_tokens": total, "total_rows": len(rows), "by_source": out}
+
+
+def cap_loss_tokens(rows: list[dict], seed: int, max_share: float = MAX_LOSS_SHARE) -> tuple[list[dict], list[dict], dict]:
+    """Drop whole rows until every source is at most max_share of supervised tokens."""
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        if "loss_tokens" not in row:
+            raise SystemExit("loss_tokens missing before the token cap")
+        groups[row.get("source_file") or ""].append(row)
+    for group in groups.values():
+        group.sort(key=lambda row: loss_rank(seed, row))
+    dropped: list[dict] = []
+    minimum_row = False
+    for _ in range(32):
+        total = sum(row["loss_tokens"] for group in groups.values() for row in group)
+        changed = False
+        for source in sorted(groups):
+            group = groups[source]
+            src_tokens = sum(row["loss_tokens"] for row in group)
+            if total <= 0 or src_tokens * LOSS_SHARE_DENOMINATOR <= total * LOSS_SHARE_NUMERATOR:
+                continue
+            rest = total - src_tokens
+            max_keep = (rest * LOSS_SHARE_NUMERATOR) // (LOSS_SHARE_DENOMINATOR - LOSS_SHARE_NUMERATOR)
+            kept: list[dict] = []
+            used = 0
+            stage_dropped: list[dict] = []
+            for row in group:
+                if used + row["loss_tokens"] <= max_keep:
+                    kept.append(row)
+                    used += row["loss_tokens"]
+                else:
+                    stage_dropped.append(row)
+            if not kept and group:
+                kept = [group[0]]
+                stage_dropped = group[1:]
+                minimum_row = True
+            if len(kept) != len(group):
+                groups[source] = kept
+                for row in stage_dropped:
+                    item = _drop(row, "loss_token_share")
+                    item["loss_tokens"] = row["loss_tokens"]
+                    item["answer_tokens"] = row.get("answer_tokens")
+                    dropped.append(item)
+                changed = True
+                total = sum(row["loss_tokens"] for group in groups.values() for row in group)
+        if not changed:
+            break
+    else:
+        raise SystemExit("loss_token_cap_did_not_converge")
+    kept_rows = [row for source in sorted(groups) for row in groups[source]]
+    total = sum(row["loss_tokens"] for row in kept_rows)
+    unresolved = []
+    for source, group in groups.items():
+        src_tokens = sum(row["loss_tokens"] for row in group)
+        if total and src_tokens * LOSS_SHARE_DENOMINATOR > total * LOSS_SHARE_NUMERATOR:
+            unresolved.append(source)
+    report = {
+        "max_share": max_share,
+        "policy": LOSS_BALANCE_POLICY,
+        "dropped_rows": len(dropped),
+        "dropped_loss_tokens": sum(item["loss_tokens"] for item in dropped),
+        "minimum_one_row_forced": minimum_row,
+        "unresolved_sources": unresolved,
+        "after": loss_snapshot(kept_rows),
+    }
+    return kept_rows, dropped, report

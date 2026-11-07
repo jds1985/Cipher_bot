@@ -1,0 +1,3 @@
+LABEL: proportional stand-in. Not the parent corpus and not the v4 row counts.
+Synthetic files use the catalog names so the builder accepts them. OASST answers are long and
+SQuAD answers are short, which is enough to test a loss-token cap without the real jsonl.

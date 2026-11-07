@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "lib"))
+from plan import planned_steps  # noqa: E402
 BASE_SHA = "7c1b337f5e4a0e0b4636201682974b24c69682932dfedefce48bf180500d77e9"
 BASE_BYTES = 1474893963
 
@@ -38,9 +40,26 @@ def main() -> int:
     if quality.get("gate") != "ok":
         print("quality_gate_closed")
         return 2
-    n = quality["train"]["rows"]
-    steps = max(1, min(800, n // 32 or 1))
-    print(f"planned_steps {steps} batch 4 grad_accum 8 lr 2e-5 time_limit_h 3")
+    reconcile = quality.get("reconcile") or {}
+    if not reconcile.get("identity_ok") or not reconcile.get("identity_packed"):
+        print("reconcile_incomplete")
+        return 2
+    pack_path = args.data / "pack_report.json"
+    if not pack_path.is_file():
+        print("pack_required")
+        return 2
+    pack = json.loads(pack_path.read_text(encoding="utf-8"))
+    if pack.get("tokenizer_mode") != "huggingface":
+        print("tokenizer_mode_refused")
+        return 2
+    if pack.get("truncated_answer_rows", 1) or pack["train"].get("truncated_answer_rows", 1):
+        print("answer_truncation_refused")
+        return 2
+    steps = planned_steps(pack["train"]["packed"])
+    if quality.get("planned_steps") != steps or pack.get("planned_steps") != steps:
+        print("planned_steps_mismatch")
+        return 2
+    print(f"planned_steps {steps} packed_train {pack['train']['packed']} batch 4 grad_accum 8 lr 2e-5 time_limit_h 3")
     print("about 3212 padded tokens/s and 11.5 GB were measured on the v3 run at this batch")
     if not args.launch:
         print("not_launched review quality.json then pass --launch")

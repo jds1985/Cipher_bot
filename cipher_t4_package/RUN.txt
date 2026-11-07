@@ -10,22 +10,26 @@ Training selection uses that file only to drop exact and near-clone prompts.
 2. Baseline of the 28 held-out prompts, before training. Default context is 512, matching the browser and the .ctern. The already saved parent run used the model max length of 1024 because the previous runner sliced to max_len. Keep that file separate. The context-512 run is also ungraded. Do not retune prompts or filters from either file. 25 of the 1024 rows stopped on their own and 3 hit 128; that is not a reason to change the cap.
    python3 eval/baseline_v2.py --pt /workspace/cipher2_improve/kaggle_v3/out_v3/final/sft_model.pt --tokenizer /path/to/tokenizer.json --out baseline-v2-ctx512.jsonl --ctx 512
 
-3. Build the mix from the parent raw jsonl directory. CNN and synthetic files are skipped.
-   python3 build_balanced.py --sources /path/to/by_source --out out
-   Read out/quality.json and out/exclusions.jsonl. The fixture self-test does not certify this directory.
-   SQuAD unanswerable templates are capped at 4 copies and at 2% of that source before the split, then pinned to train. No new phrasings are added.
+3. Build the mix from the parent raw jsonl directory. CNN and synthetic files are skipped. The tokenizer is required because the loss cap counts assistant tokens, not rows.
+   python3 build_balanced.py --sources /path/to/by_source --out out --tokenizer /path/to/tokenizer.json
+   Read out/quality.json, out/reconcile.json, and out/exclusions.jsonl. The fixture self-test does not certify this directory.
+   reconcile.json must show raw records = excluded + train + val for every catalogued file, with the file sha256 and a reason count at each stage. A row pinned from val into train is a move, not an exclusion.
+   Loss tokens are assistant tokens plus the end-of-turn token. Any source above 40% of those tokens, after the quality filters, is reduced by whole rows in hash order. Sources already under 40% are kept. The old 30% row cap and 25% math row cap are not applied. quality.json reports the token totals before the cap, after the cap, and on the train split.
+   SQuAD unanswerable templates stay the original three strings, at most 4 copies and at most 2% of that source, then pinned to train. They are not rewritten. That residual is not a general-uncertainty curriculum.
    A short fact (at most 3 tokens and 32 characters, not a refusal) may recur and may appear in both splits, at most 8 times. Every such string is listed under assistant_audit.short_answer_exceptions.
    Any longer repeated answer keeps one copy. Val rows that still share one are dropped and logged.
    Lexical exclusions use the same predicate as the gate. Each record has the source file, source line, frozen id, reason, and similarity. It does not contain the held-out prompt.
+   A prompt or answer that does not fit model context 1024 is dropped here and logged with file, line, and token lengths. The answer is not shortened.
    Licenses stay per source. Revisions are UNKNOWN.
    CC BY-SA rows do not clear trained weights for distribution.
 
-4. Pack, tokenizer is outside this zip. Do this only after the real quality.json passes.
+4. Pack with the same tokenizer. Do this only after the real quality.json passes.
    python3 pack_rows.py --data out --tokenizer /path/to/tokenizer.json
-   Read out/pack_report.json. A prompt that does not fit the model context of 1024 is left out of the bin. An answer that does not fit is truncated from the end, the end-of-turn token is kept when a slot remains, and the dropped token count is recorded. Generation context 512 is a separate condition from this pack.
+   Read out/pack_report.json. Rejected rows include source file and source line. truncated_answer_rows must be 0. context_drops repeats the build's overflow records. planned_steps is packed train rows // 32, at most 800. Generation context 512 is a separate condition from this pack.
 
-5. After reviewing quality.json:
+5. After the real reconcile, the token shares, and zero answer truncation all look right:
    python3 train_t4.py --data out --base /workspace/cipher2_improve/kaggle_v3/out_v3/final/sft_model.pt --out run --launch
+   The launcher refuses a word-token fixture pack, a missing reconcile, or any truncated answer.
 
 Free T4 shape: batch 4, grad accum 8, one epoch, at most 800 steps, 3 hour guard.
 Measured earlier at this batch: about 3212 padded tokens/s and 11.5 GB.

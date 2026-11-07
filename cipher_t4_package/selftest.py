@@ -91,14 +91,18 @@ def main() -> int:
     files = Counter(r["source_file"] for r in train + val)
     assert not any("cnn" in k or "synthetic" in k or "unknown" in k for k in files)
     assert set(r["source_file"] for r in train) == set(r["source_file"] for r in val)
-    dolly = files[[k for k in files if "dolly" in k][0]]
-    assert dolly / max(1, len(train) + len(val)) <= 0.30
     licenses = {r["license"] for r in train + val}
     assert "CC-BY-SA-3.0" in licenses and "CC-BY-SA-4.0" in licenses and "MIT" in licenses
     assert all(r["revision"] == "UNKNOWN" for r in train)
     assert all(r["sharealike"] for r in train if r["license"].startswith("CC-BY-SA"))
     quality = json.loads((out / "quality.json").read_text())
     assert quality["gate"] == "ok"
+    assert quality["reconcile"]["identity_ok"] is True
+    assert quality["reconcile"]["pinned_counted_as_exclusions"] is False
+    assert quality["row_share_cap"] == "not applied"
+    assert "not a general-uncertainty curriculum" in quality["uncertainty_supervision"]["statement"]
+    for slot in quality["loss_tokens_train"]["by_source"].values():
+        assert slot["share"] <= 0.40
     held = (HERE / "fixtures" / "general-v2.sha256").read_text().split()[0]
     assert held == "3c15169dfd848b57209b71813f75f972c74c35a0ce745c803376db33cb1323f9"
     assert "baseline_v2" not in (HERE / "build_balanced.py").read_text()
@@ -147,6 +151,7 @@ def main() -> int:
         assert all(any(c is row for row in train) for c in copies)
     exclusions = read_jsonl(out / "exclusions.jsonl")
     reasons = Counter(r["reason"] for r in exclusions)
+    assert "pinned_unanswerable_to_train" not in reasons
     assert reasons["unanswerable_template_cap"] > 0
     assert reasons["substantial_answer_repeat"] >= 1
     lexical = [r for r in exclusions if r["kind"] == "lexical_clone"]
@@ -168,7 +173,9 @@ def main() -> int:
     assert len(raw_sep.splitlines()) > raw_sep.count("\n") + 1
     scale_and_gate()
     pack_cases()
-    print("package selftest ok", "train", len(train), "val", len(val), "dolly_share", round(dolly / (len(train)+len(val)), 3))
+    loss_cap_keeps_hash_order()
+    proportional_fixture()
+    print("package selftest ok", "train", len(train), "val", len(val))
     return 0
 
 
@@ -285,6 +292,123 @@ def frozen_text(ident: str) -> str:
     return next(p["text"] for p in doc["prompts"] if p["id"] == ident)
 
 
+def loss_cap_keeps_hash_order() -> None:
+    sys.path.insert(0, str(HERE / "lib"))
+    from mix_rules import cap_loss_tokens, loss_rank
+    from plan import planned_steps
+    rows = []
+    for line, tokens in enumerate([50, 10, 10, 10, 50, 10, 10, 10], start=1):
+        rows.append({"source_file": "big.jsonl", "source_line": line, "loss_tokens": tokens, "assistant": "x"})
+    for name in ("a.jsonl", "b.jsonl", "c.jsonl"):
+        for line in range(1, 4):
+            rows.append({"source_file": name, "source_line": line, "loss_tokens": 10, "assistant": "y"})
+    kept, dropped, report = cap_loss_tokens(rows, seed=20261107)
+    assert report["unresolved_sources"] == []
+    for slot in report["after"]["by_source"].values():
+        assert slot["share"] <= 0.40
+    big_kept = [row for row in kept if row["source_file"] == "big.jsonl"]
+    ordered = sorted((row for row in rows if row["source_file"] == "big.jsonl"), key=lambda row: loss_rank(20261107, row))
+    budget = 90 * 40 // 60
+    simulated, used = [], 0
+    for row in ordered:
+        if used + row["loss_tokens"] <= budget:
+            simulated.append(row["source_line"])
+            used += row["loss_tokens"]
+    assert sorted(row["source_line"] for row in big_kept) == sorted(simulated)
+    found = False
+    for seed in range(30):
+        kept_seed, dropped_seed, report_seed = cap_loss_tokens(rows, seed=seed)
+        assert report_seed["unresolved_sources"] == []
+        if any(row["loss_tokens"] == 50 for row in kept_seed) and any(row["loss_tokens"] == 10 for row in dropped_seed):
+            found = True
+    assert found
+    assert planned_steps(17057) == 533
+    assert planned_steps(31) == 1
+
+
+def proportional_fixture() -> None:
+    root = HERE / "fixtures" / "proportional_labeled"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "LABEL.txt").write_text(
+        "LABEL: proportional stand-in. Not the parent corpus and not the v4 row counts.\n"
+        "Synthetic files use the catalog names so the builder accepts them. OASST answers are long and\n"
+        "SQuAD answers are short, which is enough to test a loss-token cap without the real jsonl.\n",
+        encoding="utf-8",
+    )
+    def messages(user: str, assistant: str) -> str:
+        return json.dumps({"messages": [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": assistant},
+        ]}, ensure_ascii=False) + "\n"
+    oasst = [messages(
+        f"OASST labeled fixture question {i} about rivers and towns.",
+        (("detail " * (80 if i < 2 else 40)).strip() + f" case {i}"),
+    ) for i in range(24)]
+    oasst.append(messages("OASST labeled fixture overflow answer about maps.", ("detail " * 1100).strip()))
+    oasst.append(messages(("question " * 1100).strip(), "Short."))
+    squad = [messages(f"SQuAD labeled fixture passage {i} about copper roofs.", f"Span {i}.") for i in range(36)]
+    for template in (
+        "The text doesn't say.",
+        "The passage doesn't contain the answer to that.",
+        "I can't tell from the text.",
+    ):
+        for i in range(8):
+            squad.append(messages(f"SQuAD labeled fixture unanswerable {template} {i} unique.", template))
+    files = {
+        "oasst2_proportional.jsonl": oasst,
+        "squad_v2_proportional.jsonl": squad,
+        "dolly_15k_proportional.jsonl": [messages(f"Dolly labeled fixture question {i} about gardens.", f"Garden note number {i} stays distinct.") for i in range(18)]
+            + [messages("What is the capital of France?", "Paris.")]
+            + [messages("Too short", "No.")]
+            + [messages("Dolly labeled fixture duplicate user about brass.", "First.")]
+            + [messages("Dolly labeled fixture duplicate user about brass.", "Second.")],
+        "aya_dataset_proportional.jsonl": [messages(f"Aya labeled fixture question {i} about cloth.", f"Cloth note number {i} stays distinct.") for i in range(14)],
+        "gsm8k_proportional.jsonl": [messages(f"GSM labeled fixture problem {i} with bags.", f"Step one two three four five six for problem {i}.") for i in range(16)],
+        "mbpp_proportional.jsonl": [messages(f"MBPP labeled fixture task {i} write code.", f"return value {i} from the function") for i in range(10)],
+    }
+    for name, lines in files.items():
+        (root / name).write_text("".join(lines), encoding="utf-8")
+    out = HERE / "out-proportional"
+    proc = subprocess.run(
+        [sys.executable, str(HERE / "build_balanced.py"), "--sources", str(root), "--out", str(out), "--word-tokens"],
+        text=True, capture_output=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    quality = json.loads((out / "quality.json").read_text())
+    assert quality["fixture_selftest_is_not_real_data"] is True
+    assert quality["reconcile"]["identity_ok"] is True
+    assert quality["reconcile"]["pinned_counted_as_exclusions"] is False
+    before = quality["loss_tokens_before_cap"]["by_source"]
+    after = quality["loss_tokens_after_cap"]["by_source"]
+    oasst_name = next(name for name in before if "oasst" in name)
+    assert before[oasst_name]["share"] > 0.40
+    for slot in after.values():
+        assert slot["share"] <= 0.40
+    squad_name = next(name for name in after if "squad" in name)
+    assert after[squad_name]["rows"] >= 30
+    assert "not a general-uncertainty curriculum" in quality["uncertainty_supervision"]["statement"]
+    assert quality["uncertainty_supervision"]["templates_rewritten"] is False
+    exclusions = read_jsonl(out / "exclusions.jsonl")
+    overflows = [item for item in exclusions if item["reason"] in {"answer_exceeds_context", "prompt_exceeds_context"}]
+    assert {item["reason"] for item in overflows} == {"answer_exceeds_context", "prompt_exceeds_context"}
+    assert all(item["source_file"] and item["source_line"] and item["answer_tokens"] and item["prompt_tokens"] for item in overflows)
+    packed = subprocess.run(
+        [sys.executable, str(HERE / "pack_rows.py"), "--data", str(out), "--word-tokens"],
+        text=True, capture_output=True)
+    assert packed.returncode == 0, packed.stdout + packed.stderr
+    report = json.loads((out / "pack_report.json").read_text())
+    assert report["truncated_answer_rows"] == 0
+    assert report["train"]["truncated_answer_rows"] == 0
+    assert report["context_drops"]
+    assert all(item.get("source_file") and item.get("source_line") is not None for item in report["context_drops"])
+    sys.path.insert(0, str(HERE / "lib"))
+    from plan import planned_steps
+    assert report["planned_steps"] == planned_steps(report["train"]["packed"])
+    launch = subprocess.run(
+        [sys.executable, str(HERE / "train_t4.py"), "--data", str(out), "--base", "missing.pt", "--out", str(out / "run")],
+        text=True, capture_output=True)
+    assert launch.returncode == 2 and "tokenizer_mode_refused" in launch.stdout + launch.stderr
+
+
 def pack_cases() -> None:
     from pack_rows import EOT, PAD, ASSISTANT, pack_row
     def encode(text: str) -> list[int]:
@@ -299,14 +423,22 @@ def pack_cases() -> None:
     too_long = pack_row(encode, {"system": "S", "user": "U" * 40, "assistant": "A" * 10}, ctx=16)
     assert too_long["status"] == "reject" and too_long["reason"] == "prompt_exceeds_context"
     assert too_long["ids"] == [] and too_long["mask"] == []
-    truncated = pack_row(encode, {"system": "S", "user": "Hi", "assistant": "A" * 100}, ctx=32)
-    assert truncated["status"] == "ok" and truncated["truncated_tokens"] > 0
-    assert len(truncated["ids"]) == 32
-    body_end = truncated["prompt_tokens"] + truncated["supervised_tokens"]
-    assert truncated["ids"][body_end - 1] == EOT
-    assert truncated["ids"][truncated["prompt_tokens"]] != ASSISTANT
-    assert truncated["prompt_tokens"] < 32
-    assert truncated["truncated_tokens"] + truncated["supervised_tokens"] - 1 == 100
+    overflow = pack_row(
+        encode,
+        {"system": "S", "user": "Hi", "assistant": "A" * 100, "source_file": "oasst2_en.jsonl", "source_line": 49},
+        ctx=32,
+    )
+    assert overflow["status"] == "reject" and overflow["reason"] == "answer_exceeds_context"
+    assert overflow["ids"] == [] and overflow["supervised_tokens"] == 0
+    assert overflow["source_file"] == "oasst2_en.jsonl" and overflow["source_line"] == 49
+    assert overflow["answer_tokens"] == 100
+    prompt_over = pack_row(
+        encode,
+        {"system": "S", "user": "U" * 40, "assistant": "A", "source_file": "dolly_15k.jsonl", "source_line": 7},
+        ctx=16,
+    )
+    assert prompt_over["status"] == "reject" and prompt_over["reason"] == "prompt_exceeds_context"
+    assert prompt_over["source_file"] == "dolly_15k.jsonl" and prompt_over["source_line"] == 7
 
 
 if __name__ == "__main__":
